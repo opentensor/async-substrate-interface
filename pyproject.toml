@@ -38,7 +38,6 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
-#  "Programming Language :: Python :: 3.13",  TODO not yet supported
   "Programming Language :: Python :: 3 :: Only",
 ]
 
@@ -46,7 +45,7 @@ classifiers = [
 Repository = "https://github.com/opentensor/async-substrate-interface/"
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools~=70.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
