@@ -939,6 +939,7 @@ class AsyncSubstrateInterface:
         retry_timeout: float = 60.0,
         event_loop: Optional[asyncio.BaseEventLoop] = None,
         _mock: bool = False,
+        pre_initialize: bool = True,
     ):
         """
         The asyncio-compatible version of the subtensor interface commands we use in bittensor. It is important to
@@ -957,6 +958,8 @@ class AsyncSubstrateInterface:
             retry_timeout: how to long wait since the last ping to retry the RPC request
             event_loop: the event loop to use
             _mock: whether to use mock version of the subtensor interface
+            pre_initialize: whether to initialise the network connections at initialisation of the
+                AsyncSubstrateInterface object
 
         """
         self.max_retries = max_retries
@@ -993,16 +996,18 @@ class AsyncSubstrateInterface:
         self.extrinsic_receipt_cls = (
             AsyncExtrinsicReceipt if self.sync_calls is False else ExtrinsicReceipt
         )
-        if not _mock:
-            execute_coroutine(
-                coroutine=self.initialize(),
-                event_loop=event_loop,
-            )
-        else:
-            self.reload_type_registry()
+        if pre_initialize:
+            if not _mock:
+                execute_coroutine(
+                    coroutine=self.initialize(),
+                    event_loop=self.event_loop,
+                )
+            else:
+                self.reload_type_registry()
 
     async def __aenter__(self):
         await self.initialize()
+        return self
 
     async def initialize(self):
         """
