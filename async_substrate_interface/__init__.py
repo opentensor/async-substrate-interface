@@ -3,5 +3,5 @@ from .substrate_interface import (
     ExtrinsicReceipt,
     AsyncSubstrateInterface,
     SubstrateInterface,
-    QueryMapResult
+    QueryMapResult,
 )
