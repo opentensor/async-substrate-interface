@@ -1087,10 +1087,7 @@ class AsyncSubstrateInterface:
         )
         if pre_initialize:
             if not _mock:
-                execute_coroutine(
-                    coroutine=self.initialize(),
-                    event_loop=self.event_loop,
-                )
+                self.event_loop.create_task(self.initialize())
             else:
                 self.reload_type_registry()
 
