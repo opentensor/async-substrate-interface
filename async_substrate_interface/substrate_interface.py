@@ -158,7 +158,7 @@ class ScaleObj:
         return self.value
 
     @classmethod
-    def dumper(cls, obj):
+    def dump(cls, obj):
         if isinstance(obj, ScaleObj):
             return obj.value
         return obj
@@ -978,7 +978,7 @@ class Websocket:
         # self._open_subscriptions += 1
         try:
             payload = {**payload, **{"id": original_id}}
-            dumped_payload = json.dumps(payload, default=ScaleObj.dumper)
+            dumped_payload = json.dumps(payload, default=ScaleObj.dump)
             await self.ws.send(dumped_payload)
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
