@@ -51,13 +51,13 @@ ExtrinsicReceiptLike = Union["AsyncExtrinsicReceipt", "ExtrinsicReceipt"]
 
 
 class ScaleObj:
-    def __new__(cls, value):
-        if isinstance(value, (dict, str, int)):
-            return value
-        return super().__new__(cls)
+    """Bittensor representation of Scale Object."""
 
     def __init__(self, value):
         self.value = list(value) if isinstance(value, tuple) else value
+
+    def __new__(cls, value):
+        return super().__new__(cls)
 
     def __str__(self):
         return f"BittensorScaleType(value={self.value})>"
@@ -66,14 +66,96 @@ class ScaleObj:
         return repr(self.value)
 
     def __eq__(self, other):
-        return self.value == other
+        return self.value == (other.value if isinstance(other, ScaleObj) else other)
+
+    def __lt__(self, other):
+        return self.value < (other.value if isinstance(other, ScaleObj) else other)
+
+    def __gt__(self, other):
+        return self.value > (other.value if isinstance(other, ScaleObj) else other)
+
+    def __le__(self, other):
+        return self.value <= (other.value if isinstance(other, ScaleObj) else other)
+
+    def __ge__(self, other):
+        return self.value >= (other.value if isinstance(other, ScaleObj) else other)
+
+    def __add__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value + other.value)
+        return ScaleObj(self.value + other)
+
+    def __radd__(self, other):
+        return ScaleObj(other + self.value)
+
+    def __sub__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value - other.value)
+        return ScaleObj(self.value - other)
+
+    def __rsub__(self, other):
+        return ScaleObj(other - self.value)
+
+    def __mul__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value * other.value)
+        return ScaleObj(self.value * other)
+
+    def __rmul__(self, other):
+        return ScaleObj(other * self.value)
+
+    def __truediv__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value / other.value)
+        return ScaleObj(self.value / other)
+
+    def __rtruediv__(self, other):
+        return ScaleObj(other / self.value)
+
+    def __floordiv__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value // other.value)
+        return ScaleObj(self.value // other)
+
+    def __rfloordiv__(self, other):
+        return ScaleObj(other // self.value)
+
+    def __mod__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value % other.value)
+        return ScaleObj(self.value % other)
+
+    def __rmod__(self, other):
+        return ScaleObj(other % self.value)
+
+    def __pow__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value**other.value)
+        return ScaleObj(self.value**other)
+
+    def __rpow__(self, other):
+        return ScaleObj(other**self.value)
+
+    def __getitem__(self, key):
+        if isinstance(self.value, (list, tuple, dict, str)):
+            return self.value[key]
+        raise TypeError(
+            f"Object of type '{type(self.value).__name__}' does not support indexing"
+        )
 
     def __iter__(self):
-        for item in self.value:
-            yield item
+        if hasattr(self.value, "__iter__"):
+            return iter(self.value)
+        raise TypeError(f"Object of type '{type(self.value).__name__}' is not iterable")
 
-    def __getitem__(self, item):
-        return self.value[item]
+    def __len__(self):
+        return len(self.value)
+
+    @classmethod
+    def dumper(cls, obj):
+        if isinstance(obj, ScaleObj):
+            return obj.value
+        return obj
 
 
 class AsyncExtrinsicReceipt:
@@ -889,7 +971,9 @@ class Websocket:
         self.id += 1
         # self._open_subscriptions += 1
         try:
-            await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
+            payload = {**payload, **{"id": original_id}}
+            dumped_payload = json.dumps(payload, default=ScaleObj.dumper)
+            await self.ws.send(dumped_payload)
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
             async with self._lock:
