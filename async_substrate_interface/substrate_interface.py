@@ -12,6 +12,7 @@ import random
 import ssl
 import time
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import blake2b
@@ -62,8 +63,14 @@ class ScaleObj:
     def __str__(self):
         return f"BittensorScaleType(value={self.value})>"
 
+    def __bool__(self):
+        if self.value:
+            return True
+        else:
+            return False
+
     def __repr__(self):
-        return repr(self.value)
+        return repr(f"BittensorScaleType(value={self.value})>")
 
     def __eq__(self, other):
         return self.value == (other.value if isinstance(other, ScaleObj) else other)
@@ -144,7 +151,7 @@ class ScaleObj:
         )
 
     def __iter__(self):
-        if hasattr(self.value, "__iter__"):
+        if isinstance(self.value, Iterable):
             return iter(self.value)
         raise TypeError(f"Object of type '{type(self.value).__name__}' is not iterable")
 
@@ -156,12 +163,6 @@ class ScaleObj:
 
     def decode(self):
         return self.value
-
-    @classmethod
-    def dumper(cls, obj):
-        if isinstance(obj, ScaleObj):
-            return obj.value
-        return obj
 
 
 class AsyncExtrinsicReceipt:
@@ -977,9 +978,7 @@ class Websocket:
         self.id += 1
         # self._open_subscriptions += 1
         try:
-            payload = {**payload, **{"id": original_id}}
-            dumped_payload = json.dumps(payload, default=ScaleObj.dumper)
-            await self.ws.send(dumped_payload)
+            await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
             async with self._lock:
@@ -3568,9 +3567,9 @@ class AsyncSubstrateInterface:
         raw_storage_key: Optional[bytes] = None,
         subscription_handler=None,
         reuse_block_hash: bool = False,
-    ) -> "ScaleType":
+    ) -> Optional[Union["ScaleObj", Any]]:
         """
-        Queries subtensor. This should only be used when making a single request. For multiple requests,
+        Queries substrate. This should only be used when making a single request. For multiple requests,
         you should use ``self.query_multiple``
         """
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
@@ -3614,7 +3613,7 @@ class AsyncSubstrateInterface:
         page_size: int = 100,
         ignore_decoding_errors: bool = False,
         reuse_block_hash: bool = False,
-    ) -> "QueryMapResult":
+    ) -> QueryMapResult:
         """
         Iterates over all key-pairs located at the given module and storage_function. The storage
         item must be a map.
@@ -3776,9 +3775,7 @@ class AsyncSubstrateInterface:
                         if not ignore_decoding_errors:
                             raise
                         item_value = None
-
                     result.append([item_key, item_value])
-
         return QueryMapResult(
             records=result,
             page_size=page_size,
