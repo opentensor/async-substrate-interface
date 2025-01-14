@@ -151,6 +151,12 @@ class ScaleObj:
     def __len__(self):
         return len(self.value)
 
+    def serialize(self):
+        return self.value
+
+    def decode(self):
+        return self.value
+
     @classmethod
     def dumper(cls, obj):
         if isinstance(obj, ScaleObj):
