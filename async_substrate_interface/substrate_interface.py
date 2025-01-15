@@ -556,6 +556,7 @@ class QueryMapResult:
         last_key: Optional[str] = None,
         max_results: Optional[int] = None,
         ignore_decoding_errors: bool = False,
+        event_loop_mgr: Optional[EventLoopManager] = None,
     ):
         self.records = records
         self.page_size = page_size
@@ -569,6 +570,7 @@ class QueryMapResult:
         self.ignore_decoding_errors = ignore_decoding_errors
         self.loading_complete = False
         self._buffer = iter(self.records)  # Initialize the buffer with initial records
+        self.event_loop_mgr = event_loop_mgr
 
     async def retrieve_next_page(self, start_key) -> list:
         result = await self.substrate.query_map(
@@ -626,18 +628,16 @@ class QueryMapResult:
 
     def __next__(self):
         try:
-            return self.substrate.event_loop.run_until_complete(self.__anext__())
+            return self.event_loop_mgr.run(self.__anext__())
         except StopAsyncIteration:
             raise StopIteration
+        except AttributeError:
+            raise AttributeError(
+                "This item is an async iterator. You need to iterate over it with `async for`."
+            )
 
     def __getitem__(self, item):
         return self.records[item]
-
-    def load_all(self):
-        async def _load_all():
-            return [item async for item in self]
-
-        return asyncio.get_event_loop().run_until_complete(_load_all())
 
 
 @dataclass
@@ -1079,11 +1079,16 @@ class AsyncSubstrateInterface:
         )
         self.__metadata_cache = {}
         self.metadata_version_hex = "0x0f000000"  # v15
-        self.extrinsic_receipt_cls = (
-            AsyncExtrinsicReceipt
-            if sync_calls is False
-            else partial(ExtrinsicReceipt, event_loop_mgr=event_loop_mgr)
-        )
+        if sync_calls is True:
+            self.query_map_result_cls = partial(
+                QueryMapResult, event_loop_mgr=event_loop_mgr
+            )
+            self.extrinsic_receipt_cls = partial(
+                ExtrinsicReceipt, event_loop_mgr=event_loop_mgr
+            )
+        else:
+            self.query_map_result_cls = QueryMapResult
+            self.extrinsic_receipt_cls = AsyncExtrinsicReceipt
         self.reload_type_registry()
 
     async def __aenter__(self):
@@ -3767,7 +3772,7 @@ class AsyncSubstrateInterface:
                             raise
                         item_value = None
                     result.append([item_key, item_value])
-        return QueryMapResult(
+        return self.query_map_result_cls(
             records=result,
             page_size=page_size,
             module=module,
