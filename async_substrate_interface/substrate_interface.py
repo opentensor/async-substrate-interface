@@ -1089,7 +1089,6 @@ class AsyncSubstrateInterface:
         else:
             self.query_map_result_cls = QueryMapResult
             self.extrinsic_receipt_cls = AsyncExtrinsicReceipt
-        self.reload_type_registry()
 
     async def __aenter__(self):
         await self.initialize()
@@ -1104,6 +1103,7 @@ class AsyncSubstrateInterface:
                 if not self.__chain:
                     chain = await self.rpc_request("system_chain", [])
                     self.__chain = chain.get("result")
+                self.reload_type_registry()
                 await asyncio.gather(self.load_registry(), self._init_init_runtime())
             self.initialized = True
 
