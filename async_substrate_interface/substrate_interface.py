@@ -1024,7 +1024,7 @@ class AsyncSubstrateInterface:
         auto_discover: bool = True,
         ss58_format: Optional[int] = None,
         type_registry: Optional[dict] = None,
-        chain_name: Optional[str] = None,
+        chain_name: str = "",
         sync_calls: bool = False,
         event_loop_mgr: Optional[EventLoopManager] = None,
         max_retries: int = 5,
