@@ -513,7 +513,7 @@ class ExtrinsicReceipt:
         block_hash: Optional[str] = None,
         block_number: Optional[int] = None,
         extrinsic_idx: Optional[int] = None,
-        finalized: bool = None,
+        finalized: bool = False,
         event_loop_mgr: EventLoopManager = None,
     ):
         self._async_instance = AsyncExtrinsicReceipt(
