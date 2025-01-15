@@ -978,7 +978,6 @@ class Websocket:
         self.id += 1
         # self._open_subscriptions += 1
         try:
-            print(self.ws)
             await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
