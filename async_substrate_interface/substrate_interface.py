@@ -41,7 +41,7 @@ from async_substrate_interface.errors import (
     ExtrinsicNotFound,
     BlockNotFound,
 )
-from async_substrate_interface.utils import execute_coroutine, hex_to_bytes
+from async_substrate_interface.utils import hex_to_bytes, EventLoopManager
 from async_substrate_interface.utils.storage import StorageKey
 
 if TYPE_CHECKING:
@@ -978,6 +978,7 @@ class Websocket:
         self.id += 1
         # self._open_subscriptions += 1
         try:
+            print(self.ws)
             await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
@@ -1026,9 +1027,7 @@ class AsyncSubstrateInterface:
         sync_calls: bool = False,
         max_retries: int = 5,
         retry_timeout: float = 60.0,
-        event_loop: Optional[asyncio.BaseEventLoop] = None,
         _mock: bool = False,
-        pre_initialize: bool = True,
     ):
         """
         The asyncio-compatible version of the subtensor interface commands we use in bittensor. It is important to
@@ -1080,16 +1079,10 @@ class AsyncSubstrateInterface:
         )
         self.__metadata_cache = {}
         self.metadata_version_hex = "0x0f000000"  # v15
-        self.event_loop = event_loop or asyncio.get_event_loop()
-        self.sync_calls = sync_calls
         self.extrinsic_receipt_cls = (
-            AsyncExtrinsicReceipt if self.sync_calls is False else ExtrinsicReceipt
+            AsyncExtrinsicReceipt if sync_calls is False else ExtrinsicReceipt
         )
-        if pre_initialize:
-            if not _mock:
-                self.event_loop.create_task(self.initialize())
-            else:
-                self.reload_type_registry()
+        self.reload_type_registry()
 
     async def __aenter__(self):
         await self.initialize()
@@ -1104,7 +1097,6 @@ class AsyncSubstrateInterface:
                 if not self.__chain:
                     chain = await self.rpc_request("system_chain", [])
                     self.__chain = chain.get("result")
-                self.reload_type_registry()
                 await asyncio.gather(self.load_registry(), self._init_init_runtime())
             self.initialized = True
 
@@ -3999,12 +3991,12 @@ class AsyncSubstrateInterface:
 
 
 class SyncWebsocket:
-    def __init__(self, websocket: "Websocket", event_loop: asyncio.AbstractEventLoop):
+    def __init__(self, websocket: "Websocket", event_loop_manager: EventLoopManager):
         self._ws = websocket
-        self._event_loop = event_loop
+        self._event_loop_mgr = event_loop_manager
 
     def close(self):
-        execute_coroutine(self._ws.shutdown(), event_loop=self._event_loop)
+        self._event_loop_mgr.run(self._ws.shutdown())
 
 
 class SubstrateInterface:
@@ -4013,7 +4005,7 @@ class SubstrateInterface:
     """
 
     url: str
-    event_loop: asyncio.AbstractEventLoop
+    event_loop_mgr: EventLoopManager
     websocket: "SyncWebsocket"
 
     def __init__(
@@ -4024,11 +4016,10 @@ class SubstrateInterface:
         ss58_format: Optional[int] = None,
         type_registry: Optional[dict] = None,
         chain_name: Optional[str] = None,
-        event_loop: Optional[asyncio.AbstractEventLoop] = None,
+        event_loop_manager: Optional[EventLoopManager] = None,
         _mock: bool = False,
         substrate: Optional["AsyncSubstrateInterface"] = None,
     ):
-        event_loop = substrate.event_loop if substrate else event_loop
         self.url = url
         self._async_instance = (
             AsyncSubstrateInterface(
@@ -4038,15 +4029,13 @@ class SubstrateInterface:
                 ss58_format=ss58_format,
                 type_registry=type_registry,
                 chain_name=chain_name,
-                sync_calls=True,
-                event_loop=event_loop,
                 _mock=_mock,
             )
             if not substrate
             else substrate
         )
-        self.event_loop = event_loop or asyncio.get_event_loop()
-        self.websocket = SyncWebsocket(self._async_instance.ws, self.event_loop)
+        self.event_loop_mgr = event_loop_manager or EventLoopManager()
+        self.websocket = SyncWebsocket(self._async_instance.ws, self.event_loop_mgr)
 
     @property
     def last_block_hash(self):
@@ -4057,10 +4046,10 @@ class SubstrateInterface:
         return self._async_instance.metadata
 
     def __del__(self):
-        execute_coroutine(self._async_instance.close())
+        self.event_loop_mgr.run(self._async_instance.close())
 
     def _run(self, coroutine):
-        return execute_coroutine(coroutine, self.event_loop)
+        return self.event_loop_mgr.run(coroutine)
 
     def __getattr__(self, name):
         attr = getattr(self._async_instance, name)
@@ -4258,3 +4247,34 @@ class SubstrateInterface:
                 pallet, storage_function, params, block_hash
             )
         )
+
+
+async def async_substrate_interface(
+    url: str,
+    use_remote_preset: bool = False,
+    auto_discover: bool = True,
+    ss58_format: Optional[int] = None,
+    type_registry: Optional[dict] = None,
+    chain_name: Optional[str] = None,
+    sync_calls: bool = False,
+    max_retries: int = 5,
+    retry_timeout: float = 60.0,
+    _mock: bool = False,
+) -> "AsyncSubstrateInterface":
+    """
+    Factory function for creating an initialized AsyncSubstrateInterface
+    """
+    substrate = AsyncSubstrateInterface(
+        url,
+        use_remote_preset,
+        auto_discover,
+        ss58_format,
+        type_registry,
+        chain_name,
+        sync_calls,
+        max_retries,
+        retry_timeout,
+        _mock,
+    )
+    await substrate.initialize()
+    return substrate
