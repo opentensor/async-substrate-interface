@@ -4036,13 +4036,14 @@ class SubstrateInterface:
                 auto_discover=auto_discover,
                 ss58_format=ss58_format,
                 type_registry=type_registry,
-                event_loop_manager=self.event_loop_mgr,
+                event_loop_mgr=self.event_loop_mgr,
                 chain_name=chain_name,
                 _mock=_mock,
             )
             if not substrate
             else substrate
         )
+        self.event_loop_mgr.run(self._async_instance.initialize())
         self.websocket = SyncWebsocket(self._async_instance.ws, self.event_loop_mgr)
 
     @property
