@@ -15,6 +15,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from hashlib import blake2b
 from typing import (
     Optional,
@@ -178,7 +179,7 @@ class AsyncExtrinsicReceipt:
         block_hash: Optional[str] = None,
         block_number: Optional[int] = None,
         extrinsic_idx: Optional[int] = None,
-        finalized=None,
+        finalized: bool = False,
     ):
         """
         Object containing information of submitted extrinsic. Block hash where extrinsic is included is required
@@ -512,7 +513,8 @@ class ExtrinsicReceipt:
         block_hash: Optional[str] = None,
         block_number: Optional[int] = None,
         extrinsic_idx: Optional[int] = None,
-        finalized=None,
+        finalized: bool = None,
+        event_loop_mgr: EventLoopManager = None,
     ):
         self._async_instance = AsyncExtrinsicReceipt(
             substrate,
@@ -522,7 +524,7 @@ class ExtrinsicReceipt:
             extrinsic_idx,
             finalized,
         )
-        self.event_loop = asyncio.get_event_loop()
+        self.event_loop_mgr = event_loop_mgr or EventLoopManager()
 
     def __getattr__(self, name):
         attr = getattr(self._async_instance, name)
@@ -530,12 +532,12 @@ class ExtrinsicReceipt:
         if asyncio.iscoroutinefunction(attr):
 
             def sync_method(*args, **kwargs):
-                return self.event_loop.run_until_complete(attr(*args, **kwargs))
+                return self.event_loop_mgr.run(attr(*args, **kwargs))
 
             return sync_method
         elif asyncio.iscoroutine(attr):
             # indicates this is an async_property
-            return self.event_loop.run_until_complete(attr)
+            return self.event_loop_mgr.run(attr)
 
         else:
             return attr
@@ -1024,6 +1026,7 @@ class AsyncSubstrateInterface:
         type_registry: Optional[dict] = None,
         chain_name: Optional[str] = None,
         sync_calls: bool = False,
+        event_loop_mgr: Optional[EventLoopManager] = None,
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
@@ -1043,10 +1046,8 @@ class AsyncSubstrateInterface:
             sync_calls: whether this instance is going to be called through a sync wrapper or plain
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
-            event_loop: the event loop to use
+            event_loop_mgr: an EventLoopManager instance, only used in the case where `sync_calls` is `True`
             _mock: whether to use mock version of the subtensor interface
-            pre_initialize: whether to initialise the network connections at initialisation of the
-                AsyncSubstrateInterface object
 
         """
         self.max_retries = max_retries
@@ -1079,7 +1080,9 @@ class AsyncSubstrateInterface:
         self.__metadata_cache = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         self.extrinsic_receipt_cls = (
-            AsyncExtrinsicReceipt if sync_calls is False else ExtrinsicReceipt
+            AsyncExtrinsicReceipt
+            if sync_calls is False
+            else partial(ExtrinsicReceipt, event_loop_mgr=event_loop_mgr)
         )
         self.reload_type_registry()
 
@@ -4020,6 +4023,7 @@ class SubstrateInterface:
         substrate: Optional["AsyncSubstrateInterface"] = None,
     ):
         self.url = url
+        self.event_loop_mgr = event_loop_manager or EventLoopManager()
         self._async_instance = (
             AsyncSubstrateInterface(
                 url=url,
@@ -4027,13 +4031,13 @@ class SubstrateInterface:
                 auto_discover=auto_discover,
                 ss58_format=ss58_format,
                 type_registry=type_registry,
+                event_loop_manager=self.event_loop_mgr,
                 chain_name=chain_name,
                 _mock=_mock,
             )
             if not substrate
             else substrate
         )
-        self.event_loop_mgr = event_loop_manager or EventLoopManager()
         self.websocket = SyncWebsocket(self._async_instance.ws, self.event_loop_mgr)
 
     @property
