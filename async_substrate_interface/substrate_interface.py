@@ -4248,7 +4248,7 @@ class SubstrateInterface:
         )
 
 
-async def async_substrate_interface(
+async def get_async_substrate_interface(
     url: str,
     use_remote_preset: bool = False,
     auto_discover: bool = True,
