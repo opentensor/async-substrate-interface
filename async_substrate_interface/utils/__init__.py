@@ -1,9 +1,46 @@
 import asyncio
-from typing import Optional, TYPE_CHECKING
+import threading
+from typing import Optional
 
 
-if TYPE_CHECKING:
-    from typing import Coroutine
+class EventLoopManager:
+    """Singleton class to manage a living asyncio event loop."""
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._init_event_loop()
+        return cls._instance
+
+    def _init_event_loop(self):
+        self.loop = asyncio.new_event_loop()
+        self.thread = threading.Thread(target=self._start_loop, daemon=True)
+        self.thread.start()
+
+    def _start_loop(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
+
+    def run(self, coroutine):
+        while self.loop is None:
+            pass
+        future = asyncio.run_coroutine_threadsafe(coroutine, self.loop)
+        return future.result()  # Blocks until coroutine completes
+
+    def stop(self):
+        """Stop the event loop."""
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        self.thread.join()
+
+    @classmethod
+    def get_event_loop(cls) -> asyncio.AbstractEventLoop:
+        return cls().loop
 
 
 def hex_to_bytes(hex_str: str) -> bytes:
@@ -38,24 +75,3 @@ def get_event_loop() -> asyncio.AbstractEventLoop:
         event_loop = asyncio.get_event_loop()
         asyncio.set_event_loop(event_loop)
     return event_loop
-
-
-def execute_coroutine(
-    coroutine: "Coroutine", event_loop: asyncio.AbstractEventLoop = None
-):
-    """
-    Helper function to run an asyncio coroutine synchronously.
-
-    Args:
-        coroutine (Coroutine): The coroutine to run.
-        event_loop (AbstractEventLoop): The event loop to use. If `None`, attempts to fetch the already-running
-            loop. If one is not running, a new loop is created.
-
-    Returns:
-        The result of the coroutine execution.
-    """
-    if event_loop:
-        event_loop = event_loop
-    else:
-        event_loop = get_event_loop()
-    return event_loop.run_until_complete(asyncio.wait_for(coroutine, timeout=None))
