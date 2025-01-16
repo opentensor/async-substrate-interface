@@ -12,6 +12,7 @@ import random
 import ssl
 import time
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import blake2b
@@ -51,29 +52,117 @@ ExtrinsicReceiptLike = Union["AsyncExtrinsicReceipt", "ExtrinsicReceipt"]
 
 
 class ScaleObj:
-    def __new__(cls, value):
-        if isinstance(value, (dict, str, int)):
-            return value
-        return super().__new__(cls)
+    """Bittensor representation of Scale Object."""
 
     def __init__(self, value):
         self.value = list(value) if isinstance(value, tuple) else value
 
+    def __new__(cls, value):
+        return super().__new__(cls)
+
     def __str__(self):
         return f"BittensorScaleType(value={self.value})>"
 
+    def __bool__(self):
+        if self.value:
+            return True
+        else:
+            return False
+
     def __repr__(self):
-        return repr(self.value)
+        return repr(f"BittensorScaleType(value={self.value})>")
 
     def __eq__(self, other):
-        return self.value == other
+        return self.value == (other.value if isinstance(other, ScaleObj) else other)
+
+    def __lt__(self, other):
+        return self.value < (other.value if isinstance(other, ScaleObj) else other)
+
+    def __gt__(self, other):
+        return self.value > (other.value if isinstance(other, ScaleObj) else other)
+
+    def __le__(self, other):
+        return self.value <= (other.value if isinstance(other, ScaleObj) else other)
+
+    def __ge__(self, other):
+        return self.value >= (other.value if isinstance(other, ScaleObj) else other)
+
+    def __add__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value + other.value)
+        return ScaleObj(self.value + other)
+
+    def __radd__(self, other):
+        return ScaleObj(other + self.value)
+
+    def __sub__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value - other.value)
+        return ScaleObj(self.value - other)
+
+    def __rsub__(self, other):
+        return ScaleObj(other - self.value)
+
+    def __mul__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value * other.value)
+        return ScaleObj(self.value * other)
+
+    def __rmul__(self, other):
+        return ScaleObj(other * self.value)
+
+    def __truediv__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value / other.value)
+        return ScaleObj(self.value / other)
+
+    def __rtruediv__(self, other):
+        return ScaleObj(other / self.value)
+
+    def __floordiv__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value // other.value)
+        return ScaleObj(self.value // other)
+
+    def __rfloordiv__(self, other):
+        return ScaleObj(other // self.value)
+
+    def __mod__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value % other.value)
+        return ScaleObj(self.value % other)
+
+    def __rmod__(self, other):
+        return ScaleObj(other % self.value)
+
+    def __pow__(self, other):
+        if isinstance(other, ScaleObj):
+            return ScaleObj(self.value**other.value)
+        return ScaleObj(self.value**other)
+
+    def __rpow__(self, other):
+        return ScaleObj(other**self.value)
+
+    def __getitem__(self, key):
+        if isinstance(self.value, (list, tuple, dict, str)):
+            return self.value[key]
+        raise TypeError(
+            f"Object of type '{type(self.value).__name__}' does not support indexing"
+        )
 
     def __iter__(self):
-        for item in self.value:
-            yield item
+        if isinstance(self.value, Iterable):
+            return iter(self.value)
+        raise TypeError(f"Object of type '{type(self.value).__name__}' is not iterable")
 
-    def __getitem__(self, item):
-        return self.value[item]
+    def __len__(self):
+        return len(self.value)
+
+    def serialize(self):
+        return self.value
+
+    def decode(self):
+        return self.value
 
 
 class AsyncExtrinsicReceipt:
@@ -998,10 +1087,7 @@ class AsyncSubstrateInterface:
         )
         if pre_initialize:
             if not _mock:
-                execute_coroutine(
-                    coroutine=self.initialize(),
-                    event_loop=self.event_loop,
-                )
+                self.event_loop.create_task(self.initialize())
             else:
                 self.reload_type_registry()
 
@@ -3478,9 +3564,9 @@ class AsyncSubstrateInterface:
         raw_storage_key: Optional[bytes] = None,
         subscription_handler=None,
         reuse_block_hash: bool = False,
-    ) -> "ScaleType":
+    ) -> Optional[Union["ScaleObj", Any]]:
         """
-        Queries subtensor. This should only be used when making a single request. For multiple requests,
+        Queries substrate. This should only be used when making a single request. For multiple requests,
         you should use ``self.query_multiple``
         """
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
@@ -3524,7 +3610,7 @@ class AsyncSubstrateInterface:
         page_size: int = 100,
         ignore_decoding_errors: bool = False,
         reuse_block_hash: bool = False,
-    ) -> "QueryMapResult":
+    ) -> QueryMapResult:
         """
         Iterates over all key-pairs located at the given module and storage_function. The storage
         item must be a map.
@@ -3686,9 +3772,7 @@ class AsyncSubstrateInterface:
                         if not ignore_decoding_errors:
                             raise
                         item_value = None
-
                     result.append([item_key, item_value])
-
         return QueryMapResult(
             records=result,
             page_size=page_size,
