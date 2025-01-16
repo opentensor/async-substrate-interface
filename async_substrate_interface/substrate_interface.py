@@ -2496,14 +2496,21 @@ class AsyncSubstrateInterface:
             raise SubstrateRequestException(response["error"]["message"])
 
         if response.get("result") and decode:
-            metadata_decoder = self.runtime_config.create_scale_object(
-                "MetadataVersioned", data=ScaleBytes(response.get("result"))
-            )
-            metadata_decoder.decode()
+            try:
+                metadata_decoder = self.runtime_config.create_scale_object(
+                    "MetadataVersioned", data=ScaleBytes(response.get("result"))
+                )
+                metadata_decoder.decode()
+            except NotImplementedError:
+                if not self.initialized:
+                    raise SubstrateRequestException(
+                        "You are attempting to decode a SCALE object before Runtime initialization. You need to first "
+                        "either `await AsyncSubstrateInterface.initialize()` or use `async with` the object."
+                    )
+                else:
+                    raise
 
             return metadata_decoder
-
-        return response
 
     async def _preprocess(
         self,
