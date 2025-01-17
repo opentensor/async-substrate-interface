@@ -1089,6 +1089,8 @@ class AsyncSubstrateInterface:
         else:
             self.query_map_result_cls = QueryMapResult
             self.extrinsic_receipt_cls = AsyncExtrinsicReceipt
+        self.reload_type_registry()
+        self._initializing = False
 
     async def __aenter__(self):
         await self.initialize()
@@ -1099,13 +1101,14 @@ class AsyncSubstrateInterface:
         Initialize the connection to the chain.
         """
         async with self._lock:
+            self._initializing = True
             if not self.initialized:
                 if not self.__chain:
                     chain = await self.rpc_request("system_chain", [])
                     self.__chain = chain.get("result")
-                self.reload_type_registry()
                 await asyncio.gather(self.load_registry(), self._init_init_runtime())
             self.initialized = True
+            self._initializing = False
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
@@ -1248,19 +1251,28 @@ class AsyncSubstrateInterface:
         if scale_bytes == b"\x00":
             obj = None
         else:
-            if not self.registry:
-                await asyncio.wait_for(_wait_for_registry(), timeout=10)
             try:
+                if not self.registry:
+                    await asyncio.wait_for(_wait_for_registry(), timeout=10)
                 obj = decode_by_type_string(type_string, self.registry, scale_bytes)
             except TimeoutError:
                 # indicates that registry was never loaded
-                if _attempt < _retries:
+                if not self._initializing:
+                    raise AttributeError(
+                        "Registry was never loaded. This did not occur during initialization, which usually indicates "
+                        "you must first initialize the AsyncSubstrateInterface object, either with "
+                        "`await AsyncSubstrateInterface.initialize()` or running with `async with`"
+                    )
+                elif _attempt < _retries:
                     await self.load_registry()
                     return await self.decode_scale(
                         type_string, scale_bytes, _attempt + 1
                     )
                 else:
-                    raise ValueError("Registry was never loaded.")
+                    raise AttributeError(
+                        "Registry was never loaded. This occurred during initialization, which usually indicates a "
+                        "connection or node error."
+                    )
         if return_scale_obj:
             return ScaleObj(obj)
         else:
@@ -2471,7 +2483,7 @@ class AsyncSubstrateInterface:
 
     async def get_block_metadata(
         self, block_hash: Optional[str] = None, decode: bool = True
-    ) -> Union[dict, ScaleType]:
+    ) -> Optional[Union[dict, ScaleType]]:
         """
         A pass-though to existing JSONRPC method `state_getMetadata`.
 
@@ -2480,7 +2492,8 @@ class AsyncSubstrateInterface:
             decode: Whether to decode the metadata or present it raw
 
         Returns:
-            metadata, either as a dict (not decoded) or ScaleType (decoded)
+            metadata, either as a dict (not decoded) or ScaleType (decoded); None if there was no response
+            from the server
         """
         params = None
         if decode and not self.runtime_config:
@@ -2495,15 +2508,15 @@ class AsyncSubstrateInterface:
         if "error" in response:
             raise SubstrateRequestException(response["error"]["message"])
 
-        if response.get("result") and decode:
+        if (result := response.get("result")) and decode:
             metadata_decoder = self.runtime_config.create_scale_object(
-                "MetadataVersioned", data=ScaleBytes(response.get("result"))
+                "MetadataVersioned", data=ScaleBytes(result)
             )
             metadata_decoder.decode()
 
             return metadata_decoder
-
-        return response
+        else:
+            return result
 
     async def _preprocess(
         self,
