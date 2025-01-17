@@ -723,7 +723,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 if not self.__chain:
                     chain = await self.rpc_request("system_chain", [])
                     self.__chain = chain.get("result")
-                await asyncio.gather(self.load_registry(), self._init_init_runtime())
+                await asyncio.gather(
+                    self.load_registry(), self._first_initialize_runtime()
+                )
             self.initialized = True
             self._initializing = False
 
@@ -875,9 +877,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         return obj.encode(value)
 
-    async def _init_init_runtime(self):
+    async def _first_initialize_runtime(self):
         """
-        TODO rename/docstring
+        TODO docstring
         """
         runtime_info, metadata = await asyncio.gather(
             self.get_block_runtime_version(None), self.get_block_metadata()

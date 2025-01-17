@@ -2,11 +2,12 @@ import logging
 import random
 import time
 from functools import lru_cache
+from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 
 from bittensor_wallet.keypair import Keypair
 from bt_decode import PortableRegistry, decode as decode_by_type_string, MetadataV15
-from scalecodec import GenericExtrinsic, GenericCall
+from scalecodec import GenericExtrinsic, GenericCall, GenericRuntimeCallDefinition
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
 
 from async_substrate_interface.errors import (
@@ -24,6 +25,9 @@ from async_substrate_interface.types import (
 )
 from async_substrate_interface.utils import hex_to_bytes
 from async_substrate_interface.utils.storage import StorageKey
+
+
+ResultHandler = Callable[[dict, Any], tuple[dict, bool]]
 
 
 class ExtrinsicReceipt:
@@ -448,9 +452,6 @@ class SyncWebsocket:
     def __init__(self, websocket: "Websocket"):
         self._ws = websocket
 
-    def close(self):
-        self._event_loop_mgr.run(self._ws.shutdown())
-
 
 class SubstrateInterface(SubstrateMixin):
     def __init__(
@@ -524,7 +525,7 @@ class SubstrateInterface(SubstrateMixin):
                 chain = self.rpc_request("system_chain", [])
                 self.__chain = chain.get("result")
             self.load_registry()
-            self._init_init_runtime()
+            self._first_initialize_runtime()
         self.initialized = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -641,9 +642,9 @@ class SubstrateInterface(SubstrateMixin):
         )
         return obj.encode(value)
 
-    def _init_init_runtime(self):
+    def _first_initialize_runtime(self):
         """
-        TODO rename/docstring
+        TODO docstring
         """
         runtime_info = self.get_block_runtime_version(None)
         metadata = self.get_block_metadata()
