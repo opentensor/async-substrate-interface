@@ -330,13 +330,13 @@ class SubstrateMixin(ABC):
     transaction_version = None
     block_id: Optional[int] = None
     last_block_hash: Optional[str] = None
-    __name: Optional[str] = None
-    __properties = None
-    __version = None
-    __token_decimals = None
-    __token_symbol = None
-    __metadata = None
-    __chain: str
+    _name: Optional[str] = None
+    _properties = None
+    _version = None
+    _token_decimals = None
+    _token_symbol = None
+    _metadata = None
+    _chain: str
     runtime_config: RuntimeConfigurationObject
     type_registry: Optional[dict]
     ss58_format: Optional[int]
@@ -346,24 +346,24 @@ class SubstrateMixin(ABC):
         """
         Returns the substrate chain currently associated with object
         """
-        return self.__chain
+        return self._chain
 
     @property
     def metadata(self):
-        if self.__metadata is None:
+        if self._metadata is None:
             raise AttributeError(
                 "Metadata not found. This generally indicates that the AsyncSubstrateInterface object "
                 "is not properly async initialized."
             )
         else:
-            return self.__metadata
+            return self._metadata
 
     @property
     def runtime(self):
         return Runtime(
             self.chain,
             self.runtime_config,
-            self.__metadata,
+            self._metadata,
             self.type_registry,
         )
 
@@ -376,8 +376,8 @@ class SubstrateMixin(ABC):
         -------
         bool
         """
-        if self.__metadata:
-            return self.__metadata.portable_registry is not None
+        if self._metadata:
+            return self._metadata.portable_registry is not None
         else:
             return None
 

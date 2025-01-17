@@ -1,10 +1,8 @@
-import asyncio
 import pytest
 from websockets.exceptions import InvalidURI
 
-from async_substrate_interface.substrate_interface import (
+from async_substrate_interface.async_substrate import (
     AsyncSubstrateInterface,
-    get_async_substrate_interface,
     ScaleObj,
 )
 
@@ -12,8 +10,9 @@ from async_substrate_interface.substrate_interface import (
 @pytest.mark.asyncio
 async def test_invalid_url_raises_exception():
     """Test that invalid URI raises an InvalidURI exception."""
+    async_substrate = AsyncSubstrateInterface("non_existent_entry_point")
     with pytest.raises(InvalidURI):
-        await get_async_substrate_interface("non_existent_entry_point")
+        await async_substrate.initialize()
 
 
 def test_scale_object():

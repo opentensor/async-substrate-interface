@@ -674,7 +674,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.retry_timeout = retry_timeout
         self.chain_endpoint = url
         self.url = url
-        self.__chain = chain_name
+        self._chain = chain_name
         self.ws = Websocket(
             url,
             options={
@@ -697,7 +697,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True
         )
-        self.__metadata_cache = {}
+        self._metadata_cache = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
         self._initializing = False
@@ -713,9 +713,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         async with self._lock:
             self._initializing = True
             if not self.initialized:
-                if not self.__chain:
+                if not self._chain:
                     chain = await self.rpc_request("system_chain", [])
-                    self.__chain = chain.get("result")
+                    self._chain = chain.get("result")
                 await asyncio.gather(
                     self.load_registry(), self._first_initialize_runtime()
                 )
@@ -727,45 +727,43 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     @property
     async def properties(self):
-        if self.__properties is None:
-            self.__properties = (await self.rpc_request("system_properties", [])).get(
+        if self._properties is None:
+            self._properties = (await self.rpc_request("system_properties", [])).get(
                 "result"
             )
-        return self.__properties
+        return self._properties
 
     @property
     async def version(self):
-        if self.__version is None:
-            self.__version = (await self.rpc_request("system_version", [])).get(
-                "result"
-            )
-        return self.__version
+        if self._version is None:
+            self._version = (await self.rpc_request("system_version", [])).get("result")
+        return self._version
 
     @property
     async def token_decimals(self):
-        if self.__token_decimals is None:
-            self.__token_decimals = (await self.properties).get("tokenDecimals")
-        return self.__token_decimals
+        if self._token_decimals is None:
+            self._token_decimals = (await self.properties).get("tokenDecimals")
+        return self._token_decimals
 
     @property
     async def token_symbol(self):
-        if self.__token_symbol is None:
+        if self._token_symbol is None:
             if self.properties:
-                self.__token_symbol = (await self.properties).get("tokenSymbol")
+                self._token_symbol = (await self.properties).get("tokenSymbol")
             else:
-                self.__token_symbol = "UNIT"
-        return self.__token_symbol
+                self._token_symbol = "UNIT"
+        return self._token_symbol
 
     @property
     async def name(self):
-        if self.__name is None:
-            self.__name = (await self.rpc_request("system_name", [])).get("result")
-        return self.__name
+        if self._name is None:
+            self._name = (await self.rpc_request("system_name", [])).get("result")
+        return self._name
 
     async def get_storage_item(self, module: str, storage_function: str):
-        if not self.__metadata:
+        if not self._metadata:
             await self.init_runtime()
-        metadata_pallet = self.__metadata.get_metadata_pallet(module)
+        metadata_pallet = self._metadata.get_metadata_pallet(module)
         storage_item = metadata_pallet.get_storage_function(storage_function)
         return storage_item
 
@@ -862,11 +860,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             ScaleBytes encoded value
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         obj = self.runtime_config.create_scale_object(
-            type_string=type_string, metadata=self.__metadata
+            type_string=type_string, metadata=self._metadata
         )
         return obj.encode(value)
 
@@ -877,8 +875,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         runtime_info, metadata = await asyncio.gather(
             self.get_block_runtime_version(None), self.get_block_metadata()
         )
-        self.__metadata = metadata
-        self.__metadata_cache[self.runtime_version] = self.__metadata
+        self._metadata = metadata
+        self._metadata_cache[self.runtime_version] = self._metadata
         self.runtime_version = runtime_info.get("specVersion")
         self.runtime_config.set_active_spec_version_id(self.runtime_version)
         self.transaction_version = runtime_info.get("transactionVersion")
@@ -919,11 +917,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if (
                 (block_hash and block_hash == self.last_block_hash)
                 or (block_id and block_id == self.block_id)
-            ) and self.__metadata is not None:
+            ) and self._metadata is not None:
                 return Runtime(
                     self.chain,
                     self.runtime_config,
-                    self.__metadata,
+                    self._metadata,
                     self.type_registry,
                 )
 
@@ -967,31 +965,31 @@ class AsyncSubstrateInterface(SubstrateMixin):
             # Check if runtime state already set to current block
             if (
                 runtime_info.get("specVersion") == self.runtime_version
-                and self.__metadata is not None
+                and self._metadata is not None
             ):
                 return Runtime(
                     self.chain,
                     self.runtime_config,
-                    self.__metadata,
+                    self._metadata,
                     self.type_registry,
                 )
 
             self.runtime_version = runtime_info.get("specVersion")
             self.transaction_version = runtime_info.get("transactionVersion")
 
-            if not self.__metadata:
-                if self.runtime_version in self.__metadata_cache:
+            if not self._metadata:
+                if self.runtime_version in self._metadata_cache:
                     # Get metadata from cache
                     logging.debug(
                         "Retrieved metadata for {} from memory".format(
                             self.runtime_version
                         )
                     )
-                    metadata = self.__metadata = self.__metadata_cache[
+                    metadata = self._metadata = self._metadata_cache[
                         self.runtime_version
                     ]
                 else:
-                    metadata = self.__metadata = await self.get_block_metadata(
+                    metadata = self._metadata = await self.get_block_metadata(
                         block_hash=runtime_block_hash, decode=True
                     )
                     logging.debug(
@@ -1001,9 +999,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     )
 
                     # Update metadata cache
-                    self.__metadata_cache[self.runtime_version] = self.__metadata
+                    self._metadata_cache[self.runtime_version] = self._metadata
             else:
-                metadata = self.__metadata
+                metadata = self._metadata
             # Update type registry
             self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
@@ -1071,7 +1069,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             StorageKey
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         return StorageKey.create_from_storage_function(
@@ -1079,7 +1077,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             storage_function,
             params,
             runtime_config=self.runtime_config,
-            metadata=self.__metadata,
+            metadata=self._metadata,
         )
 
     async def get_metadata_storage_functions(self, block_hash=None) -> list:
@@ -1093,7 +1091,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of storage functions
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         storage_list = []
@@ -1125,7 +1123,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Metadata storage function
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         pallet = self.metadata.get_metadata_pallet(module_name)
@@ -1145,12 +1143,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of errors in the metadata
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         error_list = []
 
-        for module_idx, module in enumerate(self.__metadata.pallets):
+        for module_idx, module in enumerate(self._metadata.pallets):
             if module.errors:
                 for error in module.errors:
                     error_list.append(
@@ -1176,10 +1174,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
             error
 
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
-        for module_idx, module in enumerate(self.__metadata.pallets):
+        for module_idx, module in enumerate(self._metadata.pallets):
             if module.name == module_name and module.errors:
                 for error in module.errors:
                     if error_name == error.name:
@@ -1194,7 +1192,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of runtime call functions
         """
-        if not self.__metadata:
+        if not self._metadata:
             await self.init_runtime()
         call_functions = []
 
@@ -1219,7 +1217,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             runtime call function
         """
-        if not self.__metadata:
+        if not self._metadata:
             await self.init_runtime()
 
         try:
@@ -1274,7 +1272,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         try:
                             extrinsic_decoder = extrinsic_cls(
                                 data=ScaleBytes(extrinsic_data),
-                                metadata=self.__metadata,
+                                metadata=self._metadata,
                                 runtime_config=self.runtime_config,
                             )
                             extrinsic_decoder.decode(check_remaining=True)
@@ -1775,7 +1773,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         params = query_for if query_for else []
         # Search storage call in metadata
-        metadata_pallet = self.__metadata.get_metadata_pallet(module)
+        metadata_pallet = self._metadata.get_metadata_pallet(module)
 
         if not metadata_pallet:
             raise SubstrateRequestException(f'Pallet "{module}" not found')
@@ -1811,7 +1809,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 storage_item.value["name"],
                 params,
                 runtime_config=self.runtime_config,
-                metadata=self.__metadata,
+                metadata=self._metadata,
             )
         method = "state_getStorageAt"
         return Preprocessed(
@@ -1839,7 +1837,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
             subscription_id: the subscription id for subscriptions, used only for subscriptions with a result handler
             value_scale_type: Scale Type string used for decoding ScaleBytes results
             storage_item: The ScaleType object used for decoding ScaleBytes results
-            runtime: the runtime object, used for decoding ScaleBytes results
             result_handler: the result handler coroutine used for handling longer-running subscriptions
 
         Returns:
@@ -2057,11 +2054,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if call_params is None:
             call_params = {}
 
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         call = self.runtime_config.create_scale_object(
-            type_string="Call", metadata=self.__metadata
+            type_string="Call", metadata=self._metadata
         )
 
         call.encode(
@@ -2091,7 +2088,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
         preprocessed: tuple[Preprocessed] = await asyncio.gather(
             *[
@@ -2142,7 +2139,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of `(storage_key, scale_obj)` tuples
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         # Retrieve corresponding value
@@ -2196,7 +2193,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              The created Scale Type object
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             runtime = await self.init_runtime(block_hash=block_hash)
         else:
             runtime = self.runtime
@@ -2245,12 +2242,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
 
         # Process signed extensions in metadata
-        if "signed_extensions" in self.__metadata[1][1]["extrinsic"]:
+        if "signed_extensions" in self._metadata[1][1]["extrinsic"]:
             # Base signature payload
             signature_payload.type_mapping = [["call", "CallBytes"]]
 
             # Add signed extensions to payload
-            signed_extensions = self.__metadata.get_signed_extensions()
+            signed_extensions = self._metadata.get_signed_extensions()
 
             if "CheckMortality" in signed_extensions:
                 signature_payload.type_mapping.append(
@@ -2390,9 +2387,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             raise TypeError("'call' must be of type Call")
 
         # Check if extrinsic version is supported
-        if self.__metadata[1][1]["extrinsic"]["version"] != 4:  # type: ignore
+        if self._metadata[1][1]["extrinsic"]["version"] != 4:  # type: ignore
             raise NotImplementedError(
-                f"Extrinsic version {self.__metadata[1][1]['extrinsic']['version']} not supported"  # type: ignore
+                f"Extrinsic version {self._metadata[1][1]['extrinsic']['version']} not supported"  # type: ignore
             )
 
         # Retrieve nonce
@@ -2434,7 +2431,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         # Create extrinsic
         extrinsic = self.runtime_config.create_scale_object(
-            type_string="Extrinsic", metadata=self.__metadata
+            type_string="Extrinsic", metadata=self._metadata
         )
 
         value = {
@@ -2494,7 +2491,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              ScaleType from the runtime call
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         if params is None:
@@ -2521,7 +2518,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         runtime = Runtime(
             self.chain,
             self.runtime_config,
-            self.__metadata,
+            self._metadata,
             self.type_registry,
         )
 
@@ -2605,10 +2602,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             MetadataModuleConstants
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
-        for module in self.__metadata.pallets:
+        for module in self._metadata.pallets:
             if module_name == module.name and module.constants:
                 for constant in module.constants:
                     if constant_name == constant.value["name"]:
@@ -2702,7 +2699,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             dict mapping the type strings to the type decompositions
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         if not self.implements_scaleinfo:
@@ -2752,7 +2749,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             List of metadata modules
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         return [
@@ -2781,7 +2778,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             MetadataModule
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
         return self.metadata.get_metadata_pallet(name)
@@ -2803,7 +2800,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
         preprocessed: Preprocessed = await self._preprocess(
             params, block_hash, storage_function, module, raw_storage_key
@@ -2877,10 +2874,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             await self.init_runtime(block_hash=block_hash)
 
-        metadata_pallet = self.__metadata.get_metadata_pallet(module)
+        metadata_pallet = self._metadata.get_metadata_pallet(module)
         if not metadata_pallet:
             raise ValueError(f'Pallet "{module}" not found')
         storage_item = metadata_pallet.get_storage_function(storage_function)
@@ -2908,7 +2905,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             storage_item.value["name"],
             params,
             runtime_config=self.runtime_config,
-            metadata=self.__metadata,
+            metadata=self._metadata,
         )
         prefix = storage_key.to_hex()
 
@@ -3147,7 +3144,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of call functions
         """
-        if not self.__metadata or block_hash:
+        if not self._metadata or block_hash:
             runtime = await self.init_runtime(block_hash=block_hash)
         else:
             runtime = self.runtime
