@@ -3359,13 +3359,12 @@ class AsyncSubstrateInterface:
             raise Exception("account_nextIndex not supported")
 
         async with self._lock:
-            if self.nonces.get(account_address) is None:
+            if self._nonces.get(account_address) is None:
                 nonce_obj = await self.rpc_request("account_nextIndex", [account_address])
-                self.nonces[account_address] = nonce_obj["result"]
+                self._nonces[account_address] = nonce_obj["result"]
             else:
-                self.nonces[account_address] += 1
-        print('nonces', self.nonces)
-        return self.nonces[account_address]
+                self._nonces[account_address] += 1
+        return self._nonces[account_address]
 
     async def get_metadata_constant(self, module_name, constant_name, block_hash=None):
         """
