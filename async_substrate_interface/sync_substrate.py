@@ -456,6 +456,7 @@ class SubstrateInterface(SubstrateMixin):
         auto_discover: bool = True,
         ss58_format: Optional[int] = None,
         type_registry: Optional[dict] = None,
+        type_registry_preset: Optional[str] = None,
         chain_name: str = "",
         max_retries: int = 5,
         retry_timeout: float = 60.0,
@@ -471,6 +472,7 @@ class SubstrateInterface(SubstrateMixin):
             auto_discover: whether to automatically pull the presets based on the chain name and type registry
             ss58_format: the specific SS58 format to use
             type_registry: a dict of custom types
+            type_registry_preset: preset
             chain_name: the name of the chain (the result of the rpc request for "system_chain")
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
@@ -492,6 +494,7 @@ class SubstrateInterface(SubstrateMixin):
         self._forgettable_task = None
         self.ss58_format = ss58_format
         self.type_registry = type_registry
+        self.type_registry_preset = type_registry_preset
         self.runtime_cache = RuntimeCache()
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True
@@ -499,6 +502,7 @@ class SubstrateInterface(SubstrateMixin):
         self._metadata_cache = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
+        self.initialize()
 
     def __enter__(self):
         self.initialize()
@@ -551,16 +555,6 @@ class SubstrateInterface(SubstrateMixin):
         if self._name is None:
             self._name = self.rpc_request("system_name", []).get("result")
         return self._name
-
-    @property
-    def ws(self) -> ClientConnection:
-        return connect(
-            self.chain_endpoint,
-            options={
-                "max_size": 2**32,
-                "write_limit": 2**16,
-            },
-        )
 
     def get_storage_item(self, module: str, storage_function: str):
         if not self._metadata:
@@ -1634,11 +1628,11 @@ class SubstrateInterface(SubstrateMixin):
         _received = {}
         subscription_added = False
 
-        with self.ws as ws:
+        with connect(self.chain_endpoint, max_size=2**32) as ws:
             item_id = 0
             for payload in payloads:
                 item_id += 1
-                ws.send(ujson.dumps(payload["payload"]))
+                ws.send(ujson.dumps({**payload["payload"], **{"id": item_id}}))
                 request_manager.add_request(item_id, payload["id"])
 
             while True:

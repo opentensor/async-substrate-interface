@@ -648,6 +648,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         auto_discover: bool = True,
         ss58_format: Optional[int] = None,
         type_registry: Optional[dict] = None,
+        type_registry_preset: Optional[str] = None,
         chain_name: str = "",
         max_retries: int = 5,
         retry_timeout: float = 60.0,
@@ -664,6 +665,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             auto_discover: whether to automatically pull the presets based on the chain name and type registry
             ss58_format: the specific SS58 format to use
             type_registry: a dict of custom types
+            type_registry_preset: preset
             chain_name: the name of the chain (the result of the rpc request for "system_chain")
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
@@ -693,6 +695,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self._forgettable_task = None
         self.ss58_format = ss58_format
         self.type_registry = type_registry
+        self.type_registry_preset = type_registry_preset
         self.runtime_cache = RuntimeCache()
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True

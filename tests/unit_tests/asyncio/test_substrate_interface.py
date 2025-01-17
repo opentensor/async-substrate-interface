@@ -1,9 +1,7 @@
 import pytest
 from websockets.exceptions import InvalidURI
 
-from async_substrate_interface.async_substrate import (
-    AsyncSubstrateInterface
-)
+from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 
 
 @pytest.mark.asyncio
