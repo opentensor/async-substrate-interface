@@ -12,6 +12,7 @@ dependencies = [
   "bittensor-wallet>=2.1.3",
   "bt-decode==0.4.0",
   "scalecodec==1.2.11",
+  "ujson==5.10.0",
   "websockets>=14.1",
   "xxhash"
 ]

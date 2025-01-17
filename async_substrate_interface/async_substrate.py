@@ -7,12 +7,9 @@ regard to how to instantiate and use it.
 import asyncio
 import inspect
 import logging
-import json
 import random
 import ssl
 import time
-from collections import defaultdict
-from functools import lru_cache
 from hashlib import blake2b
 from typing import (
     Optional,
@@ -25,10 +22,11 @@ from typing import (
 )
 
 import asyncstdlib as a
-from bittensor_wallet import Keypair
+from bittensor_wallet.keypair import Keypair
 from bt_decode import PortableRegistry, decode as decode_by_type_string, MetadataV15
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
-from scalecodec.types import GenericCall, GenericRuntimeCallDefinition
+from scalecodec.types import GenericCall, GenericRuntimeCallDefinition, GenericExtrinsic
+import ujson
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
@@ -36,6 +34,14 @@ from async_substrate_interface.errors import (
     SubstrateRequestException,
     ExtrinsicNotFound,
     BlockNotFound,
+)
+from async_substrate_interface.types import (
+    ScaleObj,
+    RequestManager,
+    Runtime,
+    RuntimeCache,
+    SubstrateMixin,
+    Preprocessed,
 )
 from async_substrate_interface.utils import hex_to_bytes
 from async_substrate_interface.utils.storage import StorageKey
@@ -381,7 +387,7 @@ class AsyncExtrinsicReceipt:
         return self[name]
 
 
-class QueryMapResult:
+class AsyncQueryMapResult:
     def __init__(
         self,
         records: list,
@@ -462,16 +468,6 @@ class QueryMapResult:
         self._buffer = iter(next_page)
         return next(self._buffer)
 
-    def __next__(self):
-        try:
-            return self.event_loop_mgr.run(self.__anext__())
-        except StopAsyncIteration:
-            raise StopIteration
-        except AttributeError:
-            raise AttributeError(
-                "This item is an async iterator. You need to iterate over it with `async for`."
-            )
-
     def __getitem__(self, item):
         return self.records[item]
 
@@ -539,7 +535,7 @@ class Websocket:
             self.id = 100
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        async with self._lock:
+        async with self._lock:  # TODO is this actually what I want to happen?
             self._in_use -= 1
             if self._exit_task is not None:
                 self._exit_task.cancel()
@@ -578,7 +574,8 @@ class Websocket:
 
     async def _recv(self) -> None:
         try:
-            response = json.loads(await self.ws.recv())
+            # TODO consider wrapping this in asyncio.wait_for and use that for the timeout logic
+            response = ujson.loads(await self.ws.recv(decode=False))
             self.last_received = time.time()
             async with self._lock:
                 # note that these 'subscriptions' are all waiting sent messages which have not received
@@ -620,7 +617,7 @@ class Websocket:
         self.id += 1
         # self._open_subscriptions += 1
         try:
-            await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
+            await self.ws.send(ujson.dumps({**payload, **{"id": original_id}}))
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
             async with self._lock:
@@ -668,10 +665,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             ss58_format: the specific SS58 format to use
             type_registry: a dict of custom types
             chain_name: the name of the chain (the result of the rpc request for "system_chain")
-            sync_calls: whether this instance is going to be called through a sync wrapper or plain
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
-            event_loop_mgr: an EventLoopManager instance, only used in the case where `sync_calls` is `True`
             _mock: whether to use mock version of the subtensor interface
 
         """
@@ -704,8 +699,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         self.__metadata_cache = {}
         self.metadata_version_hex = "0x0f000000"  # v15
-        self.query_map_result_cls = QueryMapResult
-        self.extrinsic_receipt_cls = AsyncExtrinsicReceipt
         self.reload_type_registry()
         self._initializing = False
 
@@ -1627,7 +1620,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             ExtrinsicReceiptLike object of the extrinsic
         """
-        return await self.extrinsic_receipt_cls.create_from_extrinsic_identifier(
+        return await AsyncExtrinsicReceipt.create_from_extrinsic_identifier(
             substrate=self, extrinsic_identifier=extrinsic_identifier
         )
 
@@ -1644,7 +1637,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             ExtrinsicReceiptLike of the extrinsic
         """
-        return self.extrinsic_receipt_cls(
+        return AsyncExtrinsicReceipt(
             substrate=self, block_hash=block_hash, extrinsic_hash=extrinsic_hash
         )
 
@@ -1835,7 +1828,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         subscription_id: Union[int, str],
         value_scale_type: Optional[str] = None,
         storage_item: Optional[ScaleType] = None,
-        runtime: Optional[Runtime] = None,
         result_handler: Optional[ResultHandler] = None,
     ) -> tuple[Any, bool]:
         """
@@ -1882,7 +1874,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         payloads: list[dict],
         value_scale_type: Optional[str] = None,
         storage_item: Optional[ScaleType] = None,
-        runtime: Optional[Runtime] = None,
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
     ) -> RequestManager.RequestResults:
@@ -1927,7 +1918,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                 item_id,
                                 value_scale_type,
                                 storage_item,
-                                runtime,
                                 result_handler,
                             )
                             request_manager.add_response(
@@ -1953,7 +1943,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             payloads,
                             value_scale_type,
                             storage_item,
-                            runtime,
                             result_handler,
                             attempt + 1,
                         )
@@ -2010,13 +1999,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 params + [block_hash] if block_hash else params,
             )
         ]
-        runtime = Runtime(
-            self.chain,
-            self.runtime_config,
-            self.__metadata,
-            self.type_registry,
-        )
-        result = await self._make_rpc_request(payloads, runtime=runtime)
+        result = await self._make_rpc_request(payloads)
         if "error" in result[payload_id][0]:
             if (
                 "Failed to get runtime version"
@@ -2046,13 +2029,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     "chain_getHead",
                     [],
                 )
-            ],
-            runtime=Runtime(
-                self.chain,
-                self.runtime_config,
-                self.__metadata,
-                self.type_registry,
-            ),
+            ]
         )
         self.last_block_hash = result["rpc_request"][0]["result"]
         return result["rpc_request"][0]["result"]
@@ -2115,9 +2092,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if block_hash:
             self.last_block_hash = block_hash
         if not self.__metadata or block_hash:
-            runtime = await self.init_runtime(block_hash=block_hash)
-        else:
-            runtime = self.runtime
+            await self.init_runtime(block_hash=block_hash)
         preprocessed: tuple[Preprocessed] = await asyncio.gather(
             *[
                 self._preprocess([x], block_hash, storage_function, module)
@@ -2133,7 +2108,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         storage_item = preprocessed[0].storage_item
 
         responses = await self._make_rpc_request(
-            all_info, value_scale_type, storage_item, runtime
+            all_info, value_scale_type, storage_item
         )
         return {
             param: responses[p.queryable][0] for (param, p) in zip(params, preprocessed)
@@ -2829,9 +2804,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if block_hash:
             self.last_block_hash = block_hash
         if not self.__metadata or block_hash:
-            runtime = await self.init_runtime(block_hash=block_hash)
-        else:
-            runtime = self.runtime
+            await self.init_runtime(block_hash=block_hash)
         preprocessed: Preprocessed = await self._preprocess(
             params, block_hash, storage_function, module, raw_storage_key
         )
@@ -2847,7 +2820,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
             payload,
             value_scale_type,
             storage_item,
-            runtime,
             result_handler=subscription_handler,
         )
         result = responses[preprocessed.queryable][0]
@@ -2866,7 +2838,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         page_size: int = 100,
         ignore_decoding_errors: bool = False,
         reuse_block_hash: bool = False,
-    ) -> QueryMapResult:
+    ) -> AsyncQueryMapResult:
         """
         Iterates over all key-pairs located at the given module and storage_function. The storage
         item must be a map.
@@ -2898,7 +2870,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                               if supplying a block_hash
 
         Returns:
-             QueryMapResult object
+             AsyncQueryMapResult object
         """
         hex_to_bytes_ = hex_to_bytes
         params = params or []
@@ -3029,7 +3001,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             raise
                         item_value = None
                     result.append([item_key, item_value])
-        return self.query_map_result_cls(
+        return AsyncQueryMapResult(
             records=result,
             page_size=page_size,
             module=module,
@@ -3047,7 +3019,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         extrinsic: GenericExtrinsic,
         wait_for_inclusion: bool = False,
         wait_for_finalization: bool = False,
-    ) -> Union["AsyncExtrinsicReceipt", "ExtrinsicReceipt"]:
+    ) -> "AsyncExtrinsicReceipt":
         """
         Submit an extrinsic to the connected node, with the possibility to wait until the extrinsic is included
          in a block and/or the block is finalized. The receipt returned provided information about the block and
@@ -3136,7 +3108,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             # Also, this will be a multipart response, so maybe should change to everything after the first response?
             # The following code implies this will be a single response after the initial subscription id.
-            result = self.extrinsic_receipt_cls(
+            result = AsyncExtrinsicReceipt(
                 substrate=self,
                 extrinsic_hash=response["extrinsic_hash"],
                 block_hash=response["block_hash"],
@@ -3151,7 +3123,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if "result" not in response:
                 raise SubstrateRequestException(response.get("error"))
 
-            result = self.extrinsic_receipt_cls(
+            result = AsyncExtrinsicReceipt(
                 substrate=self, extrinsic_hash=response["result"]
             )
 

@@ -1,6 +1,5 @@
 import logging
 import random
-import time
 from functools import lru_cache
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
@@ -9,6 +8,8 @@ from bittensor_wallet.keypair import Keypair
 from bt_decode import PortableRegistry, decode as decode_by_type_string, MetadataV15
 from scalecodec import GenericExtrinsic, GenericCall, GenericRuntimeCallDefinition
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
+import ujson
+from websockets.sync.client import connect, ClientConnection
 
 from async_substrate_interface.errors import (
     ExtrinsicNotFound,
@@ -447,12 +448,6 @@ class QueryMapResult:
         return self.records[item]
 
 
-class SyncWebsocket:
-    # TODO change this
-    def __init__(self, websocket: "Websocket"):
-        self._ws = websocket
-
-
 class SubstrateInterface(SubstrateMixin):
     def __init__(
         self,
@@ -487,13 +482,6 @@ class SubstrateInterface(SubstrateMixin):
         self.chain_endpoint = url
         self.url = url
         self.__chain = chain_name
-        self.ws = Websocket(  # TODO change this
-            url,
-            options={
-                "max_size": 2**32,
-                "write_limit": 2**16,
-            },
-        )
         self.config = {
             "use_remote_preset": use_remote_preset,
             "auto_discover": auto_discover,
@@ -563,6 +551,16 @@ class SubstrateInterface(SubstrateMixin):
         if self.__name is None:
             self.__name = self.rpc_request("system_name", []).get("result")
         return self.__name
+
+    @property
+    def ws(self) -> ClientConnection:
+        return connect(
+            self.chain_endpoint,
+            options={
+                "max_size": 2**32,
+                "write_limit": 2**16,
+            },
+        )
 
     def get_storage_item(self, module: str, storage_function: str):
         if not self.__metadata:
@@ -1167,12 +1165,9 @@ class SubstrateInterface(SubstrateMixin):
                     if subscription_result is not None:
                         reached = True
                         # Handler returned end result: unsubscribe from further updates
-                        # TODO this logic needs to change
-                        self._forgettable_task = asyncio.create_task(
-                            self.rpc_request(
-                                f"chain_unsubscribe{rpc_method_prefix}Heads",
-                                [subscription_id],
-                            )
+                        self.rpc_request(
+                            f"chain_unsubscribe{rpc_method_prefix}Heads",
+                            [subscription_id],
                         )
 
                 return subscription_result, reached
@@ -1587,7 +1582,6 @@ class SubstrateInterface(SubstrateMixin):
         subscription_id: Union[int, str],
         value_scale_type: Optional[str] = None,
         storage_item: Optional[ScaleType] = None,
-        runtime: Optional[Runtime] = None,
         result_handler: Optional[ResultHandler] = None,
     ) -> tuple[Any, bool]:
         """
@@ -1634,33 +1628,50 @@ class SubstrateInterface(SubstrateMixin):
         payloads: list[dict],
         value_scale_type: Optional[str] = None,
         storage_item: Optional[ScaleType] = None,
-        runtime: Optional[Runtime] = None,
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
     ) -> RequestManager.RequestResults:
         request_manager = RequestManager(payloads)
-
+        _received = {}
         subscription_added = False
 
-        # TODO add this logic
         with self.ws as ws:
-            if len(payloads) > 1:
-                send_coroutines = await asyncio.gather(
-                    *[ws.send(item["payload"]) for item in payloads]
-                )
-                for item_id, item in zip(send_coroutines, payloads):
-                    request_manager.add_request(item_id, item["id"])
-            else:
-                item = payloads[0]
-                item_id = ws.send(item["payload"])
-                request_manager.add_request(item_id, item["id"])
+            item_id = 0
+            for payload in payloads:
+                item_id += 1
+                ws.send(ujson.dumps(payload["payload"]))
+                request_manager.add_request(item_id, payload["id"])
 
             while True:
+                try:
+                    response = ujson.loads(
+                        ws.recv(timeout=self.retry_timeout, decode=False)
+                    )
+                except TimeoutError:
+                    if attempt >= self.max_retries:
+                        logging.warning(
+                            f"Timed out waiting for RPC requests {attempt} times. Exiting."
+                        )
+                        raise SubstrateRequestException("Max retries reached.")
+                    else:
+                        return self._make_rpc_request(
+                            payloads,
+                            value_scale_type,
+                            storage_item,
+                            result_handler,
+                            attempt + 1,
+                        )
+                if "id" in response:
+                    _received[response["id"]] = response
+                elif "params" in response:
+                    _received[response["params"]["subscription"]] = response
+                else:
+                    raise SubstrateRequestException(response)
                 for item_id in list(request_manager.response_map.keys()):
                     if item_id not in request_manager.responses or isinstance(
                         result_handler, Callable
                     ):
-                        if response := ws.retrieve(item_id):
+                        if response := _received.pop(item_id):
                             if (
                                 isinstance(result_handler, Callable)
                                 and not subscription_added
@@ -1679,7 +1690,6 @@ class SubstrateInterface(SubstrateMixin):
                                 item_id,
                                 value_scale_type,
                                 storage_item,
-                                runtime,
                                 result_handler,
                             )
                             request_manager.add_response(
@@ -1688,27 +1698,6 @@ class SubstrateInterface(SubstrateMixin):
 
                 if request_manager.is_complete:
                     break
-                if time.time() - self.ws.last_received >= self.retry_timeout:
-                    if attempt >= self.max_retries:
-                        logging.warning(
-                            f"Timed out waiting for RPC requests {attempt} times. Exiting."
-                        )
-                        raise SubstrateRequestException("Max retries reached.")
-                    else:
-                        self.ws.last_received = time.time()
-                        self.ws.connect(force=True)
-                        logging.error(
-                            f"Timed out waiting for RPC requests. "
-                            f"Retrying attempt {attempt + 1} of {self.max_retries}"
-                        )
-                        return self._make_rpc_request(
-                            payloads,
-                            value_scale_type,
-                            storage_item,
-                            runtime,
-                            result_handler,
-                            attempt + 1,
-                        )
 
         return request_manager.get_results()
 
@@ -1763,13 +1752,7 @@ class SubstrateInterface(SubstrateMixin):
                 params + [block_hash] if block_hash else params,
             )
         ]
-        runtime = Runtime(
-            self.chain,
-            self.runtime_config,
-            self.__metadata,
-            self.type_registry,
-        )
-        result = self._make_rpc_request(payloads, runtime=runtime)
+        result = self._make_rpc_request(payloads)
         if "error" in result[payload_id][0]:
             if (
                 "Failed to get runtime version"
@@ -1797,13 +1780,7 @@ class SubstrateInterface(SubstrateMixin):
                     "chain_getHead",
                     [],
                 )
-            ],
-            runtime=Runtime(
-                self.chain,
-                self.runtime_config,
-                self.__metadata,
-                self.type_registry,
-            ),
+            ]
         )
         self.last_block_hash = result["rpc_request"][0]["result"]
         return result["rpc_request"][0]["result"]
@@ -1863,9 +1840,7 @@ class SubstrateInterface(SubstrateMixin):
         if block_hash:
             self.last_block_hash = block_hash
         if not self.__metadata or block_hash:
-            runtime = self.init_runtime(block_hash=block_hash)
-        else:
-            runtime = self.runtime
+            self.init_runtime(block_hash=block_hash)
 
         preprocessed: tuple[Preprocessed] = [
             self._preprocess([x], block_hash, storage_function, module) for x in params
@@ -1878,9 +1853,7 @@ class SubstrateInterface(SubstrateMixin):
         value_scale_type = preprocessed[0].value_scale_type
         storage_item = preprocessed[0].storage_item
 
-        responses = self._make_rpc_request(
-            all_info, value_scale_type, storage_item, runtime
-        )
+        responses = self._make_rpc_request(all_info, value_scale_type, storage_item)
         return {
             param: responses[p.queryable][0] for (param, p) in zip(params, preprocessed)
         }
@@ -2563,9 +2536,7 @@ class SubstrateInterface(SubstrateMixin):
         if block_hash:
             self.last_block_hash = block_hash
         if not self.__metadata or block_hash:
-            runtime = self.init_runtime(block_hash=block_hash)
-        else:
-            runtime = self.runtime
+            self.init_runtime(block_hash=block_hash)
         preprocessed: Preprocessed = self._preprocess(
             params, block_hash, storage_function, module, raw_storage_key
         )
@@ -2581,7 +2552,6 @@ class SubstrateInterface(SubstrateMixin):
             payload,
             value_scale_type,
             storage_item,
-            runtime,
             result_handler=subscription_handler,
         )
         result = responses[preprocessed.queryable][0]
@@ -2825,9 +2795,7 @@ class SubstrateInterface(SubstrateMixin):
                 if "finalized" in message_result and wait_for_finalization:
                     # Created as a task because we don't actually care about the result
                     # TODO change this logic
-                    self._forgettable_task = asyncio.create_task(
-                        self.rpc_request("author_unwatchExtrinsic", [subscription_id])
-                    )
+                    self.rpc_request("author_unwatchExtrinsic", [subscription_id])
                     return {
                         "block_hash": message_result["finalized"],
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
@@ -2838,11 +2806,7 @@ class SubstrateInterface(SubstrateMixin):
                     and wait_for_inclusion
                     and not wait_for_finalization
                 ):
-                    # Created as a task because we don't actually care about the result
-                    # TODO change this logic
-                    self._forgettable_task = asyncio.create_task(
-                        self.rpc_request("author_unwatchExtrinsic", [subscription_id])
-                    )
+                    self.rpc_request("author_unwatchExtrinsic", [subscription_id])
                     return {
                         "block_hash": message_result["inblock"],
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),

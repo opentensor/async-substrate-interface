@@ -1,7 +1,15 @@
-from .substrate_interface import (
-    AsyncExtrinsicReceipt,
-    ExtrinsicReceipt,
+from .async_substrate import (
+    AsyncQueryMapResult,
     AsyncSubstrateInterface,
-    SubstrateInterface,
-    QueryMapResult,
+    AsyncExtrinsicReceipt,
 )
+from .sync_substrate import QueryMapResult, SubstrateInterface, ExtrinsicReceipt
+
+__all__ = [
+    AsyncQueryMapResult,
+    AsyncSubstrateInterface,
+    AsyncExtrinsicReceipt,
+    QueryMapResult,
+    SubstrateInterface,
+    ExtrinsicReceipt,
+]
