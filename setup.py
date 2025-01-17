@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="async-substrate-interface",
-    version="1.0.0rc2",
+    version="1.0.0rc3",
     description="Asyncio library for interacting with substrate.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
