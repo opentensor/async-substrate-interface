@@ -1336,7 +1336,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                         ]
 
                                         block_author = validator_set[rank_validator]
-                                        block_data["author"] = block_author.value
+                                        block_data["author"] = block_author
 
                                     elif engine == b"aura":
                                         aura_predigest = (
@@ -1355,7 +1355,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                         ] % len(validator_set)
 
                                         block_author = validator_set[rank_validator]
-                                        block_data["author"] = block_author.value
+                                        block_data["author"] = block_author
                                     else:
                                         raise NotImplementedError(
                                             f"Cannot extract author for engine {log_digest.value['PreRuntime'][0]}"
@@ -1377,7 +1377,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                         block_author = validator_set.elements[
                                             rank_validator
                                         ]
-                                        block_data["author"] = block_author.value
+                                        block_data["author"] = block_author
                                     else:
                                         raise NotImplementedError(
                                             f"Cannot extract author for engine"

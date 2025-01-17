@@ -9,7 +9,7 @@ from bt_decode import PortableRegistry, decode as decode_by_type_string, Metadat
 from scalecodec import GenericExtrinsic, GenericCall, GenericRuntimeCallDefinition
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
 import ujson
-from websockets.sync.client import connect, ClientConnection
+from websockets.sync.client import connect
 
 from async_substrate_interface.errors import (
     ExtrinsicNotFound,
@@ -502,7 +502,8 @@ class SubstrateInterface(SubstrateMixin):
         self._metadata_cache = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
-        self.initialize()
+        if not _mock:
+            self.initialize()
 
     def __enter__(self):
         self.initialize()
@@ -1090,7 +1091,7 @@ class SubstrateInterface(SubstrateMixin):
                                         ]
 
                                         block_author = validator_set[rank_validator]
-                                        block_data["author"] = block_author.value
+                                        block_data["author"] = block_author
 
                                     elif engine == b"aura":
                                         aura_predigest = (
@@ -1109,7 +1110,7 @@ class SubstrateInterface(SubstrateMixin):
                                         ] % len(validator_set)
 
                                         block_author = validator_set[rank_validator]
-                                        block_data["author"] = block_author.value
+                                        block_data["author"] = block_author
                                     else:
                                         raise NotImplementedError(
                                             f"Cannot extract author for engine {log_digest.value['PreRuntime'][0]}"
@@ -1131,7 +1132,7 @@ class SubstrateInterface(SubstrateMixin):
                                         block_author = validator_set.elements[
                                             rank_validator
                                         ]
-                                        block_data["author"] = block_author.value
+                                        block_data["author"] = block_author
                                     else:
                                         raise NotImplementedError(
                                             f"Cannot extract author for engine"
@@ -1775,6 +1776,7 @@ class SubstrateInterface(SubstrateMixin):
                 )
             ]
         )
+        print(1779, result)
         self.last_block_hash = result["rpc_request"][0]["result"]
         return result["rpc_request"][0]["result"]
 
@@ -2548,7 +2550,9 @@ class SubstrateInterface(SubstrateMixin):
             result_handler=subscription_handler,
         )
         result = responses[preprocessed.queryable][0]
+        print(2552, type(result))
         if isinstance(result, (list, tuple, int, float)):
+            print("returning ScaleObj")
             return ScaleObj(result)
         return result
 
