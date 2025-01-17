@@ -1077,6 +1077,7 @@ class AsyncSubstrateInterface:
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True
         )
+        self._nonces = {}
         self.__metadata_cache = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         if sync_calls is True:
@@ -3165,7 +3166,7 @@ class AsyncSubstrateInterface:
 
         # Retrieve nonce
         if nonce is None:
-            nonce = await self.get_account_nonce(keypair.ss58_address) or 0
+            nonce = await self.get_account_next_index(keypair.ss58_address) or 0
 
         # Process era
         if era is None:
@@ -3357,8 +3358,14 @@ class AsyncSubstrateInterface:
             # Unlikely to happen, this is a common RPC method
             raise Exception("account_nextIndex not supported")
 
-        nonce_obj = await self.rpc_request("account_nextIndex", [account_address])
-        return nonce_obj["result"]
+        async with self._lock:
+            if self.nonces.get(account_address) is None:
+                nonce_obj = await self.rpc_request("account_nextIndex", [account_address])
+                self.nonces[account_address] = nonce_obj["result"]
+            else:
+                self.nonces[account_address] += 1
+        print('nonces', self.nonces)
+        return self.nonces[account_address]
 
     async def get_metadata_constant(self, module_name, constant_name, block_hash=None):
         """
