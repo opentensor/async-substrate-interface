@@ -3167,7 +3167,7 @@ class AsyncSubstrateInterface:
 
         # Retrieve nonce
         if nonce is None:
-            nonce = await self.get_account_next_index(keypair.ss58_address) or 0
+            nonce = await self.get_account_nonce(keypair.ss58_address) or 0
 
         # Process era
         if era is None:
@@ -3347,7 +3347,9 @@ class AsyncSubstrateInterface:
 
     async def get_account_next_index(self, account_address: str) -> int:
         """
-        Returns next index for the given account address, taking into account the transaction pool.
+        This method maintains a cache of nonces for each account ss58address.
+        Upon subsequent calls, it will return the cached nonce + 1 instead of fetching from the chain.
+        This allows for correct nonce management in-case of async context when gathering co-routines. 
 
         Args:
             account_address: SS58 formatted address
