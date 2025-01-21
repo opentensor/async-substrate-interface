@@ -1718,16 +1718,18 @@ class SubstrateInterface(SubstrateMixin):
         self,
         method: str,
         params: Optional[list],
+        result_handler: Optional[Callable] = None,
         block_hash: Optional[str] = None,
         reuse_block_hash: bool = False,
     ) -> Any:
         """
-        Makes an RPC request to the subtensor. Use this only if `self.query`` and `self.query_multiple` and
+        Makes an RPC request to the subtensor. Use this only if `self.query` and `self.query_multiple` and
         `self.query_map` do not meet your needs.
 
         Args:
             method: str the method in the RPC request
             params: list of the params in the RPC request
+            result_handler: Callback function that processes the result received from the node
             block_hash: the hash of the block — only supply this if not supplying the block
                 hash in the params, and not reusing the block hash
             reuse_block_hash: whether to reuse the block hash in the params — only mark as True
@@ -1746,7 +1748,7 @@ class SubstrateInterface(SubstrateMixin):
                 params + [block_hash] if block_hash else params,
             )
         ]
-        result = self._make_rpc_request(payloads)
+        result = self._make_rpc_request(payloads, result_handler=result_handler)
         if "error" in result[payload_id][0]:
             if (
                 "Failed to get runtime version"
@@ -1756,7 +1758,9 @@ class SubstrateInterface(SubstrateMixin):
                     "Failed to get runtime. Re-fetching from chain, and retrying."
                 )
                 self.init_runtime()
-                return self.rpc_request(method, params, block_hash, reuse_block_hash)
+                return self.rpc_request(
+                    method, params, result_handler, block_hash, reuse_block_hash
+                )
             raise SubstrateRequestException(result[payload_id][0]["error"]["message"])
         if "result" in result[payload_id][0]:
             return result[payload_id][0]
@@ -1776,7 +1780,6 @@ class SubstrateInterface(SubstrateMixin):
                 )
             ]
         )
-        print(1779, result)
         self.last_block_hash = result["rpc_request"][0]["result"]
         return result["rpc_request"][0]["result"]
 
@@ -2577,12 +2580,12 @@ class SubstrateInterface(SubstrateMixin):
         ```
         result = substrate.query_map('System', 'Account', max_results=100)
 
-        async for account, account_info in result:
+        for account, account_info in result:
             print(f"Free balance of account '{account.value}': {account_info.value['data']['free']}")
         ```
 
         Note: it is important that you do not use `for x in result.records`, as this will sidestep possible
-        pagination. You must do `async for x in result`.
+        pagination. You must do `for x in result`.
 
         Args:
             module: The module name in the metadata, e.g. System or Balances.

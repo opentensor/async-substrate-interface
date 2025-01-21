@@ -1971,16 +1971,18 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self,
         method: str,
         params: Optional[list],
+        result_handler: Optional[ResultHandler] = None,
         block_hash: Optional[str] = None,
         reuse_block_hash: bool = False,
     ) -> Any:
         """
-        Makes an RPC request to the subtensor. Use this only if `self.query`` and `self.query_multiple` and
+        Makes an RPC request to the subtensor. Use this only if `self.query` and `self.query_multiple` and
         `self.query_map` do not meet your needs.
 
         Args:
             method: str the method in the RPC request
             params: list of the params in the RPC request
+            result_handler: ResultHandler
             block_hash: the hash of the block — only supply this if not supplying the block
                 hash in the params, and not reusing the block hash
             reuse_block_hash: whether to reuse the block hash in the params — only mark as True
@@ -1999,7 +2001,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 params + [block_hash] if block_hash else params,
             )
         ]
-        result = await self._make_rpc_request(payloads)
+        result = await self._make_rpc_request(payloads, result_handler=result_handler)
         if "error" in result[payload_id][0]:
             if (
                 "Failed to get runtime version"
@@ -2010,7 +2012,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 )
                 await self.init_runtime()
                 return await self.rpc_request(
-                    method, params, block_hash, reuse_block_hash
+                    method, params, result_handler, block_hash, reuse_block_hash
                 )
             raise SubstrateRequestException(result[payload_id][0]["error"]["message"])
         if "result" in result[payload_id][0]:
