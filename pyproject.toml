@@ -11,7 +11,8 @@ dependencies = [
   "asyncstdlib~=3.13.0",
   "bittensor-wallet>=2.1.3",
   "bt-decode==0.4.0",
-  "scalecodec==1.2.11",
+  "scalecodec~=1.2.11",
+  "ujson",
   "websockets>=14.1",
   "xxhash"
 ]
