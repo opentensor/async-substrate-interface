@@ -8,7 +8,6 @@ from bittensor_wallet.keypair import Keypair
 from bt_decode import PortableRegistry, decode as decode_by_type_string, MetadataV15
 from scalecodec import GenericExtrinsic, GenericCall, GenericRuntimeCallDefinition
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
-import ujson
 from websockets.sync.client import connect
 
 from async_substrate_interface.errors import (
@@ -24,7 +23,7 @@ from async_substrate_interface.types import (
     Preprocessed,
     ScaleObj,
 )
-from async_substrate_interface.utils import hex_to_bytes
+from async_substrate_interface.utils import hex_to_bytes, json
 from async_substrate_interface.utils.storage import StorageKey
 
 
@@ -1633,12 +1632,12 @@ class SubstrateInterface(SubstrateMixin):
             item_id = 0
             for payload in payloads:
                 item_id += 1
-                ws.send(ujson.dumps({**payload["payload"], **{"id": item_id}}))
+                ws.send(json.dumps({**payload["payload"], **{"id": item_id}}))
                 request_manager.add_request(item_id, payload["id"])
 
             while True:
                 try:
-                    response = ujson.loads(
+                    response = json.loads(
                         ws.recv(timeout=self.retry_timeout, decode=False)
                     )
                 except TimeoutError:

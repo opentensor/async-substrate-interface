@@ -26,7 +26,6 @@ from bittensor_wallet.keypair import Keypair
 from bt_decode import PortableRegistry, decode as decode_by_type_string, MetadataV15
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.types import GenericCall, GenericRuntimeCallDefinition, GenericExtrinsic
-import ujson
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
@@ -43,7 +42,7 @@ from async_substrate_interface.types import (
     SubstrateMixin,
     Preprocessed,
 )
-from async_substrate_interface.utils import hex_to_bytes
+from async_substrate_interface.utils import hex_to_bytes, json
 from async_substrate_interface.utils.storage import StorageKey
 
 if TYPE_CHECKING:
@@ -575,7 +574,7 @@ class Websocket:
     async def _recv(self) -> None:
         try:
             # TODO consider wrapping this in asyncio.wait_for and use that for the timeout logic
-            response = ujson.loads(await self.ws.recv(decode=False))
+            response = json.loads(await self.ws.recv(decode=False))
             self.last_received = time.time()
             async with self._lock:
                 # note that these 'subscriptions' are all waiting sent messages which have not received
@@ -617,7 +616,7 @@ class Websocket:
         self.id += 1
         # self._open_subscriptions += 1
         try:
-            await self.ws.send(ujson.dumps({**payload, **{"id": original_id}}))
+            await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
             async with self._lock:
