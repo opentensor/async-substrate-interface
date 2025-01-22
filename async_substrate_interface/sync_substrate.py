@@ -2552,9 +2552,7 @@ class SubstrateInterface(SubstrateMixin):
             result_handler=subscription_handler,
         )
         result = responses[preprocessed.queryable][0]
-        print(2552, type(result))
         if isinstance(result, (list, tuple, int, float)):
-            print("returning ScaleObj")
             return ScaleObj(result)
         return result
 
