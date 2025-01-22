@@ -437,7 +437,7 @@ class QueryMapResult:
         # If we cannot retrieve the next page
         if not next_page:
             self.loading_complete = True
-            raise StopAsyncIteration
+            raise StopIteration
 
         # Update the buffer with the newly fetched records
         self._buffer = iter(next_page)
