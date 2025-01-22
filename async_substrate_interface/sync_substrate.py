@@ -392,7 +392,7 @@ class QueryMapResult:
         self.loading_complete = False
         self._buffer = iter(self.records)  # Initialize the buffer with initial records
 
-    async def retrieve_next_page(self, start_key) -> list:
+    def retrieve_next_page(self, start_key) -> list:
         result = self.substrate.query_map(
             module=self.module,
             storage_function=self.storage_function,
@@ -1322,7 +1322,7 @@ class SubstrateInterface(SubstrateMixin):
         Example:
 
         ```
-        async def subscription_handler(obj, update_nr, subscription_id):
+        def subscription_handler(obj, update_nr, subscription_id):
 
             print(f"New block #{obj['header']['number']} produced by {obj['header']['author']}")
 
