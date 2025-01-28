@@ -1,6 +1,6 @@
 [project]
 name = "async-substrate-interface"
-version = "1.0.0rc4"
+version = "1.0.0rc5"
 description = "Asyncio library for interacting with substrate. Mostly API-compatible with py-substrate-interface"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -11,7 +11,7 @@ dependencies = [
   "asyncstdlib~=3.13.0",
   "bittensor-wallet>=2.1.3",
   "bt-decode==0.4.0",
-  "scalecodec==1.2.11",
+  "scalecodec~=1.2.11",
   "websockets>=14.1",
   "xxhash"
 ]
