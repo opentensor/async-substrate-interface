@@ -1,33 +1,19 @@
 import unittest.mock
 
-import pytest
 import scalecodec.base
-from websockets.exceptions import InvalidURI
 
-from async_substrate_interface.async_substrate import AsyncSubstrateInterface
-
-
-@pytest.mark.asyncio
-async def test_invalid_url_raises_exception():
-    """Test that invalid URI raises an InvalidURI exception."""
-    async_substrate = AsyncSubstrateInterface("non_existent_entry_point")
-    with pytest.raises(InvalidURI):
-        await async_substrate.initialize()
-
-    with pytest.raises(InvalidURI):
-        async with AsyncSubstrateInterface(
-            "non_existent_entry_point"
-        ) as async_substrate:
-            pass
+from async_substrate_interface.sync_substrate import SubstrateInterface
 
 
-@pytest.mark.asyncio
-async def test_runtime_call(monkeypatch):
+def test_runtime_call(monkeypatch):
     monkeypatch.setattr(
-        "async_substrate_interface.async_substrate.Websocket", unittest.mock.Mock()
+        "async_substrate_interface.sync_substrate.connect", unittest.mock.MagicMock()
     )
 
-    substrate = AsyncSubstrateInterface("ws://localhost")
+    substrate = SubstrateInterface(
+        "ws://localhost",
+        _mock=True,
+    )
     substrate._metadata = unittest.mock.Mock()
     substrate.metadata_v15 = unittest.mock.Mock(
         **{
@@ -47,14 +33,14 @@ async def test_runtime_call(monkeypatch):
             },
         }
     )
-    substrate.rpc_request = unittest.mock.AsyncMock(
+    substrate.rpc_request = unittest.mock.Mock(
         return_value={
             "result": "0x00",
         },
     )
-    substrate.decode_scale = unittest.mock.AsyncMock()
+    substrate.decode_scale = unittest.mock.Mock()
 
-    result = await substrate.runtime_call(
+    result = substrate.runtime_call(
         "SubstrateApi",
         "SubstrateMethod",
     )
