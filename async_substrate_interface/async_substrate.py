@@ -699,7 +699,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True
         )
-        self._metadata_cache = {}
+        self.__metadata_cache = {}
+        self._nonces = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
         self._initializing = False
@@ -2578,7 +2579,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def get_account_next_index(self, account_address: str) -> int:
         """
-        Returns next index for the given account address, taking into account the transaction pool.
+        This method maintains a cache of nonces for each account ss58address.
+        Upon subsequent calls, it will return the cached nonce + 1 instead of fetching from the chain.
+        This allows for correct nonce management in-case of async context when gathering co-routines. 
 
         Args:
             account_address: SS58 formatted address
@@ -2590,8 +2593,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
             # Unlikely to happen, this is a common RPC method
             raise Exception("account_nextIndex not supported")
 
-        nonce_obj = await self.rpc_request("account_nextIndex", [account_address])
-        return nonce_obj["result"]
+        async with self._lock:
+            if self._nonces.get(account_address) is None:
+                nonce_obj = await self.rpc_request("account_nextIndex", [account_address])
+                self._nonces[account_address] = nonce_obj["result"]
+            else:
+                self._nonces[account_address] += 1
+        return self._nonces[account_address]
 
     async def get_metadata_constant(self, module_name, constant_name, block_hash=None):
         """
