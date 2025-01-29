@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0rc7 /2025-01-29
+
+## What's Changed
+* feat: use bt_decode in runtime_call by @zyzniewski-reef in https://github.com/opentensor/async-substrate-interface/pull/15
+* Move logic to mixin + fix tests by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/18
+* Fix decode scale by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/19
+* Backmerge main to staging rc5 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/20
+
 ## 1.0.0rc6 /2025-01-28
 
 ## What's Changed
