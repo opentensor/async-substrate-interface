@@ -31,7 +31,7 @@ from bt_decode import (
     encode as encode_by_type_string,
 )
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
-from scalecodec.types import (    
+from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
     GenericRuntimeCallDefinition,
@@ -710,7 +710,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True
         )
-        self.__metadata_cache = {}
+        self._metadata_cache = {}
         self._nonces = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
@@ -2614,7 +2614,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         This method maintains a cache of nonces for each account ss58address.
         Upon subsequent calls, it will return the cached nonce + 1 instead of fetching from the chain.
-        This allows for correct nonce management in-case of async context when gathering co-routines. 
+        This allows for correct nonce management in-case of async context when gathering co-routines.
 
         Args:
             account_address: SS58 formatted address
@@ -2628,7 +2628,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         async with self._lock:
             if self._nonces.get(account_address) is None:
-                nonce_obj = await self.rpc_request("account_nextIndex", [account_address])
+                nonce_obj = await self.rpc_request(
+                    "account_nextIndex", [account_address]
+                )
                 self._nonces[account_address] = nonce_obj["result"]
             else:
                 self._nonces[account_address] += 1
