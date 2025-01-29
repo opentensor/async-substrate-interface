@@ -1,8 +1,7 @@
 import unittest.mock
 
-import scalecodec.base
-
 from async_substrate_interface.sync_substrate import SubstrateInterface
+from async_substrate_interface.types import ScaleObj
 
 
 def test_runtime_call(monkeypatch):
@@ -45,7 +44,7 @@ def test_runtime_call(monkeypatch):
         "SubstrateMethod",
     )
 
-    assert isinstance(result, scalecodec.base.ScaleType)
+    assert isinstance(result, ScaleObj)
     assert result.value is substrate.decode_scale.return_value
 
     substrate.rpc_request.assert_called_once_with(
