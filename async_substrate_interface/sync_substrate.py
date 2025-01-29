@@ -1956,9 +1956,7 @@ class SubstrateInterface(SubstrateMixin):
                 result.append(
                     (
                         storage_key,
-                        self.decode_scale(
-                            storage_key.value_scale_type, change_data
-                        ),
+                        self.decode_scale(storage_key.value_scale_type, change_data),
                     ),
                 )
 
