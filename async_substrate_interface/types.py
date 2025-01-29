@@ -316,6 +316,9 @@ class ScaleObj:
     def __len__(self):
         return len(self.value)
 
+    def process(self):
+        pass
+
     def serialize(self):
         return self.value
 
