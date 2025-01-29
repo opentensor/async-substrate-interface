@@ -5,8 +5,14 @@ from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 
 from bittensor_wallet.keypair import Keypair
-from bt_decode import PortableRegistry, decode as decode_by_type_string, MetadataV15
-from scalecodec import GenericExtrinsic, GenericCall, GenericRuntimeCallDefinition
+from bittensor_wallet.utils import SS58_FORMAT
+from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
+from scalecodec import (
+    GenericCall,
+    GenericExtrinsic,
+    GenericRuntimeCallDefinition,
+    ss58_decode,
+)
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
 from websockets.sync.client import connect
 
@@ -582,8 +588,10 @@ class SubstrateInterface(SubstrateMixin):
         )
         metadata_option_hex_str = metadata_rpc_result["result"]
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
-        metadata_v15 = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
-        self.registry = PortableRegistry.from_metadata_v15(metadata_v15)
+        self.metadata_v15 = MetadataV15.decode_from_metadata_option(
+            metadata_option_bytes
+        )
+        self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
 
     def decode_scale(
         self,
@@ -608,31 +616,15 @@ class SubstrateInterface(SubstrateMixin):
         if scale_bytes == b"\x00":
             obj = None
         else:
-            obj = decode_by_type_string(type_string, self.registry, scale_bytes)
+            if type_string == "scale_info::0":  # Is an AccountId
+                # Decode AccountId bytes to SS58 address
+                return bytes.fromhex(ss58_decode(scale_bytes, SS58_FORMAT))
+            else:
+                obj = decode_by_type_string(type_string, self.registry, scale_bytes)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
             return obj
-
-    def encode_scale(self, type_string, value, block_hash=None) -> ScaleBytes:
-        """
-        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string
-
-        Args:
-            type_string: the type string of the SCALE object for decoding
-            value: value to encode
-            block_hash: the hash of the blockchain block whose metadata to use for encoding
-
-        Returns:
-            ScaleBytes encoded value
-        """
-        if not self._metadata or block_hash:
-            self.init_runtime(block_hash=block_hash)
-
-        obj = self.runtime_config.create_scale_object(
-            type_string=type_string, metadata=self._metadata
-        )
-        return obj.encode(value)
 
     def _first_initialize_runtime(self):
         """
@@ -1910,7 +1902,7 @@ class SubstrateInterface(SubstrateMixin):
                     (
                         storage_key,
                         self.decode_scale(storage_key.value_scale_type, change_data),
-                    )
+                    ),
                 )
 
         return result
@@ -2236,56 +2228,43 @@ class SubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
-                "methods"
-            ][method]
-            runtime_api_types = self.runtime_config.type_registry["runtime_api"][
-                api
-            ].get("types", {})
+            metadata_v15 = self.metadata_v15.value()
+            apis = {entry["name"]: entry for entry in metadata_v15["apis"]}
+            api_entry = apis[api]
+            methods = {entry["name"]: entry for entry in api_entry["methods"]}
+            runtime_call_def = methods[method]
         except KeyError:
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
 
-        if isinstance(params, list) and len(params) != len(runtime_call_def["params"]):
+        if isinstance(params, list) and len(params) != len(runtime_call_def["inputs"]):
             raise ValueError(
                 f"Number of parameter provided ({len(params)}) does not "
-                f"match definition {len(runtime_call_def['params'])}"
+                f"match definition {len(runtime_call_def['inputs'])}"
             )
 
-        # Add runtime API types to registry
-        self.runtime_config.update_type_registry_types(runtime_api_types)
-        runtime = Runtime(
-            self.chain,
-            self.runtime_config,
-            self._metadata,
-            self.type_registry,
-        )
-
         # Encode params
-        param_data = ScaleBytes(bytes())
-        for idx, param in enumerate(runtime_call_def["params"]):
-            scale_obj = runtime.runtime_config.create_scale_object(param["type"])
+        param_data = b""
+        for idx, param in enumerate(runtime_call_def["inputs"]):
+            param_type_string = f"scale_info::{param['ty']}"
             if isinstance(params, list):
-                param_data += scale_obj.encode(params[idx])
+                param_data += self.encode_scale(param_type_string, params[idx])
             else:
                 if param["name"] not in params:
                     raise ValueError(f"Runtime Call param '{param['name']}' is missing")
 
-                param_data += scale_obj.encode(params[param["name"]])
+                param_data += self.encode_scale(
+                    param_type_string, params[param["name"]]
+                )
 
         # RPC request
         result_data = self.rpc_request(
-            "state_call", [f"{api}_{method}", str(param_data), block_hash]
+            "state_call", [f"{api}_{method}", param_data.hex(), block_hash]
         )
+        output_type_string = f"scale_info::{runtime_call_def['output']}"
 
         # Decode result
-        # TODO update this to use bt-decode
-        result_obj = runtime.runtime_config.create_scale_object(
-            runtime_call_def["type"]
-        )
-        result_obj.decode(
-            ScaleBytes(result_data["result"]),
-            check_remaining=self.config.get("strict_scale_decode"),
-        )
+        result_bytes = hex_to_bytes(result_data["result"])
+        result_obj = ScaleObj(self.decode_scale(output_type_string, result_bytes))
 
         return result_obj
 
@@ -2410,8 +2389,7 @@ class SubstrateInterface(SubstrateMixin):
         extrinsic = self.create_signed_extrinsic(
             call=call, keypair=keypair, signature=signature
         )
-        extrinsic_len = self.runtime_config.create_scale_object("u32")
-        extrinsic_len.encode(len(extrinsic.data))
+        extrinsic_len = len(extrinsic.data)
 
         result = self.runtime_call(
             "TransactionPaymentApi", "query_info", [extrinsic, extrinsic_len]
@@ -2901,3 +2879,5 @@ class SubstrateInterface(SubstrateMixin):
             self.ws.shutdown()
         except AttributeError:
             pass
+
+    encode_scale = SubstrateMixin._encode_scale

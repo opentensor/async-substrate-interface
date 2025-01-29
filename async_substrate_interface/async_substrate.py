@@ -23,9 +23,15 @@ from typing import (
 
 import asyncstdlib as a
 from bittensor_wallet.keypair import Keypair
-from bt_decode import PortableRegistry, decode as decode_by_type_string, MetadataV15
+from bittensor_wallet.utils import SS58_FORMAT
+from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
-from scalecodec.types import GenericCall, GenericRuntimeCallDefinition, GenericExtrinsic
+from scalecodec.types import (
+    GenericCall,
+    GenericExtrinsic,
+    GenericRuntimeCallDefinition,
+    ss58_decode,
+)
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
@@ -789,8 +795,54 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         metadata_option_hex_str = metadata_rpc_result["result"]
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
-        metadata_v15 = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
-        self.registry = PortableRegistry.from_metadata_v15(metadata_v15)
+        self.metadata_v15 = MetadataV15.decode_from_metadata_option(
+            metadata_option_bytes
+        )
+        self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
+
+    async def _wait_for_registry(self, _attempt: int = 1, _retries: int = 3) -> None:
+        async def _waiter():
+            while self.registry is None:
+                await asyncio.sleep(0.1)
+            return
+
+        try:
+            if not self.registry:
+                await asyncio.wait_for(_waiter(), timeout=10)
+        except TimeoutError:
+            # indicates that registry was never loaded
+            if not self._initializing:
+                raise AttributeError(
+                    "Registry was never loaded. This did not occur during initialization, which usually indicates "
+                    "you must first initialize the AsyncSubstrateInterface object, either with "
+                    "`await AsyncSubstrateInterface.initialize()` or running with `async with`"
+                )
+            elif _attempt < _retries:
+                await self.load_registry()
+                return await self._wait_for_registry(_attempt + 1, _retries)
+            else:
+                raise AttributeError(
+                    "Registry was never loaded. This occurred during initialization, which usually indicates a "
+                    "connection or node error."
+                )
+
+    async def encode_scale(
+        self, type_string, value: Any, _attempt: int = 1, _retries: int = 3
+    ) -> bytes:
+        """
+        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string
+
+        Args:
+            type_string: the type string of the SCALE object for decoding
+            value: value to encode
+            _attempt: the current number of attempts to load the registry needed to encode the value
+            _retries: the maximum number of attempts to load the registry needed to encode the value
+
+        Returns:
+            encoded bytes
+        """
+        await self._wait_for_registry(_attempt, _retries)
+        return self._encode_scale(type_string, value)
 
     async def decode_scale(
         self,
@@ -799,7 +851,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         _attempt=1,
         _retries=3,
         return_scale_obj=False,
-    ) -> Any:
+    ) -> Union[ScaleObj, Any]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
         (e.g. BlockNumber). The relevant versioning information of the type (if defined) will be applied if block_hash
@@ -815,61 +867,19 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Decoded object
         """
-
-        async def _wait_for_registry():
-            while self.registry is None:
-                await asyncio.sleep(0.1)
-            return
-
         if scale_bytes == b"\x00":
             obj = None
         else:
-            try:
-                if not self.registry:
-                    await asyncio.wait_for(_wait_for_registry(), timeout=10)
+            if type_string == "scale_info::0":  # Is an AccountId
+                # Decode AccountId bytes to SS58 address
+                return bytes.fromhex(ss58_decode(scale_bytes, SS58_FORMAT))
+            else:
+                await self._wait_for_registry(_attempt, _retries)
                 obj = decode_by_type_string(type_string, self.registry, scale_bytes)
-            except TimeoutError:
-                # indicates that registry was never loaded
-                if not self._initializing:
-                    raise AttributeError(
-                        "Registry was never loaded. This did not occur during initialization, which usually indicates "
-                        "you must first initialize the AsyncSubstrateInterface object, either with "
-                        "`await AsyncSubstrateInterface.initialize()` or running with `async with`"
-                    )
-                elif _attempt < _retries:
-                    await self.load_registry()
-                    return await self.decode_scale(
-                        type_string, scale_bytes, _attempt + 1
-                    )
-                else:
-                    raise AttributeError(
-                        "Registry was never loaded. This occurred during initialization, which usually indicates a "
-                        "connection or node error."
-                    )
         if return_scale_obj:
             return ScaleObj(obj)
         else:
             return obj
-
-    async def encode_scale(self, type_string, value, block_hash=None) -> ScaleBytes:
-        """
-        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string
-
-        Args:
-            type_string: the type string of the SCALE object for decoding
-            value: value to encode
-            block_hash: the hash of the blockchain block whose metadata to use for encoding
-
-        Returns:
-            ScaleBytes encoded value
-        """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
-
-        obj = self.runtime_config.create_scale_object(
-            type_string=type_string, metadata=self._metadata
-        )
-        return obj.encode(value)
 
     async def _first_initialize_runtime(self):
         """
@@ -2173,7 +2183,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         await self.decode_scale(
                             storage_key.value_scale_type, change_data
                         ),
-                    )
+                    ),
                 )
 
         return result
@@ -2503,56 +2513,43 @@ class AsyncSubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
-                "methods"
-            ][method]
-            runtime_api_types = self.runtime_config.type_registry["runtime_api"][
-                api
-            ].get("types", {})
+            metadata_v15 = self.metadata_v15.value()
+            apis = {entry["name"]: entry for entry in metadata_v15["apis"]}
+            api_entry = apis[api]
+            methods = {entry["name"]: entry for entry in api_entry["methods"]}
+            runtime_call_def = methods[method]
         except KeyError:
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
 
-        if isinstance(params, list) and len(params) != len(runtime_call_def["params"]):
+        if isinstance(params, list) and len(params) != len(runtime_call_def["inputs"]):
             raise ValueError(
                 f"Number of parameter provided ({len(params)}) does not "
-                f"match definition {len(runtime_call_def['params'])}"
+                f"match definition {len(runtime_call_def['inputs'])}"
             )
 
-        # Add runtime API types to registry
-        self.runtime_config.update_type_registry_types(runtime_api_types)
-        runtime = Runtime(
-            self.chain,
-            self.runtime_config,
-            self._metadata,
-            self.type_registry,
-        )
-
         # Encode params
-        param_data = ScaleBytes(bytes())
-        for idx, param in enumerate(runtime_call_def["params"]):
-            scale_obj = runtime.runtime_config.create_scale_object(param["type"])
+        param_data = b""
+        for idx, param in enumerate(runtime_call_def["inputs"]):
+            param_type_string = f"scale_info::{param['ty']}"
             if isinstance(params, list):
-                param_data += scale_obj.encode(params[idx])
+                param_data += await self.encode_scale(param_type_string, params[idx])
             else:
                 if param["name"] not in params:
                     raise ValueError(f"Runtime Call param '{param['name']}' is missing")
 
-                param_data += scale_obj.encode(params[param["name"]])
+                param_data += await self.encode_scale(
+                    param_type_string, params[param["name"]]
+                )
 
         # RPC request
         result_data = await self.rpc_request(
-            "state_call", [f"{api}_{method}", str(param_data), block_hash]
+            "state_call", [f"{api}_{method}", param_data.hex(), block_hash]
         )
+        output_type_string = f"scale_info::{runtime_call_def['output']}"
 
         # Decode result
-        # TODO update this to use bt-decode
-        result_obj = runtime.runtime_config.create_scale_object(
-            runtime_call_def["type"]
-        )
-        result_obj.decode(
-            ScaleBytes(result_data["result"]),
-            check_remaining=self.config.get("strict_scale_decode"),
-        )
+        result_bytes = hex_to_bytes(result_data["result"])
+        result_obj = ScaleObj(await self.decode_scale(output_type_string, result_bytes))
 
         return result_obj
 
@@ -2581,7 +2578,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         This method maintains a cache of nonces for each account ss58address.
         Upon subsequent calls, it will return the cached nonce + 1 instead of fetching from the chain.
-        This allows for correct nonce management in-case of async context when gathering co-routines. 
+        This allows for correct nonce management in-case of async context when gathering co-routines.
 
         Args:
             account_address: SS58 formatted address
@@ -2595,7 +2592,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         async with self._lock:
             if self._nonces.get(account_address) is None:
-                nonce_obj = await self.rpc_request("account_nextIndex", [account_address])
+                nonce_obj = await self.rpc_request(
+                    "account_nextIndex", [account_address]
+                )
                 self._nonces[account_address] = nonce_obj["result"]
             else:
                 self._nonces[account_address] += 1
@@ -2686,8 +2685,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         extrinsic = await self.create_signed_extrinsic(
             call=call, keypair=keypair, signature=signature
         )
-        extrinsic_len = self.runtime_config.create_scale_object("u32")
-        extrinsic_len.encode(len(extrinsic.data))
+        extrinsic_len = len(extrinsic.data)
 
         result = await self.runtime_call(
             "TransactionPaymentApi", "query_info", [extrinsic, extrinsic_len]
