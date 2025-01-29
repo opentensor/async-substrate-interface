@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0rc6 /2025-01-28
+
+## What's Changed
+* Minor bug fix
+
+## 1.0.0rc5 /2025-01-28
+
+## What's Changed
+* Backmerge staging main by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/4
+* EventLoopManager, factory function by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/3
+* Exception for uninitialised by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/6
+* Update build/release to use pyproject.toml by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/10
+* Sync Substrate Rewritten by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/9
+* Remove ujson by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/12
+
+## 1.0.0rc4 /2025-01-17
+
+## What's Changed
+* Minor bug fixes and improvements
+
 ## 1.0.0rc3 /2025-01-17
 
 ## What's Changed
