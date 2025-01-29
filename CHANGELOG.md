@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0rc6 /2025-01-28
+
+## What's Changed
+* Minor bug fix
+
 ## 1.0.0rc5 /2025-01-28
 
 ## What's Changed
