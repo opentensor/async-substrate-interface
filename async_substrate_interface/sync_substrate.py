@@ -2320,8 +2320,7 @@ class SubstrateInterface(SubstrateMixin):
 
         # Decode result
         result_bytes = hex_to_bytes(result_data["result"])
-        result_obj = Bytes(ScaleBytes(result_bytes))
-        result_obj.value = self.decode_scale(output_type_string, result_bytes)
+        result_obj = ScaleObj(self.decode_scale(output_type_string, result_bytes))
 
         return result_obj
 

@@ -209,7 +209,7 @@ class Preprocessed:
     storage_item: ScaleType
 
 
-class ScaleObj:
+class ScaleObj(ScaleType):
     """Bittensor representation of Scale Object."""
 
     def __init__(self, value):
@@ -315,6 +315,9 @@ class ScaleObj:
 
     def __len__(self):
         return len(self.value)
+
+    def process(self):
+        pass
 
     def serialize(self):
         return self.value
