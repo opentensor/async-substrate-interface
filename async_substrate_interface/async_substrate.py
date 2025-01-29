@@ -31,8 +31,7 @@ from bt_decode import (
     encode as encode_by_type_string,
 )
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
-from scalecodec.types import (
-    Bytes,
+from scalecodec.types import (    
     GenericCall,
     GenericExtrinsic,
     GenericRuntimeCallDefinition,

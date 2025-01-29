@@ -13,7 +13,6 @@ from bt_decode import (
     encode as encode_by_type_string,
 )
 from scalecodec import (
-    Bytes,
     GenericCall,
     GenericExtrinsic,
     GenericRuntimeCallDefinition,
