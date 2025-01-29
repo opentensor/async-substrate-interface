@@ -209,7 +209,7 @@ class Preprocessed:
     storage_item: ScaleType
 
 
-class ScaleObj(ScaleType):
+class ScaleObj:
     """Bittensor representation of Scale Object."""
 
     def __init__(self, value):
