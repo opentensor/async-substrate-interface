@@ -2085,39 +2085,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return call
 
-    # async def new_compose_call(
-    #     self,
-    #     call_module: str,
-    #     call_function: str,
-    #     call_params: Optional[dict] = None,
-    #     block_hash: Optional[str] = None,
-    # ) -> GenericCall:
-    #     """
-    #     Composes a call payload which can be used in an extrinsic.
-    #
-    #     Args:
-    #         call_module: Name of the runtime module e.g. Balances
-    #         call_function: Name of the call function e.g. transfer
-    #         call_params: This is a dict containing the params of the call. e.g.
-    #             `{'dest': 'EaG2CRhJWPb7qmdcJvy3LiWdh26Jreu9Dx6R1rXxPmYXoDk', 'value': 1000000000000}`
-    #         block_hash: Use metadata at given block_hash to compose call
-    #
-    #     Returns:
-    #         A composed call
-    #     """
-    #     if call_params is None:
-    #         call_params = {}
-    #
-    #     encode_data = {
-    #         "call_module": call_module,
-    #         "call_function": call_function,
-    #         "call_args": call_params,
-    #     }
-    #
-    #     call = await self.encode_scale("scale_info::411", encode_data)
-    #
-    #     return call
-
     async def query_multiple(
         self,
         params: list,
