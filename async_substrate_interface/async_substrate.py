@@ -699,7 +699,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True
         )
-        self.__metadata_cache = {}
+        self._metadata_cache = {}
         self._nonces = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
