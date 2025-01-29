@@ -1953,13 +1953,14 @@ class SubstrateInterface(SubstrateMixin):
                     change_data = b"\x00"
                 else:
                     change_data = bytes.fromhex(change_data[2:])
-                    if change_data == b"\x00":
-                        obj = None
-                    else:
-                        obj = self.decode_scale(
+                result.append(
+                    (
+                        storage_key,
+                        self.decode_scale(
                             storage_key.value_scale_type, change_data
-                        )
-                result.append((storage_key, obj))
+                        ),
+                    ),
+                )
 
         return result
 

@@ -2211,17 +2211,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 storage_key = storage_key_map[change_storage_key]
                 if change_data is None:
                     change_data = b"\x00"
-                    obj = None
                 else:
                     change_data = bytes.fromhex(change_data[2:])
-                    if change_data == b"\x00":
-                        obj = None
-                    else:
-                        obj = await self.decode_scale(
+                result.append(
+                    (
+                        storage_key,
+                        await self.decode_scale(
                             storage_key.value_scale_type, change_data
-                        )
-
-                result.append((storage_key, obj))
+                        ),
+                    ),
+                )
 
         return result
 
