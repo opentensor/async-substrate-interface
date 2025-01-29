@@ -6,12 +6,7 @@ from typing import Optional, Union, Callable, Any
 
 from bittensor_wallet.keypair import Keypair
 from bittensor_wallet.utils import SS58_FORMAT
-from bt_decode import (
-    MetadataV15,
-    PortableRegistry,
-    decode as decode_by_type_string,
-    encode as encode_by_type_string,
-)
+from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec import (
     GenericCall,
     GenericExtrinsic,
@@ -629,56 +624,6 @@ class SubstrateInterface(SubstrateMixin):
             return ScaleObj(obj)
         else:
             return obj
-
-    def encode_scale(self, type_string, value: Any) -> bytes:
-        """
-        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string
-
-        Args:
-            type_string: the type string of the SCALE object for decoding
-            value: value to encode
-
-        Returns:
-            encoded SCALE bytes
-        """
-        if value is None:
-            result = b"\x00"
-        else:
-            if type_string == "scale_info::0":  # Is an AccountId
-                # encode string into AccountId
-                ## AccountId is a composite type with one, unnamed field
-                return bytes.fromhex(ss58_decode(value, SS58_FORMAT))
-
-            elif type_string == "scale_info::151":  # Vec<AccountId>
-                if not isinstance(value, (list, tuple)):
-                    value = [value]
-
-                # Encode length
-                length = len(value)
-                if length < 64:
-                    result = bytes([length << 2])  # Single byte mode
-                else:
-                    raise ValueError("Vector length too large")
-
-                # Encode each AccountId
-                for account in value:
-                    if isinstance(account, bytes):
-                        result += account  # Already encoded
-                    else:
-                        result += bytes.fromhex(
-                            ss58_decode(value, SS58_FORMAT)
-                        )  # SS58 string
-                return result
-
-            if isinstance(value, ScaleType):
-                if value.data.data is not None:
-                    # Already encoded
-                    return bytes(value.data.data)
-                else:
-                    value = value.value  # Unwrap the value of the type
-
-            result = bytes(encode_by_type_string(type_string, self.registry, value))
-        return result
 
     def _first_initialize_runtime(self):
         """
@@ -2933,3 +2878,5 @@ class SubstrateInterface(SubstrateMixin):
             self.ws.shutdown()
         except AttributeError:
             pass
+
+    encode_scale = SubstrateMixin._encode_scale

@@ -1,10 +1,10 @@
 import unittest.mock
 
 import pytest
-import scalecodec.base
 from websockets.exceptions import InvalidURI
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface
+from async_substrate_interface.types import ScaleObj
 
 
 @pytest.mark.asyncio
@@ -59,7 +59,7 @@ async def test_runtime_call(monkeypatch):
         "SubstrateMethod",
     )
 
-    assert isinstance(result, scalecodec.base.ScaleType)
+    assert isinstance(result, ScaleObj)
     assert result.value is substrate.decode_scale.return_value
 
     substrate.rpc_request.assert_called_once_with(

@@ -24,12 +24,7 @@ from typing import (
 import asyncstdlib as a
 from bittensor_wallet.keypair import Keypair
 from bittensor_wallet.utils import SS58_FORMAT
-from bt_decode import (
-    MetadataV15,
-    PortableRegistry,
-    decode as decode_by_type_string,
-    encode as encode_by_type_string,
-)
+from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.types import (
     GenericCall,
@@ -805,6 +800,50 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
 
+    async def _wait_for_registry(self, _attempt: int = 1, _retries: int = 3) -> None:
+        async def _waiter():
+            while self.registry is None:
+                await asyncio.sleep(0.1)
+            return
+
+        try:
+            if not self.registry:
+                await asyncio.wait_for(_waiter(), timeout=10)
+        except TimeoutError:
+            # indicates that registry was never loaded
+            if not self._initializing:
+                raise AttributeError(
+                    "Registry was never loaded. This did not occur during initialization, which usually indicates "
+                    "you must first initialize the AsyncSubstrateInterface object, either with "
+                    "`await AsyncSubstrateInterface.initialize()` or running with `async with`"
+                )
+            elif _attempt < _retries:
+                await self.load_registry()
+                return await self._wait_for_registry(_attempt + 1, _retries)
+            else:
+                raise AttributeError(
+                    "Registry was never loaded. This occurred during initialization, which usually indicates a "
+                    "connection or node error."
+                )
+
+    async def encode_scale(
+        self, type_string, value: Any, _attempt: int = 1, _retries: int = 3
+    ) -> bytes:
+        """
+        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string
+
+        Args:
+            type_string: the type string of the SCALE object for decoding
+            value: value to encode
+            _attempt: the current number of attempts to load the registry needed to encode the value
+            _retries: the maximum number of attempts to load the registry needed to encode the value
+
+        Returns:
+            encoded bytes
+        """
+        await self._wait_for_registry(_attempt, _retries)
+        return self._encode_scale(type_string, value)
+
     async def decode_scale(
         self,
         type_string: str,
@@ -812,7 +851,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         _attempt=1,
         _retries=3,
         return_scale_obj=False,
-    ) -> Any:
+    ) -> Union[ScaleObj, Any]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
         (e.g. BlockNumber). The relevant versioning information of the type (if defined) will be applied if block_hash
@@ -828,94 +867,18 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Decoded object
         """
-
-        async def _wait_for_registry():
-            while self.registry is None:
-                await asyncio.sleep(0.1)
-            return
-
         if scale_bytes == b"\x00":
             obj = None
         if type_string == "scale_info::0":  # Is an AccountId
             # Decode AccountId bytes to SS58 address
             return bytes.fromhex(ss58_decode(scale_bytes, SS58_FORMAT))
         else:
-            try:
-                if not self.registry:
-                    await asyncio.wait_for(_wait_for_registry(), timeout=10)
-                obj = decode_by_type_string(type_string, self.registry, scale_bytes)
-            except TimeoutError:
-                # indicates that registry was never loaded
-                if not self._initializing:
-                    raise AttributeError(
-                        "Registry was never loaded. This did not occur during initialization, which usually indicates "
-                        "you must first initialize the AsyncSubstrateInterface object, either with "
-                        "`await AsyncSubstrateInterface.initialize()` or running with `async with`"
-                    )
-                elif _attempt < _retries:
-                    await self.load_registry()
-                    return await self.decode_scale(
-                        type_string, scale_bytes, _attempt + 1
-                    )
-                else:
-                    raise AttributeError(
-                        "Registry was never loaded. This occurred during initialization, which usually indicates a "
-                        "connection or node error."
-                    )
+            await self._wait_for_registry(_attempt, _retries)
+            obj = decode_by_type_string(type_string, self.registry, scale_bytes)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
             return obj
-
-    async def encode_scale(self, type_string, value: Any) -> bytes:
-        """
-        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string
-
-        Args:
-            type_string: the type string of the SCALE object for decoding
-            value: value to encode
-
-        Returns:
-            encoded SCALE bytes
-        """
-        if value is None:
-            result = b"\x00"
-        else:
-            if type_string == "scale_info::0":  # Is an AccountId
-                # encode string into AccountId
-                ## AccountId is a composite type with one, unnamed field
-                return bytes.fromhex(ss58_decode(value, SS58_FORMAT))
-
-            elif type_string == "scale_info::151":  # Vec<AccountId>
-                if not isinstance(value, (list, tuple)):
-                    value = [value]
-
-                # Encode length
-                length = len(value)
-                if length < 64:
-                    result = bytes([length << 2])  # Single byte mode
-                else:
-                    raise ValueError("Vector length too large")
-
-                # Encode each AccountId
-                for account in value:
-                    if isinstance(account, bytes):
-                        result += account  # Already encoded
-                    else:
-                        result += bytes.fromhex(
-                            ss58_decode(value, SS58_FORMAT)
-                        )  # SS58 string
-                return result
-
-            if isinstance(value, ScaleType):
-                if value.data.data is not None:
-                    # Already encoded
-                    return bytes(value.data.data)
-                else:
-                    value = value.value  # Unwrap the value of the type
-
-            result = bytes(encode_by_type_string(type_string, self.registry, value))
-        return result
 
     async def _first_initialize_runtime(self):
         """
