@@ -2718,7 +2718,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             "TransactionPaymentApi", "query_info", [extrinsic, extrinsic_len]
         )
 
-        return result.result
+        return result.value
 
     async def get_type_registry(
         self, block_hash: str = None, max_recursion: int = 4
