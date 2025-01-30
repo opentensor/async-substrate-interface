@@ -743,7 +743,7 @@ class SubstrateMixin(ABC):
                         result += account  # Already encoded
                     else:
                         result += bytes.fromhex(
-                            ss58_decode(value, SS58_FORMAT)
+                            ss58_decode(account, SS58_FORMAT)
                         )  # SS58 string
                 return result
 
