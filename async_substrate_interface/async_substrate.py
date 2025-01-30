@@ -2493,7 +2493,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         method: str,
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
-    ) -> ScaleType:
+    ) -> ScaleObj:
         """
         Calls a runtime API method
 
