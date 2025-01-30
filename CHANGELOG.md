@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.0rc9 /2025-01-30
+* Fixes decoding account ids
+
 ## 1.0.0rc8 /2025-01-30
 * Minor bug fixes
 

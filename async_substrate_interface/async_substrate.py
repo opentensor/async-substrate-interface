@@ -30,7 +30,7 @@ from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
     GenericRuntimeCallDefinition,
-    ss58_decode,
+    ss58_encode,
 )
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
@@ -872,7 +872,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             if type_string == "scale_info::0":  # Is an AccountId
                 # Decode AccountId bytes to SS58 address
-                return bytes.fromhex(ss58_decode(scale_bytes, SS58_FORMAT))
+                return ss58_encode(scale_bytes, SS58_FORMAT)
             else:
                 await self._wait_for_registry(_attempt, _retries)
                 obj = decode_by_type_string(type_string, self.registry, scale_bytes)
