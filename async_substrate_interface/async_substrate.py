@@ -872,7 +872,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             if type_string == "scale_info::0":  # Is an AccountId
                 # Decode AccountId bytes to SS58 address
-                return bytes.fromhex(ss58_decode(scale_bytes, SS58_FORMAT))
+                return scale_bytes
             else:
                 await self._wait_for_registry(_attempt, _retries)
                 obj = decode_by_type_string(type_string, self.registry, scale_bytes)
