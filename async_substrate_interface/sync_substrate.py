@@ -598,7 +598,7 @@ class SubstrateInterface(SubstrateMixin):
         type_string: str,
         scale_bytes: bytes,
         return_scale_obj=False,
-    ) -> Any:
+    ) -> Union[ScaleObj, Any]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
         (e.g. BlockNumber). The relevant versioning information of the type (if defined) will be applied if block_hash
@@ -2334,7 +2334,7 @@ class SubstrateInterface(SubstrateMixin):
         constant_name: str,
         block_hash: Optional[str] = None,
         reuse_block_hash: bool = False,
-    ) -> Optional["ScaleType"]:
+    ) -> Optional[ScaleObj]:
         """
         Returns the decoded `ScaleType` object of the constant for given module name, call function name and block_hash
         (or chaintip if block_hash is omitted)
