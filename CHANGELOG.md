@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.0rc8 /2025-01-30
+* Minor bug fixes
+
 ## 1.0.0rc7 /2025-01-29
 
 ## What's Changed
