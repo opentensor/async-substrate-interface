@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.0rc10 /2025-02-04
+* Fixes decoding account ids for sync substrate
+
 ## 1.0.0rc9 /2025-01-30
 * Fixes decoding account ids
 
