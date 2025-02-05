@@ -11,7 +11,7 @@ from scalecodec import (
     GenericCall,
     GenericExtrinsic,
     GenericRuntimeCallDefinition,
-    ss58_decode,
+    ss58_encode,
 )
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
 from websockets.sync.client import connect
@@ -618,7 +618,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             if type_string == "scale_info::0":  # Is an AccountId
                 # Decode AccountId bytes to SS58 address
-                return bytes.fromhex(ss58_decode(scale_bytes, SS58_FORMAT))
+                return ss58_encode(scale_bytes, SS58_FORMAT)
             else:
                 obj = decode_by_type_string(type_string, self.registry, scale_bytes)
         if return_scale_obj:
