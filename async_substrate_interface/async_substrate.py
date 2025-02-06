@@ -24,7 +24,13 @@ from typing import (
 import asyncstdlib as a
 from bittensor_wallet.keypair import Keypair
 from bittensor_wallet.utils import SS58_FORMAT
-from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
+from bt_decode import (
+    MetadataV15,
+    PortableRegistry,
+    decode as decode_by_type_string,
+    AxonInfo as OldAxonInfo,
+    PrometheusInfo as OldPrometheusInfo,
+)
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.types import (
     GenericCall,
@@ -49,7 +55,9 @@ from async_substrate_interface.types import (
     Preprocessed,
 )
 from async_substrate_interface.utils import hex_to_bytes, json
+from async_substrate_interface.utils.decoding import _determine_if_old_runtime_call
 from async_substrate_interface.utils.storage import StorageKey
+from async_substrate_interface.type_registry import _TYPE_REGISTRY
 
 if TYPE_CHECKING:
     from websockets.asyncio.client import ClientConnection
@@ -706,6 +714,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             ss58_format=self.ss58_format, implements_scale_info=True
         )
         self._metadata_cache = {}
+        self._metadata_v15_cache = {}
+        self._old_metadata_v15 = None
         self._nonces = {}
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
@@ -800,6 +810,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
 
+    async def _load_registry_at_block(self, block_hash: str) -> MetadataV15:
+        # Should be called for any block that fails decoding.
+        # Possibly the metadata was different.
+        metadata_rpc_result = await self.rpc_request(
+            "state_call",
+            ["Metadata_metadata_at_version", self.metadata_version_hex],
+            block_hash=block_hash,
+        )
+        metadata_option_hex_str = metadata_rpc_result["result"]
+        metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
+        old_metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
+
+        return old_metadata
+
     async def _wait_for_registry(self, _attempt: int = 1, _retries: int = 3) -> None:
         async def _waiter():
             while self.registry is None:
@@ -890,6 +914,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         self._metadata = metadata
         self._metadata_cache[self.runtime_version] = self._metadata
+        self._metadata_v15_cache[self.runtime_version] = self.metadata_v15
         self.runtime_version = runtime_info.get("specVersion")
         self.runtime_config.set_active_spec_version_id(self.runtime_version)
         self.transaction_version = runtime_info.get("transactionVersion")
@@ -1015,6 +1040,30 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     self._metadata_cache[self.runtime_version] = self._metadata
             else:
                 metadata = self._metadata
+
+            if self.runtime_version in self._metadata_v15_cache:
+                # Get metadata v15 from cache
+                logging.debug(
+                    "Retrieved metadata v15 for {} from memory".format(
+                        self.runtime_version
+                    )
+                )
+                metadata_v15 = self._old_metadata_v15 = self._metadata_v15_cache[
+                    self.runtime_version
+                ]
+            else:
+                metadata_v15 = (
+                    self._old_metadata_v15
+                ) = await self._load_registry_at_block(block_hash=runtime_block_hash)
+                logging.debug(
+                    "Retrieved metadata v15 for {} from Substrate node".format(
+                        self.runtime_version
+                    )
+                )
+
+                # Update metadata v15 cache
+                self._metadata_v15_cache[self.runtime_version] = metadata_v15
+
             # Update type registry
             self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
@@ -2487,6 +2536,67 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             return response.get("result")
 
+    async def _do_runtime_call_old(
+        self,
+        api: str,
+        method: str,
+        params: Optional[Union[list, dict]] = None,
+        block_hash: Optional[str] = None,
+    ) -> ScaleType:
+        logging.debug(
+            f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
+        )
+        runtime_call_def = _TYPE_REGISTRY["runtime_api"][api]["methods"][method]
+
+        # Encode params
+        param_data = b""
+
+        if "encoder" in runtime_call_def:
+            param_data = runtime_call_def["encoder"](params)
+        else:
+            for idx, param in enumerate(runtime_call_def["params"]):
+                param_type_string = f"{param['type']}"
+                if isinstance(params, list):
+                    param_data += await self.encode_scale(
+                        param_type_string, params[idx]
+                    )
+                else:
+                    if param["name"] not in params:
+                        raise ValueError(
+                            f"Runtime Call param '{param['name']}' is missing"
+                        )
+
+                    param_data += await self.encode_scale(
+                        param_type_string, params[param["name"]]
+                    )
+
+        # RPC request
+        result_data = await self.rpc_request(
+            "state_call", [f"{api}_{method}", param_data.hex(), block_hash]
+        )
+        result_vec_u8_bytes = hex_to_bytes(result_data["result"])
+        result_bytes = await self.decode_scale("Vec<u8>", result_vec_u8_bytes)
+
+        def _as_dict(obj):
+            as_dict = {}
+            for key in dir(obj):
+                if not key.startswith("_"):
+                    val = getattr(obj, key)
+                    if isinstance(val, (OldAxonInfo, OldPrometheusInfo)):
+                        as_dict[key] = _as_dict(val)
+                    else:
+                        as_dict[key] = val
+            return as_dict
+
+        # Decode result
+        # Get correct type
+        result_decoded = runtime_call_def["decoder"](bytes(result_bytes))
+        as_dict = _as_dict(result_decoded)
+        logging.debug("Decoded old runtime call result: ", as_dict)
+        result_obj = ScaleObj(as_dict)
+
+        return result_obj
+
     async def runtime_call(
         self,
         api: str,
@@ -2513,13 +2623,26 @@ class AsyncSubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            metadata_v15 = self.metadata_v15.value()
-            apis = {entry["name"]: entry for entry in metadata_v15["apis"]}
+            if block_hash:
+                # Use old metadata v15 from init_runtime call
+                metadata_v15 = self._old_metadata_v15
+            else:
+                metadata_v15 = self.metadata_v15
+
+            self.registry = PortableRegistry.from_metadata_v15(metadata_v15)
+            metadata_v15_value = metadata_v15.value()
+
+            apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
             api_entry = apis[api]
             methods = {entry["name"]: entry for entry in api_entry["methods"]}
             runtime_call_def = methods[method]
         except KeyError:
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
+
+        if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
+            result = await self._do_runtime_call_old(api, method, params, block_hash)
+
+            return result
 
         if isinstance(params, list) and len(params) != len(runtime_call_def["inputs"]):
             raise ValueError(
