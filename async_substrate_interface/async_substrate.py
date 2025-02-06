@@ -685,7 +685,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.ws = Websocket(
             url,
             options={
-                "max_size": 2**32,
+                "max_size": self.ws_max_size,
                 "write_limit": 2**16,
             },
         )

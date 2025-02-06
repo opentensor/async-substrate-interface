@@ -566,12 +566,12 @@ class SubstrateInterface(SubstrateMixin):
 
     def connect(self, init=False):
         if init is True:
-            return connect(self.chain_endpoint, max_size=2**32)
+            return connect(self.chain_endpoint, max_size=self.ws_max_size)
         else:
             if not self.ws.close_code:
                 return self.ws
             else:
-                return connect(self.chain_endpoint, max_size=2**32)
+                return connect(self.chain_endpoint, max_size=self.ws_max_size)
 
     def get_storage_item(self, module: str, storage_function: str):
         if not self._metadata:
