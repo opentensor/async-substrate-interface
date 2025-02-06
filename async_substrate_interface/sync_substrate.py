@@ -36,6 +36,7 @@ from async_substrate_interface.types import (
     ScaleObj,
 )
 from async_substrate_interface.utils import hex_to_bytes, json
+from async_substrate_interface.utils.decoding import _determine_if_old_runtime_call
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
 
@@ -2351,37 +2352,10 @@ class SubstrateInterface(SubstrateMixin):
         except KeyError:
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
 
-        # Check if the output type is a Vec<u8>
-        # If so, call the API using the old method
-        output_type_def = [
-            x
-            for x in metadata_v15_value["types"]["types"]
-            if x["id"] == runtime_call_def["output"]
-        ]
-        if output_type_def:
-            output_type_def = output_type_def[0]
+        if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
+            result = self._do_runtime_call_old(api, method, params, block_hash)
 
-            if "sequence" in output_type_def["type"]["def"]:
-                output_type_seq_def_id = output_type_def["type"]["def"]["sequence"][
-                    "type"
-                ]
-                output_type_seq_def = [
-                    x
-                    for x in metadata_v15_value["types"]["types"]
-                    if x["id"] == output_type_seq_def_id
-                ]
-                if output_type_seq_def:
-                    output_type_seq_def = output_type_seq_def[0]
-                    if (
-                        "primitive" in output_type_seq_def["type"]["def"]
-                        and output_type_seq_def["type"]["def"]["primitive"] == "u8"
-                    ):
-                        # This is Vec<u8>
-                        result = self._do_runtime_call_old(
-                            api, method, params, block_hash
-                        )
-
-                        return result
+            return result
 
         if isinstance(params, list) and len(params) != len(runtime_call_def["inputs"]):
             raise ValueError(
