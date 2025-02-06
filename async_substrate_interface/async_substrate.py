@@ -914,7 +914,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         self._metadata = metadata
         self._metadata_cache[self.runtime_version] = self._metadata
-        self._metadata_v15_cache[self.runtime_version] = self.metadata_v15
         self.runtime_version = runtime_info.get("specVersion")
         self.runtime_config.set_active_spec_version_id(self.runtime_version)
         self.transaction_version = runtime_info.get("transactionVersion")
