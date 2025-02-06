@@ -1026,6 +1026,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         self.runtime_version
                     ]
                 else:
+                    # TODO when I get time, I'd like to add this and the metadata v15 as tasks with callbacks
+                    # TODO to update the caches, but I don't have time now.
                     metadata = self._metadata = await self.get_block_metadata(
                         block_hash=runtime_block_hash, decode=True
                     )
