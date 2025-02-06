@@ -1,4 +1,4 @@
-from bt_metadata import AxonInfo, PrometheusInfo
+from bt_decode import AxonInfo, PrometheusInfo
 
 
 def _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value) -> bool:
