@@ -6,13 +6,7 @@ from typing import Optional, Union, Callable, Any
 
 from bittensor_wallet.keypair import Keypair
 from bittensor_wallet.utils import SS58_FORMAT
-from bt_decode import (
-    MetadataV15,
-    PortableRegistry,
-    decode as decode_by_type_string,
-    AxonInfo as OldAxonInfo,
-    PrometheusInfo as OldPrometheusInfo,
-)
+from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec import (
     GenericCall,
     GenericExtrinsic,
@@ -701,7 +695,10 @@ class SubstrateInterface(SubstrateMixin):
             if (
                 (block_hash and block_hash == self.last_block_hash)
                 or (block_id and block_id == self.block_id)
-            ) and self._metadata is not None:
+            ) and all(
+                x is not None
+                for x in [self._metadata, self._old_metadata_v15, self.metadata_v15]
+            ):
                 return Runtime(
                     self.chain,
                     self.runtime_config,
@@ -743,9 +740,9 @@ class SubstrateInterface(SubstrateMixin):
                     f"No runtime information for block '{block_hash}'"
                 )
             # Check if runtime state already set to current block
-            if (
-                runtime_info.get("specVersion") == self.runtime_version
-                and self._metadata is not None
+            if runtime_info.get("specVersion") == self.runtime_version and all(
+                x is not None
+                for x in [self._metadata, self._old_metadata_v15, self.metadata_v15]
             ):
                 return Runtime(
                     self.chain,
@@ -802,7 +799,6 @@ class SubstrateInterface(SubstrateMixin):
                         self.runtime_version
                     )
                 )
-
                 # Update metadata v15 cache
                 self._metadata_v15_cache[self.runtime_version] = metadata_v15
 
