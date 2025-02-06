@@ -15,6 +15,7 @@ from scalecodec import (
 )
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
 from websockets.sync.client import connect
+from websockets.exceptions import ConnectionClosed
 
 from async_substrate_interface.errors import (
     ExtrinsicNotFound,
@@ -30,7 +31,12 @@ from async_substrate_interface.types import (
     ScaleObj,
 )
 from async_substrate_interface.utils import hex_to_bytes, json
+from async_substrate_interface.utils.decoding import (
+    _determine_if_old_runtime_call,
+    _bt_decode_to_dict_or_list,
+)
 from async_substrate_interface.utils.storage import StorageKey
+from async_substrate_interface.type_registry import _TYPE_REGISTRY
 
 
 ResultHandler = Callable[[dict, Any], tuple[dict, bool]]
@@ -505,8 +511,11 @@ class SubstrateInterface(SubstrateMixin):
             ss58_format=self.ss58_format, implements_scale_info=True
         )
         self._metadata_cache = {}
+        self._metadata_v15_cache = {}
+        self._old_metadata_v15 = None
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
+        self.ws = self.connect(init=True)
         if not _mock:
             self.initialize()
 
@@ -527,7 +536,7 @@ class SubstrateInterface(SubstrateMixin):
         self.initialized = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
+        self.ws.close()
 
     @property
     def properties(self):
@@ -562,6 +571,15 @@ class SubstrateInterface(SubstrateMixin):
             self._name = self.rpc_request("system_name", []).get("result")
         return self._name
 
+    def connect(self, init=False):
+        if init is True:
+            return connect(self.chain_endpoint, max_size=self.ws_max_size)
+        else:
+            if not self.ws.close_code:
+                return self.ws
+            else:
+                return connect(self.chain_endpoint, max_size=self.ws_max_size)
+
     def get_storage_item(self, module: str, storage_function: str):
         if not self._metadata:
             self.init_runtime()
@@ -592,6 +610,20 @@ class SubstrateInterface(SubstrateMixin):
             metadata_option_bytes
         )
         self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
+
+    def _load_registry_at_block(self, block_hash: str) -> MetadataV15:
+        # Should be called for any block that fails decoding.
+        # Possibly the metadata was different.
+        metadata_rpc_result = self.rpc_request(
+            "state_call",
+            ["Metadata_metadata_at_version", self.metadata_version_hex],
+            block_hash=block_hash,
+        )
+        metadata_option_hex_str = metadata_rpc_result["result"]
+        metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
+        old_metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
+
+        return old_metadata
 
     def decode_scale(
         self,
@@ -674,7 +706,10 @@ class SubstrateInterface(SubstrateMixin):
             if (
                 (block_hash and block_hash == self.last_block_hash)
                 or (block_id and block_id == self.block_id)
-            ) and self._metadata is not None:
+            ) and all(
+                x is not None
+                for x in [self._metadata, self._old_metadata_v15, self.metadata_v15]
+            ):
                 return Runtime(
                     self.chain,
                     self.runtime_config,
@@ -716,9 +751,9 @@ class SubstrateInterface(SubstrateMixin):
                     f"No runtime information for block '{block_hash}'"
                 )
             # Check if runtime state already set to current block
-            if (
-                runtime_info.get("specVersion") == self.runtime_version
-                and self._metadata is not None
+            if runtime_info.get("specVersion") == self.runtime_version and all(
+                x is not None
+                for x in [self._metadata, self._old_metadata_v15, self.metadata_v15]
             ):
                 return Runtime(
                     self.chain,
@@ -755,6 +790,29 @@ class SubstrateInterface(SubstrateMixin):
                     self._metadata_cache[self.runtime_version] = self._metadata
             else:
                 metadata = self._metadata
+
+            if self.runtime_version in self._metadata_v15_cache:
+                # Get metadata v15 from cache
+                logging.debug(
+                    "Retrieved metadata v15 for {} from memory".format(
+                        self.runtime_version
+                    )
+                )
+                metadata_v15 = self._old_metadata_v15 = self._metadata_v15_cache[
+                    self.runtime_version
+                ]
+            else:
+                metadata_v15 = self._old_metadata_v15 = self._load_registry_at_block(
+                    block_hash=runtime_block_hash
+                )
+                logging.debug(
+                    "Retrieved metadata v15 for {} from Substrate node".format(
+                        self.runtime_version
+                    )
+                )
+                # Update metadata v15 cache
+                self._metadata_v15_cache[self.runtime_version] = metadata_v15
+
             # Update type registry
             self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
@@ -1620,69 +1678,67 @@ class SubstrateInterface(SubstrateMixin):
         _received = {}
         subscription_added = False
 
-        with connect(self.chain_endpoint, max_size=2**32) as ws:
-            item_id = 0
-            for payload in payloads:
-                item_id += 1
-                ws.send(json.dumps({**payload["payload"], **{"id": item_id}}))
-                request_manager.add_request(item_id, payload["id"])
+        ws = self.connect(init=False if attempt == 1 else True)
+        item_id = 0
+        for payload in payloads:
+            item_id += 1
+            ws.send(json.dumps({**payload["payload"], **{"id": item_id}}))
+            request_manager.add_request(item_id, payload["id"])
 
-            while True:
-                try:
-                    response = json.loads(
-                        ws.recv(timeout=self.retry_timeout, decode=False)
+        while True:
+            try:
+                response = json.loads(ws.recv(timeout=self.retry_timeout, decode=False))
+            except (TimeoutError, ConnectionClosed):
+                if attempt >= self.max_retries:
+                    logging.warning(
+                        f"Timed out waiting for RPC requests {attempt} times. Exiting."
                     )
-                except TimeoutError:
-                    if attempt >= self.max_retries:
-                        logging.warning(
-                            f"Timed out waiting for RPC requests {attempt} times. Exiting."
-                        )
-                        raise SubstrateRequestException("Max retries reached.")
-                    else:
-                        return self._make_rpc_request(
-                            payloads,
+                    raise SubstrateRequestException("Max retries reached.")
+                else:
+                    return self._make_rpc_request(
+                        payloads,
+                        value_scale_type,
+                        storage_item,
+                        result_handler,
+                        attempt + 1,
+                    )
+            if "id" in response:
+                _received[response["id"]] = response
+            elif "params" in response:
+                _received[response["params"]["subscription"]] = response
+            else:
+                raise SubstrateRequestException(response)
+            for item_id in list(request_manager.response_map.keys()):
+                if item_id not in request_manager.responses or isinstance(
+                    result_handler, Callable
+                ):
+                    if response := _received.pop(item_id):
+                        if (
+                            isinstance(result_handler, Callable)
+                            and not subscription_added
+                        ):
+                            # handles subscriptions, overwrites the previous mapping of {item_id : payload_id}
+                            # with {subscription_id : payload_id}
+                            try:
+                                item_id = request_manager.overwrite_request(
+                                    item_id, response["result"]
+                                )
+                                subscription_added = True
+                            except KeyError:
+                                raise SubstrateRequestException(str(response))
+                        decoded_response, complete = self._process_response(
+                            response,
+                            item_id,
                             value_scale_type,
                             storage_item,
                             result_handler,
-                            attempt + 1,
                         )
-                if "id" in response:
-                    _received[response["id"]] = response
-                elif "params" in response:
-                    _received[response["params"]["subscription"]] = response
-                else:
-                    raise SubstrateRequestException(response)
-                for item_id in list(request_manager.response_map.keys()):
-                    if item_id not in request_manager.responses or isinstance(
-                        result_handler, Callable
-                    ):
-                        if response := _received.pop(item_id):
-                            if (
-                                isinstance(result_handler, Callable)
-                                and not subscription_added
-                            ):
-                                # handles subscriptions, overwrites the previous mapping of {item_id : payload_id}
-                                # with {subscription_id : payload_id}
-                                try:
-                                    item_id = request_manager.overwrite_request(
-                                        item_id, response["result"]
-                                    )
-                                    subscription_added = True
-                                except KeyError:
-                                    raise SubstrateRequestException(str(response))
-                            decoded_response, complete = self._process_response(
-                                response,
-                                item_id,
-                                value_scale_type,
-                                storage_item,
-                                result_handler,
-                            )
-                            request_manager.add_response(
-                                item_id, decoded_response, complete
-                            )
+                        request_manager.add_response(
+                            item_id, decoded_response, complete
+                        )
 
-                if request_manager.is_complete:
-                    break
+            if request_manager.is_complete:
+                break
 
         return request_manager.get_results()
 
@@ -2202,6 +2258,54 @@ class SubstrateInterface(SubstrateMixin):
 
             return response.get("result")
 
+    def _do_runtime_call_old(
+        self,
+        api: str,
+        method: str,
+        params: Optional[Union[list, dict]] = None,
+        block_hash: Optional[str] = None,
+    ) -> ScaleType:
+        logging.debug(
+            f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
+        )
+        runtime_call_def = _TYPE_REGISTRY["runtime_api"][api]["methods"][method]
+
+        # Encode params
+        param_data = b""
+
+        if "encoder" in runtime_call_def:
+            param_data = runtime_call_def["encoder"](params)
+        else:
+            for idx, param in enumerate(runtime_call_def["params"]):
+                param_type_string = f"{param['type']}"
+                if isinstance(params, list):
+                    param_data += self.encode_scale(param_type_string, params[idx])
+                else:
+                    if param["name"] not in params:
+                        raise ValueError(
+                            f"Runtime Call param '{param['name']}' is missing"
+                        )
+
+                    param_data += self.encode_scale(
+                        param_type_string, params[param["name"]]
+                    )
+
+        # RPC request
+        result_data = self.rpc_request(
+            "state_call", [f"{api}_{method}", param_data.hex(), block_hash]
+        )
+        result_vec_u8_bytes = hex_to_bytes(result_data["result"])
+        result_bytes = self.decode_scale("Vec<u8>", result_vec_u8_bytes)
+
+        # Decode result
+        # Get correct type
+        result_decoded = runtime_call_def["decoder"](bytes(result_bytes))
+        as_dict = _bt_decode_to_dict_or_list(result_decoded)
+        logging.debug("Decoded old runtime call result: ", as_dict)
+        result_obj = ScaleObj(as_dict)
+
+        return result_obj
+
     def runtime_call(
         self,
         api: str,
@@ -2228,13 +2332,26 @@ class SubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            metadata_v15 = self.metadata_v15.value()
-            apis = {entry["name"]: entry for entry in metadata_v15["apis"]}
+            if block_hash:
+                # Use old metadata v15 from init_runtime call
+                metadata_v15 = self._old_metadata_v15
+            else:
+                metadata_v15 = self.metadata_v15
+
+            self.registry = PortableRegistry.from_metadata_v15(metadata_v15)
+            metadata_v15_value = metadata_v15.value()
+
+            apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
             api_entry = apis[api]
             methods = {entry["name"]: entry for entry in api_entry["methods"]}
             runtime_call_def = methods[method]
         except KeyError:
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
+
+        if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
+            result = self._do_runtime_call_old(api, method, params, block_hash)
+
+            return result
 
         if isinstance(params, list) and len(params) != len(runtime_call_def["inputs"]):
             raise ValueError(
@@ -2874,9 +2991,8 @@ class SubstrateInterface(SubstrateMixin):
         """
         Closes the substrate connection, and the websocket connection.
         """
-        # TODO change this logic
         try:
-            self.ws.shutdown()
+            self.ws.close()
         except AttributeError:
             pass
 

@@ -344,6 +344,7 @@ class SubstrateMixin(ABC):
     runtime_config: RuntimeConfigurationObject
     type_registry: Optional[dict]
     ss58_format: Optional[int]
+    ws_max_size = 2**32
 
     @property
     def chain(self):
