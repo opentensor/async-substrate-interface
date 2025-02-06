@@ -1,3 +1,6 @@
+from bt_metadata import AxonInfo, PrometheusInfo
+
+
 def _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value) -> bool:
     # Check if the output type is a Vec<u8>
     # If so, call the API using the old method
@@ -24,3 +27,18 @@ def _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value) -> bool
                 ):
                     return True
     return False
+
+
+def _bt_decode_to_dict_or_list(obj) -> dict | list[dict]:
+    if isinstance(obj, list):
+        return [_bt_decode_to_dict_or_list(item) for item in obj]
+
+    as_dict = {}
+    for key in dir(obj):
+        if not key.startswith("_"):
+            val = getattr(obj, key)
+            if isinstance(val, (AxonInfo, PrometheusInfo)):
+                as_dict[key] = _bt_decode_to_dict_or_list(val)
+            else:
+                as_dict[key] = val
+    return as_dict

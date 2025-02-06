@@ -55,7 +55,10 @@ from async_substrate_interface.types import (
     Preprocessed,
 )
 from async_substrate_interface.utils import hex_to_bytes, json
-from async_substrate_interface.utils.decoding import _determine_if_old_runtime_call
+from async_substrate_interface.utils.decoding import (
+    _determine_if_old_runtime_call,
+    _bt_decode_to_dict_or_list,
+)
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
 
@@ -2576,21 +2579,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         result_vec_u8_bytes = hex_to_bytes(result_data["result"])
         result_bytes = await self.decode_scale("Vec<u8>", result_vec_u8_bytes)
 
-        def _as_dict(obj):
-            as_dict = {}
-            for key in dir(obj):
-                if not key.startswith("_"):
-                    val = getattr(obj, key)
-                    if isinstance(val, (OldAxonInfo, OldPrometheusInfo)):
-                        as_dict[key] = _as_dict(val)
-                    else:
-                        as_dict[key] = val
-            return as_dict
-
         # Decode result
         # Get correct type
         result_decoded = runtime_call_def["decoder"](bytes(result_bytes))
-        as_dict = _as_dict(result_decoded)
+        as_dict = _bt_decode_to_dict_or_list(result_decoded)
         logging.debug("Decoded old runtime call result: ", as_dict)
         result_obj = ScaleObj(as_dict)
 
