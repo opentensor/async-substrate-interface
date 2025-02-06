@@ -2257,6 +2257,9 @@ class SubstrateInterface(SubstrateMixin):
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
     ) -> ScaleType:
+        logging.debug(
+            f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
+        )
         runtime_call_def = _TYPE_REGISTRY["runtime_api"][api]["methods"][method]
 
         # Encode params
@@ -2301,6 +2304,7 @@ class SubstrateInterface(SubstrateMixin):
         # Get correct type
         result_decoded = runtime_call_def["decoder"](bytes(result_bytes))
         as_dict = _as_dict(result_decoded)
+        logging.debug("Decoded old runtime call result: ", as_dict)
         result_obj = ScaleObj(as_dict)
 
         return result_obj
