@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0rc11 /2025-02-06
+* Reuses the websocket for sync Substrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/29
+* Feat/metadata v15 cache by @camfairchild in https://github.com/opentensor/async-substrate-interface/pull/30
+* Backmerge main to staging rc10 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/31
+
 ## 1.0.0rc10 /2025-02-04
 * Fixes decoding account ids for sync substrate
 
