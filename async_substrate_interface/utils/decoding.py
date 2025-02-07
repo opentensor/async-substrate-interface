@@ -1,3 +1,5 @@
+from typing import Union
+
 from bt_decode import AxonInfo, PrometheusInfo
 
 
@@ -29,7 +31,7 @@ def _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value) -> bool
     return False
 
 
-def _bt_decode_to_dict_or_list(obj) -> dict | list[dict]:
+def _bt_decode_to_dict_or_list(obj) -> Union[dict, list[dict]]:
     if isinstance(obj, list):
         return [_bt_decode_to_dict_or_list(item) for item in obj]
 
