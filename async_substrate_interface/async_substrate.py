@@ -61,6 +61,8 @@ if TYPE_CHECKING:
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
+logger = logging.getLogger("AsyncSubstrateInterface.async_substrate")
+
 
 class AsyncExtrinsicReceipt:
     """
@@ -1017,7 +1019,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if not self._metadata:
                 if self.runtime_version in self._metadata_cache:
                     # Get metadata from cache
-                    logging.debug(
+                    logger.debug(
                         "Retrieved metadata for {} from memory".format(
                             self.runtime_version
                         )
@@ -1031,7 +1033,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     metadata = self._metadata = await self.get_block_metadata(
                         block_hash=runtime_block_hash, decode=True
                     )
-                    logging.debug(
+                    logger.debug(
                         "Retrieved metadata for {} from Substrate node".format(
                             self.runtime_version
                         )
@@ -1044,7 +1046,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             if self.runtime_version in self._metadata_v15_cache:
                 # Get metadata v15 from cache
-                logging.debug(
+                logger.debug(
                     "Retrieved metadata v15 for {} from memory".format(
                         self.runtime_version
                     )
@@ -1056,7 +1058,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 metadata_v15 = (
                     self._old_metadata_v15
                 ) = await self._load_registry_at_block(block_hash=runtime_block_hash)
-                logging.debug(
+                logger.debug(
                     "Retrieved metadata v15 for {} from Substrate node".format(
                         self.runtime_version
                     )
@@ -1069,7 +1071,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
             if self.implements_scaleinfo:
-                logging.debug("Add PortableRegistry from metadata to type registry")
+                logger.debug("Add PortableRegistry from metadata to type registry")
                 self.runtime_config.add_portable_registry(metadata)
 
             # Set active runtime version
@@ -1988,14 +1990,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     break
                 if time.time() - self.ws.last_received >= self.retry_timeout:
                     if attempt >= self.max_retries:
-                        logging.warning(
+                        logger.warning(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
                         )
                         raise SubstrateRequestException("Max retries reached.")
                     else:
                         self.ws.last_received = time.time()
                         await self.ws.connect(force=True)
-                        logging.error(
+                        logger.error(
                             f"Timed out waiting for RPC requests. "
                             f"Retrying attempt {attempt + 1} of {self.max_retries}"
                         )
@@ -2067,7 +2069,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Failed to get runtime version"
                 in result[payload_id][0]["error"]["message"]
             ):
-                logging.warning(
+                logger.warning(
                     "Failed to get runtime. Re-fetching from chain, and retrying."
                 )
                 await self.init_runtime()
@@ -2544,7 +2546,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
     ) -> ScaleType:
-        logging.debug(
+        logger.debug(
             f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
         )
         runtime_call_def = _TYPE_REGISTRY["runtime_api"][api]["methods"][method]
@@ -2582,7 +2584,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         # Get correct type
         result_decoded = runtime_call_def["decoder"](bytes(result_bytes))
         as_dict = _bt_decode_to_dict_or_list(result_decoded)
-        logging.debug("Decoded old runtime call result: ", as_dict)
+        logger.debug("Decoded old runtime call result: ", as_dict)
         result_obj = ScaleObj(as_dict)
 
         return result_obj
