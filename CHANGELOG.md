@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.0rc12 /2025-02-07
+* python 3.9 support by @roman-opentensor in https://github.com/opentensor/async-substrate-interface/pull/33
+
 ## 1.0.0rc11 /2025-02-06
 * Reuses the websocket for sync Substrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/29
 * Feat/metadata v15 cache by @camfairchild in https://github.com/opentensor/async-substrate-interface/pull/30
