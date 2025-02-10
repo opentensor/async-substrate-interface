@@ -14,7 +14,7 @@ from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import GenericCall, ScaleType
 
 
-logger = logging.getLogger("AsyncSubstrateInterface.types")
+logger = logging.getLogger("async_substrate_interface")
 
 
 class RuntimeCache:

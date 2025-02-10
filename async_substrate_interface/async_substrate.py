@@ -61,7 +61,7 @@ if TYPE_CHECKING:
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
-logger = logging.getLogger("AsyncSubstrateInterface.async_substrate")
+logger = logging.getLogger("async_substrate_interface")
 
 
 class AsyncExtrinsicReceipt:

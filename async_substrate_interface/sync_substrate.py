@@ -41,7 +41,7 @@ from async_substrate_interface.type_registry import _TYPE_REGISTRY
 
 ResultHandler = Callable[[dict, Any], tuple[dict, bool]]
 
-logger = logging.getLogger("AsyncSubstrateInterface.sync_substrate")
+logger = logging.getLogger("async_substrate_interface")
 
 
 class ExtrinsicReceipt:
