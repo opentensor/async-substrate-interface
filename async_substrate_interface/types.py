@@ -343,6 +343,7 @@ class SubstrateMixin(ABC):
     _token_decimals = None
     _token_symbol = None
     _metadata = None
+    metadata_v15 = None
     _chain: str
     runtime_config: RuntimeConfigurationObject
     type_registry: Optional[dict]
