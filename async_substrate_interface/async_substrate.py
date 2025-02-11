@@ -734,9 +734,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 if not self._chain:
                     chain = await self.rpc_request("system_chain", [])
                     self._chain = chain.get("result")
-                await asyncio.gather(
-                    self.load_registry(), self._first_initialize_runtime()
+                init_load = await asyncio.gather(
+                    self.load_registry(), self._first_initialize_runtime(),
+                    return_exceptions=True
                 )
+                for potential_exception in init_load:
+                    if isinstance(potential_exception, Exception):
+                        raise potential_exception
             self.initialized = True
             self._initializing = False
 
@@ -1107,6 +1111,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if block_id and block_hash:
             raise ValueError("Cannot provide block_hash and block_id at the same time")
 
+        if not self.metadata_v15:
+            raise SubstrateRequestException(
+                "Metadata V15 was not loaded. This usually indicates that you did not correctly initialize"
+                " the AsyncSubstrateInterface class with `async with` or by calling `initialize()`"
+            )
         if (
             not (runtime := self.runtime_cache.retrieve(block_id, block_hash))
             or runtime.metadata is None
