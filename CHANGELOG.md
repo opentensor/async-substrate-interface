@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0rc14 /2025-02-11
+* Improves the error-handling of initialisation of the object @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/39
+* Backmerge main to staging rc12 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/40
+
 ## 1.0.0rc13 /2025-02-10
 * Improve logging by @roman-opentensor and @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/36
 * Backmerge main to staging rc12 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/37
