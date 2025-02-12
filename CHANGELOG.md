@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0rc13 /2025-02-10
+* Improve logging by @roman-opentensor and @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/36
+* Backmerge main to staging rc12 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/37
+
 ## 1.0.0rc12 /2025-02-07
 * python 3.9 support by @roman-opentensor in https://github.com/opentensor/async-substrate-interface/pull/33
 
