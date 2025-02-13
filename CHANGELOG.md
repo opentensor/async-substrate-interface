@@ -3,6 +3,7 @@
 ## 1.0.0 /2025-02-13
 
 ## What's new
+* New Async Substrate Interface by @thewhaleking and @roman-opentensor in https://github.com/opentensor/async-substrate-interface/tree/main
 * Github release + bumps version  by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/1
 * Improve `ScaleObj`  by @roman-opentensor in https://github.com/opentensor/async-substrate-interface/pull/2
 * Backmerge staging main by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/4
