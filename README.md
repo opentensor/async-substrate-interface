@@ -1,3 +1,53 @@
-This is a modernised version of the py-substrate-interface library, with the ability to use it asynchronously (as well as synchronously). It aims to be almost fully API-compatible with the original library.
+# Async Substrate Interface
 
-In addition to it's async nature, it is additionally improved with using bt-decode rather than py-scale-codec for significantly faster SCALE decoding.
+This project provides an asynchronous interface for interacting with [Substrate](https://substrate.io/)-based blockchains. It is based on the [py-substrate-interface](https://github.com/polkascan/py-substrate-interface) project.
+
+## Features
+
+- Asynchronous API calls
+- Support for multiple Substrate-based networks
+- Easy integration with existing projects
+
+## Installation
+
+To install the package, use the following command:
+
+```bash
+pip install async-substrate-interface
+```
+
+## Usage
+
+Here is a basic example of how to use the async-substrate-interface:
+
+```python
+import asyncio
+from async_substrate_interface import SubstrateInterface
+
+async def main():
+    substrate = SubstrateInterface(
+        url="wss://rpc.polkadot.io"
+    )
+
+    result = await substrate.query(
+        module='System',
+        storage_function='Account',
+        params=['5FHneW46xGXgs5mUiveU4sbTyGBzmto4oT9v5TFn5u4tZ7sY']
+    )
+
+    print(result)
+
+asyncio.run(main())
+```
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## Contact
+
+For any questions or inquiries, please join the Bittensor Development Discord server: [Church of Rao](https://discord.gg/gavmT4R8sB).
