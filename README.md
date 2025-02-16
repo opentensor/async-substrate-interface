@@ -1,12 +1,10 @@
 # Async Substrate Interface
-
 This project provides an asynchronous interface for interacting with [Substrate](https://substrate.io/)-based blockchains. It is based on the [py-substrate-interface](https://github.com/polkascan/py-substrate-interface) project.
 
 ## Features
 
 - Asynchronous API calls
-- Support for multiple Substrate-based networks
-- Easy integration with existing projects
+- Uses [bt-decode](https://github.com/opentensor/bt-decode) instead of [py-scale-codec](https://github.com/polkascan/py-scale-codec) for faster [SCALE](https://polkascan.github.io/py-scale-codec/) decoding.
 
 ## Installation
 
