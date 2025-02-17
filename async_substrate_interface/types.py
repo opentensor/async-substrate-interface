@@ -345,6 +345,7 @@ class SubstrateMixin(ABC):
     type_registry: Optional[dict]
     ss58_format: Optional[int]
     ws_max_size = 2**32
+    registry_type_map: dict[str, int]
 
     @property
     def chain(self):
@@ -722,12 +723,19 @@ class SubstrateMixin(ABC):
         if value is None:
             result = b"\x00"
         else:
+            try:
+                vec_acct_id = (
+                    f"scale_info::{self.registry_type_map['Vec<T::AccountId>']}"
+                )
+            except KeyError:
+                vec_acct_id = "scale_info::152"
+
             if type_string == "scale_info::0":  # Is an AccountId
                 # encode string into AccountId
                 ## AccountId is a composite type with one, unnamed field
                 return bytes.fromhex(ss58_decode(value, SS58_FORMAT))
 
-            elif type_string == "scale_info::151":  # Vec<AccountId>
+            elif type_string == vec_acct_id:  # Vec<AccountId>
                 if not isinstance(value, (list, tuple)):
                     value = [value]
 
