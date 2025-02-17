@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.0.0 /2025-02-13
+
+## What's new
+* New Async Substrate Interface by @thewhaleking and @roman-opentensor in https://github.com/opentensor/async-substrate-interface/tree/main
+* Github release + bumps version  by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/1
+* Improve `ScaleObj`  by @roman-opentensor in https://github.com/opentensor/async-substrate-interface/pull/2
+* Backmerge staging main by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/4
+* Release/1.0.0rc2 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/5
+* EventLoopManager, factory function by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/3
+* Adds nonce implementation by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/8
+* Exception for uninitialised by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/6
+* Update build/release to use pyproject.toml by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/10
+* Fixes nonce management & bumps version by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/11
+* Sync Substrate Rewritten by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/9
+* Remove ujson by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/12
+* Backmerge main to staging rc4 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/13
+* Release/1.0.0rc5 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/14
+* Update project name for PyPI by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/16
+* Fixes _metadata_cache, bumps version and changelog by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/17
+* feat: use bt_decode in runtime_call by @zyzniewski-reef in https://github.com/opentensor/async-substrate-interface/pull/15
+* Move logic to mixin + fix tests by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/18
+* Fix decode scale by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/19
+* Backmerge main to staging rc5 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/20
+* Release/1.0.0rc7 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/21
+* Release/1.0.0rc8 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/22
+* Fixes decoding acc ids by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/23
+* Backmerge/1.0.0rc8 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/24
+* Release/1.0.0rc9 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/25
+* Fixes sync ss58 decoding by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/26
+* Backmerge main staging rc9 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/27
+* Release/1.0.0rc10 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/28
+* Reuses the websocket for sync Substrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/29
+* Feat/metadata v15 cache by @camfairchild in https://github.com/opentensor/async-substrate-interface/pull/30
+* Backmerge main to staging rc10 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/31
+* Release/1.0.0rc11 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/32
+* python 3.9 support by @roman-opentensor in https://github.com/opentensor/async-substrate-interface/pull/33
+* Backmerge main to staging RC11 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/34
+* Release/1.0.0rc12 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/35
+* Improve logging by @roman-opentensor in https://github.com/opentensor/async-substrate-interface/pull/36
+* Backmerge main to staging rc12 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/37
+* Release/1.0.0rc13 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/38
+* Improves the error-handling of initialisation of the object by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/39
+* Backmerge main to staging rc12 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/40
+* Release/1.0.0rc14 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/41
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/commits/v1.0.0
+
 ## 1.0.0rc14 /2025-02-11
 * Improves the error-handling of initialisation of the object @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/39
 * Backmerge main to staging rc12 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/40
