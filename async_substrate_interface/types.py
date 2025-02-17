@@ -731,7 +731,7 @@ class SubstrateMixin(ABC):
                 ## AccountId is a composite type with one, unnamed field
                 return bytes.fromhex(ss58_decode(value, SS58_FORMAT))
 
-            elif type_string == "scale_info::151":  # Vec<AccountId>
+            elif type_string == "scale_info::152":  # Vec<AccountId>
                 if not isinstance(value, (list, tuple)):
                     value = [value]
 
