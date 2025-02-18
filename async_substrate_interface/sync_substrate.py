@@ -618,7 +618,7 @@ class SubstrateInterface(SubstrateMixin):
             ):
                 for field in variants.get("fields", [{}]):
                     if field.get("type") and field.get("typeName"):
-                        field["typeName"] = registry_type_map[field["type"]]
+                        registry_type_map[field["typeName"]] = field["type"]
         self.registry_type_map = registry_type_map
 
     def _load_registry_at_block(self, block_hash: str) -> MetadataV15:
@@ -1692,6 +1692,7 @@ class SubstrateInterface(SubstrateMixin):
         item_id = 0
         for payload in payloads:
             item_id += 1
+            print({**payload["payload"], **{"id": item_id}})
             ws.send(json.dumps({**payload["payload"], **{"id": item_id}}))
             request_manager.add_request(item_id, payload["id"])
 

@@ -814,7 +814,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             ):
                 for field in variants.get("fields", [{}]):
                     if field.get("type") and field.get("typeName"):
-                        field["typeName"] = registry_type_map[field["type"]]
+                        registry_type_map[field["typeName"]] = field["type"]
         self.registry_type_map = registry_type_map
 
     async def _load_registry_at_block(self, block_hash: str) -> MetadataV15:
