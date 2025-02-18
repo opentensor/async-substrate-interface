@@ -1692,7 +1692,6 @@ class SubstrateInterface(SubstrateMixin):
         item_id = 0
         for payload in payloads:
             item_id += 1
-            print({**payload["payload"], **{"id": item_id}})
             ws.send(json.dumps({**payload["payload"], **{"id": item_id}}))
             request_manager.add_request(item_id, payload["id"])
 
