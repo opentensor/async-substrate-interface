@@ -525,6 +525,9 @@ class SubstrateInterface(SubstrateMixin):
         self.initialize()
         return self
 
+    def __del__(self):
+        self.close()
+
     def initialize(self):
         """
         Initialize the connection to the chain.
