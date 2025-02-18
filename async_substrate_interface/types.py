@@ -13,6 +13,8 @@ from scalecodec.base import RuntimeConfigurationObject, ScaleBytes
 from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import GenericCall, ScaleType
 
+from .utils import json
+
 
 class RuntimeCache:
     blocks: dict[int, "Runtime"]
@@ -346,6 +348,7 @@ class SubstrateMixin(ABC):
     ss58_format: Optional[int]
     ws_max_size = 2**32
     registry_type_map: dict[str, int]
+    metadata_v15 = None
 
     @property
     def chain(self):
@@ -600,6 +603,17 @@ class SubstrateMixin(ABC):
             "module_name": module.name,
             "spec_version": spec_version,
         }
+
+    def _load_registry_type_map(self):
+        registry_type_map = {}
+        for i in json.loads(self.registry.registry)["types"]:
+            for variants in (
+                i.get("type").get("def", {}).get("variant", {}).get("variants", [{}])
+            ):
+                for field in variants.get("fields", [{}]):
+                    if field.get("type") and field.get("typeName"):
+                        registry_type_map[field["typeName"]] = field["type"]
+        self.registry_type_map = registry_type_map
 
     def reload_type_registry(
         self, use_remote_preset: bool = True, auto_discover: bool = True
