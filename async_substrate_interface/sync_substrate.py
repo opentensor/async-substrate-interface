@@ -518,6 +518,8 @@ class SubstrateInterface(SubstrateMixin):
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
         self.ws = self.connect(init=True)
+        self.registry_type_map = {}
+        self.type_id_to_name = {}
         if not _mock:
             self.initialize()
 
@@ -615,6 +617,7 @@ class SubstrateInterface(SubstrateMixin):
             metadata_option_bytes
         )
         self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
+        self._load_registry_type_map()
 
     def _load_registry_at_block(self, block_hash: str) -> MetadataV15:
         # Should be called for any block that fails decoding.

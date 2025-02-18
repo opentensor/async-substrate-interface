@@ -713,6 +713,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
         self._initializing = False
+        self.registry_type_map = {}
+        self.type_id_to_name = {}
 
     async def __aenter__(self):
         await self.initialize()
@@ -807,6 +809,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             metadata_option_bytes
         )
         self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
+        self._load_registry_type_map()
 
     async def _load_registry_at_block(self, block_hash: str) -> MetadataV15:
         # Should be called for any block that fails decoding.
