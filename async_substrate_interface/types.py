@@ -16,6 +16,9 @@ from scalecodec.types import GenericCall, ScaleType
 from .utils import json
 
 
+logger = logging.getLogger("async_substrate_interface")
+
+
 class RuntimeCache:
     blocks: dict[int, "Runtime"]
     block_hashes: dict[str, "Runtime"]
@@ -342,6 +345,7 @@ class SubstrateMixin(ABC):
     _token_decimals = None
     _token_symbol = None
     _metadata = None
+    metadata_v15 = None
     _chain: str
     runtime_config: RuntimeConfigurationObject
     type_registry: Optional[dict]
@@ -713,7 +717,7 @@ class SubstrateMixin(ABC):
                 type_registry_preset_dict = load_type_registry_preset(
                     type_registry_name
                 )
-                logging.debug(
+                logger.debug(
                     f"Auto set type_registry_preset to {type_registry_name} ..."
                 )
                 self.type_registry_preset = type_registry_name

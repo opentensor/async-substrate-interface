@@ -41,6 +41,8 @@ from async_substrate_interface.type_registry import _TYPE_REGISTRY
 
 ResultHandler = Callable[[dict, Any], tuple[dict, bool]]
 
+logger = logging.getLogger("async_substrate_interface")
+
 
 class ExtrinsicReceipt:
     """
@@ -771,7 +773,7 @@ class SubstrateInterface(SubstrateMixin):
             if not self._metadata:
                 if self.runtime_version in self._metadata_cache:
                     # Get metadata from cache
-                    logging.debug(
+                    logger.debug(
                         "Retrieved metadata for {} from memory".format(
                             self.runtime_version
                         )
@@ -783,7 +785,7 @@ class SubstrateInterface(SubstrateMixin):
                     metadata = self._metadata = self.get_block_metadata(
                         block_hash=runtime_block_hash, decode=True
                     )
-                    logging.debug(
+                    logger.debug(
                         "Retrieved metadata for {} from Substrate node".format(
                             self.runtime_version
                         )
@@ -796,7 +798,7 @@ class SubstrateInterface(SubstrateMixin):
 
             if self.runtime_version in self._metadata_v15_cache:
                 # Get metadata v15 from cache
-                logging.debug(
+                logger.debug(
                     "Retrieved metadata v15 for {} from memory".format(
                         self.runtime_version
                     )
@@ -808,7 +810,7 @@ class SubstrateInterface(SubstrateMixin):
                 metadata_v15 = self._old_metadata_v15 = self._load_registry_at_block(
                     block_hash=runtime_block_hash
                 )
-                logging.debug(
+                logger.debug(
                     "Retrieved metadata v15 for {} from Substrate node".format(
                         self.runtime_version
                     )
@@ -820,7 +822,7 @@ class SubstrateInterface(SubstrateMixin):
             self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
             if self.implements_scaleinfo:
-                logging.debug("Add PortableRegistry from metadata to type registry")
+                logger.debug("Add PortableRegistry from metadata to type registry")
                 self.runtime_config.add_portable_registry(metadata)
 
             # Set active runtime version
@@ -1693,7 +1695,7 @@ class SubstrateInterface(SubstrateMixin):
                 response = json.loads(ws.recv(timeout=self.retry_timeout, decode=False))
             except (TimeoutError, ConnectionClosed):
                 if attempt >= self.max_retries:
-                    logging.warning(
+                    logger.warning(
                         f"Timed out waiting for RPC requests {attempt} times. Exiting."
                     )
                     raise SubstrateRequestException("Max retries reached.")
@@ -1804,7 +1806,7 @@ class SubstrateInterface(SubstrateMixin):
                 "Failed to get runtime version"
                 in result[payload_id][0]["error"]["message"]
             ):
-                logging.warning(
+                logger.warning(
                     "Failed to get runtime. Re-fetching from chain, and retrying."
                 )
                 self.init_runtime()
@@ -2268,7 +2270,7 @@ class SubstrateInterface(SubstrateMixin):
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
     ) -> ScaleType:
-        logging.debug(
+        logger.debug(
             f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
         )
         runtime_call_def = _TYPE_REGISTRY["runtime_api"][api]["methods"][method]
@@ -2304,7 +2306,7 @@ class SubstrateInterface(SubstrateMixin):
         # Get correct type
         result_decoded = runtime_call_def["decoder"](bytes(result_bytes))
         as_dict = _bt_decode_to_dict_or_list(result_decoded)
-        logging.debug("Decoded old runtime call result: ", as_dict)
+        logger.debug("Decoded old runtime call result: ", as_dict)
         result_obj = ScaleObj(as_dict)
 
         return result_obj
