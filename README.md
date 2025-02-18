@@ -22,14 +22,14 @@ def main():
     substrate = SubstrateInterface(
         url="wss://rpc.polkadot.io"
     )
+    with substrate:
+        result = substrate.query(
+            module='System',
+            storage_function='Account',
+            params=['5CZs3T15Ky4jch1sUpSFwkUbYEnsCfe1WCY51fH3SPV6NFnf']
+        )
 
-    result = substrate.query(
-        module='System',
-        storage_function='Account',
-        params=['5CZs3T15Ky4jch1sUpSFwkUbYEnsCfe1WCY51fH3SPV6NFnf']
-    )
-
-    print(result)
+        print(result)
 
 main()
 ```
