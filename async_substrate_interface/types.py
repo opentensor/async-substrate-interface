@@ -797,7 +797,7 @@ class SubstrateMixin(ABC):
         else:
             try:
                 vec_acct_id = (
-                    f"scale_info::{self.registry_type_map['Vec<T::AccountId>']}"
+                    f"scale_info::{self.registry_type_map['Vec<AccountId32>']}"
                 )
             except KeyError:
                 vec_acct_id = "scale_info::152"

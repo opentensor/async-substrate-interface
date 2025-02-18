@@ -737,8 +737,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     chain = await self.rpc_request("system_chain", [])
                     self._chain = chain.get("result")
                 init_load = await asyncio.gather(
-                    self.load_registry(), self._first_initialize_runtime(),
-                    return_exceptions=True
+                    self.load_registry(),
+                    self._first_initialize_runtime(),
+                    return_exceptions=True,
                 )
                 for potential_exception in init_load:
                     if isinstance(potential_exception, Exception):
