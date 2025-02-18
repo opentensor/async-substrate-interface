@@ -48,7 +48,7 @@ from async_substrate_interface.types import (
     SubstrateMixin,
     Preprocessed,
 )
-from async_substrate_interface.utils import hex_to_bytes, json
+from async_substrate_interface.utils import hex_to_bytes, json, generate_unique_id
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -507,7 +507,6 @@ class Websocket:
         # TODO reconnection logic
         self.ws_url = ws_url
         self.ws: Optional["ClientConnection"] = None
-        self.id = 0
         self.max_subscriptions = max_subscriptions
         self.max_connections = max_connections
         self.shutdown_timer = shutdown_timer
@@ -543,8 +542,6 @@ class Websocket:
                 connect(self.ws_url, **self._options), timeout=10
             )
             self._receiving_task = asyncio.create_task(self._start_receiving())
-        if force:
-            self.id = 100
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         async with self._lock:  # TODO is this actually what I want to happen?
@@ -556,7 +553,6 @@ class Websocket:
                 except asyncio.CancelledError:
                     pass
             if self._in_use == 0 and self.ws is not None:
-                self.id = 0
                 self._open_subscriptions = 0
                 self._exit_task = asyncio.create_task(self._exit_with_timer())
 
@@ -582,7 +578,6 @@ class Websocket:
             self.ws = None
             self._initialized = False
             self._receiving_task = None
-            self.id = 0
 
     async def _recv(self) -> None:
         try:
@@ -625,8 +620,7 @@ class Websocket:
             id: the internal ID of the request (incremented int)
         """
         # async with self._lock:
-        original_id = self.id
-        self.id += 1
+        original_id = generate_unique_id(json.dumps(payload))
         # self._open_subscriptions += 1
         try:
             await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
@@ -735,8 +729,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     chain = await self.rpc_request("system_chain", [])
                     self._chain = chain.get("result")
                 init_load = await asyncio.gather(
-                    self.load_registry(), self._first_initialize_runtime(),
-                    return_exceptions=True
+                    self.load_registry(),
+                    self._first_initialize_runtime(),
+                    return_exceptions=True,
                 )
                 for potential_exception in init_load:
                     if isinstance(potential_exception, Exception):
