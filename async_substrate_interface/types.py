@@ -348,6 +348,7 @@ class SubstrateMixin(ABC):
     ss58_format: Optional[int]
     ws_max_size = 2**32
     registry_type_map: dict[str, int]
+    type_id_to_name: dict[int, str]
     metadata_v15 = None
 
     @property
@@ -606,14 +607,67 @@ class SubstrateMixin(ABC):
 
     def _load_registry_type_map(self):
         registry_type_map = {}
-        for i in json.loads(self.registry.registry)["types"]:
-            for variants in (
-                i.get("type").get("def", {}).get("variant", {}).get("variants", [{}])
-            ):
-                for field in variants.get("fields", [{}]):
-                    if field.get("type") and field.get("typeName"):
-                        registry_type_map[field["typeName"]] = field["type"]
+        type_id_to_name = {}
+        types = json.loads(self.registry.registry)["types"]
+        for type_entry in types:
+            type_type = type_entry["type"]
+            type_id = type_entry["id"]
+            type_def = type_type["def"]
+            type_path = type_type.get("path")
+            if type_entry.get("params") or type_def.get("variant"):
+                continue  # has generics or is Enum
+            if type_path:
+                type_name = type_path[-1]
+                registry_type_map[type_name] = type_id
+                type_id_to_name[type_id] = type_name
+            else:
+                # probably primitive
+                if type_def.get("primitive"):
+                    type_name = type_def["primitive"]
+                    registry_type_map[type_name] = type_id
+                    type_id_to_name[type_id] = type_name
+        for type_entry in types:
+            type_type = type_entry["type"]
+            type_id = type_entry["id"]
+            type_def = type_type["def"]
+            if type_def.get("sequence"):
+                sequence_type_id = type_def["sequence"]["type"]
+                inner_type = type_id_to_name.get(sequence_type_id)
+                if inner_type:
+                    type_name = f"Vec<{inner_type}>"
+                    type_id_to_name[type_id] = type_name
+                    registry_type_map[type_name] = type_id
+            elif type_def.get("array"):
+                array_type_id = type_def["array"]["type"]
+                inner_type = type_id_to_name.get(array_type_id)
+                maybe_len = type_def["array"].get("len")
+                if inner_type:
+                    if maybe_len:
+                        type_name = f"[{inner_type}; {maybe_len}]"
+                    else:
+                        type_name = f"[{inner_type}]"
+                    type_id_to_name[type_id] = type_name
+                    registry_type_map[type_name] = type_id
+            elif type_def.get("compact"):
+                compact_type_id = type_def["compact"]["type"]
+                inner_type = type_id_to_name.get(compact_type_id)
+                if inner_type:
+                    type_name = f"Compact<{inner_type}>"
+                    type_id_to_name[type_id] = type_name
+                    registry_type_map[type_name] = type_id
+            elif type_def.get("tuple"):
+                tuple_type_ids = type_def["tuple"]
+                type_names = []
+                for inner_type_id in tuple_type_ids:
+                    inner_type = type_id_to_name.get(inner_type_id)
+                    if inner_type:
+                        type_names.append(inner_type)
+                type_name = ", ".join(type_names)
+                type_name = f"({type_name})"
+                type_id_to_name[type_id] = type_name
+                registry_type_map[type_name] = type_id
         self.registry_type_map = registry_type_map
+        self.type_id_to_name = type_id_to_name
 
     def reload_type_registry(
         self, use_remote_preset: bool = True, auto_discover: bool = True

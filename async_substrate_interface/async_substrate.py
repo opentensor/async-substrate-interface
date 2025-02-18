@@ -718,6 +718,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.reload_type_registry()
         self._initializing = False
         self.registry_type_map = {}
+        self.type_id_to_name = {}
 
     async def __aenter__(self):
         await self.initialize()

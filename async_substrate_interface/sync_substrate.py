@@ -517,6 +517,7 @@ class SubstrateInterface(SubstrateMixin):
         self.reload_type_registry()
         self.ws = self.connect(init=True)
         self.registry_type_map = {}
+        self.type_id_to_name = {}
         if not _mock:
             self.initialize()
 
