@@ -892,15 +892,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Decoded object
         """
-        if scale_bytes == b"\x00":
-            obj = None
+        if type_string == "scale_info::0":  # Is an AccountId
+            # Decode AccountId bytes to SS58 address
+            return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
-            if type_string == "scale_info::0":  # Is an AccountId
-                # Decode AccountId bytes to SS58 address
-                return ss58_encode(scale_bytes, SS58_FORMAT)
-            else:
-                await self._wait_for_registry(_attempt, _retries)
-                obj = decode_by_type_string(type_string, self.registry, scale_bytes)
+            await self._wait_for_registry(_attempt, _retries)
+            obj = decode_by_type_string(type_string, self.registry, scale_bytes)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
