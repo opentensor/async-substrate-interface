@@ -1,5 +1,11 @@
 # Changelog
 
+## What's Changed
+* Updates type for vec acc id by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/45
+* Backmerge main staging 101 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/48
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.0...v1.0.1
+
 ## 1.0.0 /2025-02-13
 
 ## What's new
