@@ -48,7 +48,7 @@ from async_substrate_interface.types import (
     SubstrateMixin,
     Preprocessed,
 )
-from async_substrate_interface.utils import hex_to_bytes, json, generate_unique_id
+from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -620,7 +620,7 @@ class Websocket:
             id: the internal ID of the request (incremented int)
         """
         # async with self._lock:
-        original_id = generate_unique_id(json.dumps(payload))
+        original_id = get_next_id()
         # self._open_subscriptions += 1
         try:
             await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
