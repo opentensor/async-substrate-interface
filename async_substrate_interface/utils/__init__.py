@@ -1,10 +1,11 @@
 import importlib
-import hashlib
+from itertools import cycle
+
+id_cycle = cycle(range(1, 999))
 
 
-def generate_unique_id(item: str, length=10):
-    hashed_value = hashlib.sha256(item.encode()).hexdigest()
-    return hashed_value[:length]
+def get_next_id():
+    return next(id_cycle)
 
 
 def hex_to_bytes(hex_str: str) -> bytes:

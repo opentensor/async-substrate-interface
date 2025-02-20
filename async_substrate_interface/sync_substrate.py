@@ -30,7 +30,7 @@ from async_substrate_interface.types import (
     Preprocessed,
     ScaleObj,
 )
-from async_substrate_interface.utils import hex_to_bytes, json, generate_unique_id
+from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -1688,8 +1688,7 @@ class SubstrateInterface(SubstrateMixin):
 
         ws = self.connect(init=False if attempt == 1 else True)
         for payload in payloads:
-            payload_str = json.dumps(payload["payload"])
-            item_id = generate_unique_id(payload_str)
+            item_id = get_next_id()
             ws.send(json.dumps({**payload["payload"], **{"id": item_id}}))
             request_manager.add_request(item_id, payload["id"])
 
