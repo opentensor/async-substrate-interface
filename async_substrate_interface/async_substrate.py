@@ -892,6 +892,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Decoded object
         """
+        if scale_bytes == b"":
+            return None
         if type_string == "scale_info::0":  # Is an AccountId
             # Decode AccountId bytes to SS58 address
             return ss58_encode(scale_bytes, SS58_FORMAT)
@@ -2230,7 +2232,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 # Decode result for specified storage_key
                 storage_key = storage_key_map[change_storage_key]
                 if change_data is None:
-                    change_data = b"\x00"
+                    change_data = b""
                 else:
                     change_data = bytes.fromhex(change_data[2:])
                 result.append(
