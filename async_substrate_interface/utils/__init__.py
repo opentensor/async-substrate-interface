@@ -1,11 +1,18 @@
 import importlib
 from itertools import cycle
+import random
+import string
 
 id_cycle = cycle(range(1, 999))
 
 
-def get_next_id():
-    return next(id_cycle)
+def get_next_id() -> str:
+    """
+    Generates a pseudo-random ID by returning grabbing the next int of a range from 1-998, and prepending it with
+    two random ascii characters.
+    """
+    random_letters = "".join(random.choices(string.ascii_letters, k=2))
+    return f"{random_letters}{next(id_cycle)}"
 
 
 def hex_to_bytes(hex_str: str) -> bytes:
