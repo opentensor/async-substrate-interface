@@ -8,7 +8,7 @@ id_cycle = cycle(range(1, 999))
 
 def get_next_id() -> str:
     """
-    Generates a pseudo-random ID by returning grabbing the next int of a range from 1-998, and prepending it with
+    Generates a pseudo-random ID by returning the next int of a range from 1-998 prepended with
     two random ascii characters.
     """
     random_letters = "".join(random.choices(string.ascii_letters, k=2))
