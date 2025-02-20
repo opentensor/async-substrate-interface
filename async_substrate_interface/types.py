@@ -13,6 +13,8 @@ from scalecodec.base import RuntimeConfigurationObject, ScaleBytes
 from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import GenericCall, ScaleType
 
+from .utils import json
+
 
 logger = logging.getLogger("async_substrate_interface")
 
@@ -349,6 +351,9 @@ class SubstrateMixin(ABC):
     type_registry: Optional[dict]
     ss58_format: Optional[int]
     ws_max_size = 2**32
+    registry_type_map: dict[str, int]
+    type_id_to_name: dict[int, str]
+    metadata_v15 = None
 
     @property
     def chain(self):
@@ -604,6 +609,70 @@ class SubstrateMixin(ABC):
             "spec_version": spec_version,
         }
 
+    def _load_registry_type_map(self):
+        registry_type_map = {}
+        type_id_to_name = {}
+        types = json.loads(self.registry.registry)["types"]
+        for type_entry in types:
+            type_type = type_entry["type"]
+            type_id = type_entry["id"]
+            type_def = type_type["def"]
+            type_path = type_type.get("path")
+            if type_entry.get("params") or type_def.get("variant"):
+                continue  # has generics or is Enum
+            if type_path:
+                type_name = type_path[-1]
+                registry_type_map[type_name] = type_id
+                type_id_to_name[type_id] = type_name
+            else:
+                # probably primitive
+                if type_def.get("primitive"):
+                    type_name = type_def["primitive"]
+                    registry_type_map[type_name] = type_id
+                    type_id_to_name[type_id] = type_name
+        for type_entry in types:
+            type_type = type_entry["type"]
+            type_id = type_entry["id"]
+            type_def = type_type["def"]
+            if type_def.get("sequence"):
+                sequence_type_id = type_def["sequence"]["type"]
+                inner_type = type_id_to_name.get(sequence_type_id)
+                if inner_type:
+                    type_name = f"Vec<{inner_type}>"
+                    type_id_to_name[type_id] = type_name
+                    registry_type_map[type_name] = type_id
+            elif type_def.get("array"):
+                array_type_id = type_def["array"]["type"]
+                inner_type = type_id_to_name.get(array_type_id)
+                maybe_len = type_def["array"].get("len")
+                if inner_type:
+                    if maybe_len:
+                        type_name = f"[{inner_type}; {maybe_len}]"
+                    else:
+                        type_name = f"[{inner_type}]"
+                    type_id_to_name[type_id] = type_name
+                    registry_type_map[type_name] = type_id
+            elif type_def.get("compact"):
+                compact_type_id = type_def["compact"]["type"]
+                inner_type = type_id_to_name.get(compact_type_id)
+                if inner_type:
+                    type_name = f"Compact<{inner_type}>"
+                    type_id_to_name[type_id] = type_name
+                    registry_type_map[type_name] = type_id
+            elif type_def.get("tuple"):
+                tuple_type_ids = type_def["tuple"]
+                type_names = []
+                for inner_type_id in tuple_type_ids:
+                    inner_type = type_id_to_name.get(inner_type_id)
+                    if inner_type:
+                        type_names.append(inner_type)
+                type_name = ", ".join(type_names)
+                type_name = f"({type_name})"
+                type_id_to_name[type_id] = type_name
+                registry_type_map[type_name] = type_id
+        self.registry_type_map = registry_type_map
+        self.type_id_to_name = type_id_to_name
+
     def reload_type_registry(
         self, use_remote_preset: bool = True, auto_discover: bool = True
     ):
@@ -726,12 +795,19 @@ class SubstrateMixin(ABC):
         if value is None:
             result = b"\x00"
         else:
+            try:
+                vec_acct_id = (
+                    f"scale_info::{self.registry_type_map['Vec<AccountId32>']}"
+                )
+            except KeyError:
+                vec_acct_id = "scale_info::152"
+
             if type_string == "scale_info::0":  # Is an AccountId
                 # encode string into AccountId
                 ## AccountId is a composite type with one, unnamed field
                 return bytes.fromhex(ss58_decode(value, SS58_FORMAT))
 
-            elif type_string == "scale_info::152":  # Vec<AccountId>
+            elif type_string == vec_acct_id:  # Vec<AccountId>
                 if not isinstance(value, (list, tuple)):
                     value = [value]
 

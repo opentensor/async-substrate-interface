@@ -30,7 +30,7 @@ from async_substrate_interface.types import (
     Preprocessed,
     ScaleObj,
 )
-from async_substrate_interface.utils import hex_to_bytes, json
+from async_substrate_interface.utils import hex_to_bytes, json, generate_unique_id
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -518,12 +518,17 @@ class SubstrateInterface(SubstrateMixin):
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
         self.ws = self.connect(init=True)
+        self.registry_type_map = {}
+        self.type_id_to_name = {}
         if not _mock:
             self.initialize()
 
     def __enter__(self):
         self.initialize()
         return self
+
+    def __del__(self):
+        self.close()
 
     def initialize(self):
         """
@@ -612,6 +617,7 @@ class SubstrateInterface(SubstrateMixin):
             metadata_option_bytes
         )
         self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
+        self._load_registry_type_map()
 
     def _load_registry_at_block(self, block_hash: str) -> MetadataV15:
         # Should be called for any block that fails decoding.
@@ -646,15 +652,11 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             Decoded object
         """
-
-        if scale_bytes == b"\x00":
-            obj = None
+        if type_string == "scale_info::0":  # Is an AccountId
+            # Decode AccountId bytes to SS58 address
+            return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
-            if type_string == "scale_info::0":  # Is an AccountId
-                # Decode AccountId bytes to SS58 address
-                return ss58_encode(scale_bytes, SS58_FORMAT)
-            else:
-                obj = decode_by_type_string(type_string, self.registry, scale_bytes)
+            obj = decode_by_type_string(type_string, self.registry, scale_bytes)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
@@ -1681,9 +1683,9 @@ class SubstrateInterface(SubstrateMixin):
         subscription_added = False
 
         ws = self.connect(init=False if attempt == 1 else True)
-        item_id = 0
         for payload in payloads:
-            item_id += 1
+            payload_str = json.dumps(payload["payload"])
+            item_id = generate_unique_id(payload_str)
             ws.send(json.dumps({**payload["payload"], **{"id": item_id}}))
             request_manager.add_request(item_id, payload["id"])
 
