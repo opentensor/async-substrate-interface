@@ -48,7 +48,7 @@ from async_substrate_interface.types import (
     SubstrateMixin,
     Preprocessed,
 )
-from async_substrate_interface.utils import hex_to_bytes, json, generate_unique_id
+from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -620,7 +620,7 @@ class Websocket:
             id: the internal ID of the request (incremented int)
         """
         # async with self._lock:
-        original_id = generate_unique_id(json.dumps(payload))
+        original_id = get_next_id()
         # self._open_subscriptions += 1
         try:
             await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
@@ -904,15 +904,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Decoded object
         """
-        if scale_bytes == b"\x00":
-            obj = None
+        if scale_bytes == b"":
+            return None
+        if type_string == "scale_info::0":  # Is an AccountId
+            # Decode AccountId bytes to SS58 address
+            return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
-            if type_string == "scale_info::0":  # Is an AccountId
-                # Decode AccountId bytes to SS58 address
-                return ss58_encode(scale_bytes, SS58_FORMAT)
-            else:
-                await self._wait_for_registry(_attempt, _retries)
-                obj = decode_by_type_string(type_string, self.registry, scale_bytes)
+            await self._wait_for_registry(_attempt, _retries)
+            obj = decode_by_type_string(type_string, self.registry, scale_bytes)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
@@ -2245,7 +2244,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 # Decode result for specified storage_key
                 storage_key = storage_key_map[change_storage_key]
                 if change_data is None:
-                    change_data = b"\x00"
+                    change_data = b""
                 else:
                     change_data = bytes.fromhex(change_data[2:])
                 result.append(

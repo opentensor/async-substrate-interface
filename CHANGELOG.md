@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.0.2 /2025-02-19
+
+## What's Changed
+* Closes the connection on the object being garbage-collected by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/51
+* Generate UIDs for websockets by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/50
+* Dynamically pulls the info for Vec<AccountId> from the metadata by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/47
+* Fix readme by @igorsyl in https://github.com/opentensor/async-substrate-interface/pull/46
+* Handle options with bt-decode by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/52
+* Backmerge main to staging 101 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/53
+* Handles None change_data by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/54
+
+## New Contributors
+* @igorsyl made their first contribution in https://github.com/opentensor/async-substrate-interface/pull/46
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.1...v1.0.2
+
+## 1.0.1 /2025-02-17
+
+## What's Changed
+* Updates type for vec acc id by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/45
+* Backmerge main staging 101 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/48
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.0...v1.0.1
+
 ## 1.0.0 /2025-02-13
 
 ## What's new
