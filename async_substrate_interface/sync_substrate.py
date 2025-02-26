@@ -512,7 +512,6 @@ class SubstrateInterface(SubstrateMixin):
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True
         )
-        self._old_metadata_v15 = None
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
         self.ws = self.connect(init=True)
@@ -536,7 +535,6 @@ class SubstrateInterface(SubstrateMixin):
             if not self._chain:
                 chain = self.rpc_request("system_chain", [])
                 self._chain = chain.get("result")
-            self.load_registry()
             self._first_initialize_runtime()
         self.initialized = True
 
@@ -602,12 +600,6 @@ class SubstrateInterface(SubstrateMixin):
                 return self.last_block_hash
         return block_hash
 
-    def load_registry(self):
-        # This needs to happen before init_runtime
-        self.metadata_v15 = self._load_registry_at_block(None)
-        self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
-        self._load_registry_type_map()
-
     def _load_registry_at_block(self, block_hash: Optional[str]) -> MetadataV15:
         # Should be called for any block that fails decoding.
         # Possibly the metadata was different.
@@ -619,6 +611,8 @@ class SubstrateInterface(SubstrateMixin):
         metadata_option_hex_str = metadata_rpc_result["result"]
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
         metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
+        self.registry = PortableRegistry.from_metadata_v15(metadata)
+        self._load_registry_type_map()
         return metadata
 
     def decode_scale(
@@ -654,9 +648,12 @@ class SubstrateInterface(SubstrateMixin):
         """
         TODO docstring
         """
+        metadata_v15 = self._load_registry_at_block(None)
         self.load_runtime(
             runtime_info = self.get_block_runtime_info(None),
             metadata = self.get_block_metadata(),
+            metadata_v15 = metadata_v15,
+            registry = self.registry,
         )
 
         # Check and apply runtime constants
@@ -667,10 +664,12 @@ class SubstrateInterface(SubstrateMixin):
         if ss58_prefix_constant:
             self.ss58_format = ss58_prefix_constant
 
-    def load_runtime(self,runtime_info=None,metadata=None,metadata_v15=None):
+    def load_runtime(self,runtime_info=None,metadata=None,metadata_v15=None,registry=None):
         # Update type registry
         self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
+        self.metadata_v15 = metadata_v15
+        self.registry = registry
         self.runtime_version = runtime_info.get("specVersion")
         self._metadata = metadata
         self.runtime_config.set_active_spec_version_id(self.runtime_version)
@@ -678,8 +677,6 @@ class SubstrateInterface(SubstrateMixin):
         if self.implements_scaleinfo:
             logger.debug("Add PortableRegistry from metadata to type registry")
             self.runtime_config.add_portable_registry(metadata)
-        if metadata_v15 is not None:
-            self._old_metadata_v15 = metadata_v15
         # Set runtime compatibility flags
         try:
             _ = self.runtime_config.create_scale_object("sp_weights::weight_v2::Weight")
@@ -766,6 +763,7 @@ class SubstrateInterface(SubstrateMixin):
                     type_registry=self.type_registry,
                     metadata_v15=metadata_v15,
                     runtime_info=runtime_info,
+                    registry=self.registry,
                 )
             self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
 
@@ -773,6 +771,7 @@ class SubstrateInterface(SubstrateMixin):
                 runtime_info=runtime.runtime_info,
                 metadata=runtime.metadata,
                 metadata_v15=runtime.metadata_v15,
+                registry=runtime.registry,
             )
 
     def create_storage_key(
@@ -2261,14 +2260,8 @@ class SubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            if block_hash:
-                # Use old metadata v15 from init_runtime call
-                metadata_v15 = self._old_metadata_v15
-            else:
-                metadata_v15 = self.metadata_v15
-
-            self.registry = PortableRegistry.from_metadata_v15(metadata_v15)
-            metadata_v15_value = metadata_v15.value()
+            self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
+            metadata_v15_value = self.metadata_v15.value()
 
             apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
             api_entry = apis[api]
