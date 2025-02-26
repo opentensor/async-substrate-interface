@@ -666,11 +666,15 @@ class SubstrateInterface(SubstrateMixin):
         """
         TODO docstring
         """
-        runtime_info = self.get_block_runtime_version(None)
-        metadata = self.get_block_metadata()
+        self.load_runtime(
+            runtime_info = self.get_block_runtime_version(None),
+            metadata = self.get_block_metadata(),
+        )
+
+    def load_runtime(self,runtime_info=None,metadata=None):
+        self.runtime_version = runtime_info.get("specVersion")
         self._metadata = metadata
         self._metadata_cache[self.runtime_version] = self._metadata
-        self.runtime_version = runtime_info.get("specVersion")
         self.runtime_config.set_active_spec_version_id(self.runtime_version)
         self.transaction_version = runtime_info.get("transactionVersion")
         if self.implements_scaleinfo:
