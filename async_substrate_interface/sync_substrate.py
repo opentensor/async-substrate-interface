@@ -666,7 +666,7 @@ class SubstrateInterface(SubstrateMixin):
         TODO docstring
         """
         self.load_runtime(
-            runtime_info = self.get_block_runtime_version(None),
+            runtime_info = self.get_block_runtime_info(None),
             metadata = self.get_block_metadata(),
         )
 
@@ -741,18 +741,14 @@ class SubstrateInterface(SubstrateMixin):
 
             self.last_block_hash = block_hash
 
-            # In fact calls and storage functions are decoded against runtime of previous block, therefore retrieve
-            # metadata and apply type registry of runtime of parent block
-            runtime_block_hash = self.get_parent_block_hash(block_hash)
+            runtime_version = self.get_block_runtime_version_for(block_hash)
 
-            runtime_info = self.get_block_runtime_version(block_hash=runtime_block_hash)
-
-            if runtime_info is None:
+            if runtime_version is None:
                 raise SubstrateRequestException(
                     f"No runtime information for block '{block_hash}'"
                 )
             # Check if runtime state already set to current block
-            if runtime_info.get("specVersion") == self.runtime_version and all(
+            if runtime_version == self.runtime_version and all(
                 x is not None
                 for x in [self._metadata, self._old_metadata_v15, self.metadata_v15]
             ):
@@ -763,7 +759,9 @@ class SubstrateInterface(SubstrateMixin):
                     self.type_registry,
                 )
 
-            runtime_version = runtime_info.get("specVersion")
+            runtime_block_hash = self.get_parent_block_hash(block_hash)
+
+            runtime_info = self.get_block_runtime_info(runtime_block_hash)
 
             if runtime_version in self._metadata_cache:
                 # Get metadata from cache
@@ -1484,6 +1482,7 @@ class SubstrateInterface(SubstrateMixin):
                 events.append(convert_event_data(item))
         return events
 
+    @lru_cache(maxsize=16) # small cache with large items
     def get_parent_block_hash(self,block_hash):
         block_header = self.rpc_request("chain_getHeader", [block_hash])
 
@@ -1498,12 +1497,24 @@ class SubstrateInterface(SubstrateMixin):
             return block_hash
         return parent_block_hash
 
-    def get_block_runtime_version(self, block_hash: str) -> dict:
+    @lru_cache(maxsize=16) # small cache with large items
+    def get_block_runtime_info(self, block_hash: str) -> dict:
         """
-        Retrieve the runtime version id of given block_hash
+        Retrieve the runtime info of given block_hash
         """
         response = self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
+
+    @lru_cache(maxsize=512) # large cache with small items
+    def get_block_runtime_version_for(self, block_hash: str):
+        """
+        Retrieve the runtime version of the parent of a given block_hash
+        """
+        parent_block_hash = self.get_parent_block_hash(block_hash)
+        runtime_info = self.get_block_runtime_info(parent_block_hash)
+        if runtime_info is None:
+            return None
+        return runtime_info["specVersion"]
 
     def get_block_metadata(
         self, block_hash: Optional[str] = None, decode: bool = True
