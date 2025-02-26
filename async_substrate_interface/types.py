@@ -22,26 +22,39 @@ logger = logging.getLogger("async_substrate_interface")
 class RuntimeCache:
     blocks: dict[int, "Runtime"]
     block_hashes: dict[str, "Runtime"]
+    versions: dict[int, "Runtime"]
 
     def __init__(self):
         self.blocks = {}
         self.block_hashes = {}
+        self.versions = {}
 
     def add_item(
-        self, block: Optional[int], block_hash: Optional[str], runtime: "Runtime"
+        self,
+        runtime: "Runtime",
+        block: Optional[int] = None,
+        block_hash: Optional[str] = None,
+        runtime_version: Optional[int] = None,
     ):
         if block is not None:
             self.blocks[block] = runtime
         if block_hash is not None:
             self.block_hashes[block_hash] = runtime
+        if runtime_version is not None:
+            self.versions[runtime_version] = runtime
 
     def retrieve(
-        self, block: Optional[int] = None, block_hash: Optional[str] = None
+        self,
+        block: Optional[int] = None,
+        block_hash: Optional[str] = None,
+        runtime_version: Optional[int] = None
     ) -> Optional["Runtime"]:
         if block is not None:
             return self.blocks.get(block)
         elif block_hash is not None:
             return self.block_hashes.get(block_hash)
+        elif runtime_version is not None:
+            return self.versions.get(runtime_version)
         else:
             return None
 
