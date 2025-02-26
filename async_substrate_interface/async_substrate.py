@@ -993,10 +993,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
 
         runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
-        if runtime and runtime.metadata is not None:
-            return runtime
-
-        if True: # keep indenting, this used to be a local function
+        if not runtime or runtime.metadata is None:
             self.last_block_hash = block_hash
 
             runtime_block_hash = await self.get_parent_block_hash(block_hash)
@@ -1027,16 +1024,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     metadata_v15=metadata_v15,
                 )
 
-        runtime = Runtime(
-                chain=self.chain,
-                runtime_config=self.runtime_config,
-                metadata=metadata,
-                type_registry=self.type_registry,
-                metadata_v15=metadata_v15,
-                runtime_info=runtime_info,
-            )
-
-        self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
+            runtime = Runtime(
+                    chain=self.chain,
+                    runtime_config=self.runtime_config,
+                    metadata=metadata,
+                    type_registry=self.type_registry,
+                    metadata_v15=metadata_v15,
+                    runtime_info=runtime_info,
+                )
+            self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
         return runtime
 
     async def create_storage_key(
