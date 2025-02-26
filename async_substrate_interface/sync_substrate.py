@@ -720,7 +720,7 @@ class SubstrateInterface(SubstrateMixin):
         if not block_hash:
             block_hash = self.get_chain_head()
 
-        runtime = self.runtime_cache.retrieve(block_id, block_hash)
+        runtime = self.runtime_cache.retrieve(block_hash=block_hash)
         if runtime and runtime.metadata is not None:
             return runtime
 
@@ -846,7 +846,7 @@ class SubstrateInterface(SubstrateMixin):
             )
 
         runtime = get_runtime(block_hash)
-        self.runtime_cache.add_item(block_id, block_hash, runtime)
+        self.runtime_cache.add_item(block_hash=block_hash, runtime=runtime)
         return runtime
 
     def create_storage_key(
