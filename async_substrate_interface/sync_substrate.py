@@ -730,7 +730,7 @@ class SubstrateInterface(SubstrateMixin):
         if runtime and runtime.metadata is not None:
             return runtime
 
-        def get_runtime(block_hash,runtime_version) -> Runtime:
+        if True: # keep indenting, this used to be a local function
             self.last_block_hash = block_hash
 
             runtime_block_hash = self.get_parent_block_hash(block_hash)
@@ -796,14 +796,12 @@ class SubstrateInterface(SubstrateMixin):
                     metadata_v15=metadata_v15,
                 )
 
-            return Runtime(
+        runtime = Runtime(
                 self.chain,
                 self.runtime_config,
                 metadata,
                 self.type_registry,
             )
-
-        runtime = get_runtime(block_hash,runtime_version)
         self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
         return runtime
 
