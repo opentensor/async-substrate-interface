@@ -1794,6 +1794,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
+    @lru_cache(maxsize=512) # block_id->block_hash does not change
     def get_block_hash(self, block_id: int) -> str:
         return self.rpc_request("chain_getBlockHash", [block_id])["result"]
 
