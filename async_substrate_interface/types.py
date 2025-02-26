@@ -60,8 +60,6 @@ class RuntimeCache:
 
 
 class Runtime:
-    block_hash: str
-    block_id: int
     runtime_version = None
     transaction_version = None
     cache_region = None
@@ -356,7 +354,6 @@ class ScaleObj:
 class SubstrateMixin(ABC):
     type_registry_preset = None
     transaction_version = None
-    block_id: Optional[int] = None
     last_block_hash: Optional[str] = None
     _name: Optional[str] = None
     _properties = None
