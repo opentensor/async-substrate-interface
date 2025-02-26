@@ -670,7 +670,18 @@ class SubstrateInterface(SubstrateMixin):
             metadata = self.get_block_metadata(),
         )
 
+        # Check and apply runtime constants
+        ss58_prefix_constant = self.get_constant(
+            "System", "SS58Prefix"
+        )
+
+        if ss58_prefix_constant:
+            self.ss58_format = ss58_prefix_constant
+
     def load_runtime(self,runtime_info=None,metadata=None,metadata_v15=None):
+        # Update type registry
+        self.reload_type_registry(use_remote_preset=False, auto_discover=True)
+
         self.runtime_version = runtime_info.get("specVersion")
         self._metadata = metadata
         self._metadata_cache[self.runtime_version] = self._metadata
@@ -778,17 +789,6 @@ class SubstrateInterface(SubstrateMixin):
                 )
                 # Update metadata v15 cache
                 self._metadata_v15_cache[runtime_version] = metadata_v15
-
-            # Update type registry
-            self.reload_type_registry(use_remote_preset=False, auto_discover=True)
-
-            # Check and apply runtime constants
-            ss58_prefix_constant = self.get_constant(
-                "System", "SS58Prefix", block_hash=block_hash
-            )
-
-            if ss58_prefix_constant:
-                self.ss58_format = ss58_prefix_constant
 
             self.load_runtime(
                     runtime_info=runtime_info,
