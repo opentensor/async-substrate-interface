@@ -748,47 +748,23 @@ class SubstrateInterface(SubstrateMixin):
 
             runtime_info = self.get_block_runtime_info(runtime_block_hash)
 
-            if runtime_version in self._metadata_cache:
-                # Get metadata from cache
-                logger.debug(
-                    "Retrieved metadata for {} from memory".format(
-                        runtime_version
-                    )
-                )
-                metadata = self._metadata_cache[
+            metadata = self.get_block_metadata(
+                block_hash=runtime_block_hash, decode=True
+            )
+            logger.debug(
+                "Retrieved metadata for {} from Substrate node".format(
                     runtime_version
-                ]
-            else:
-                metadata = self.get_block_metadata(
-                    block_hash=runtime_block_hash, decode=True
                 )
-                logger.debug(
-                    "Retrieved metadata for {} from Substrate node".format(
-                        runtime_version
-                    )
-                )
+            )
 
-            if runtime_version in self._metadata_v15_cache:
-                # Get metadata v15 from cache
-                logger.debug(
-                    "Retrieved metadata v15 for {} from memory".format(
-                        runtime_version
-                    )
-                )
-                metadata_v15 = self._metadata_v15_cache[
+            metadata_v15 = self._load_registry_at_block(
+                block_hash=runtime_block_hash
+            )
+            logger.debug(
+                "Retrieved metadata v15 for {} from Substrate node".format(
                     runtime_version
-                ]
-            else:
-                metadata_v15 = self._load_registry_at_block(
-                    block_hash=runtime_block_hash
                 )
-                logger.debug(
-                    "Retrieved metadata v15 for {} from Substrate node".format(
-                        runtime_version
-                    )
-                )
-                # Update metadata v15 cache
-                self._metadata_v15_cache[runtime_version] = metadata_v15
+            )
 
             self.load_runtime(
                     runtime_info=runtime_info,
