@@ -1034,8 +1034,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 metadata_v15=runtime.metadata_v15,
             )
 
-        return runtime
-
     async def create_storage_key(
         self,
         pallet: str,
@@ -2199,9 +2197,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              The created Scale Type object
         """
-        runtime = await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
         if "metadata" not in kwargs:
-            kwargs["metadata"] = runtime.metadata
+            kwargs["metadata"] = self.runtime.metadata
 
         return runtime.runtime_config.create_scale_object(
             type_string, data=data, **kwargs
@@ -3199,9 +3197,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of call functions
         """
-        runtime = await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
-        for pallet in runtime.metadata.pallets:
+        for pallet in self.runtime.metadata.pallets:
             if pallet.name == module_name and pallet.calls:
                 for call in pallet.calls:
                     if call.name == call_function_name:
