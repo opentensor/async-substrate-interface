@@ -2548,7 +2548,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
             metadata_v15_value = self.metadata_v15.value()
 
             apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
