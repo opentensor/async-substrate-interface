@@ -844,12 +844,11 @@ class SubstrateInterface(SubstrateMixin):
             )
 
         runtime = self.runtime_cache.retrieve(block_id, block_hash)
-        if (
-            not runtime
-            or runtime.metadata is None
-        ):
-            runtime = get_runtime(block_hash, block_id)
-            self.runtime_cache.add_item(block_id, block_hash, runtime)
+        if runtime and runtime.metadata is not None:
+            return runtime
+
+        runtime = get_runtime(block_hash, block_id)
+        self.runtime_cache.add_item(block_id, block_hash, runtime)
         return runtime
 
     def create_storage_key(
