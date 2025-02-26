@@ -737,6 +737,9 @@ class SubstrateInterface(SubstrateMixin):
                 f"No runtime information for block '{block_hash}'"
             )
 
+        if runtime_version == self.runtime_version:
+            return
+
         runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
         if not runtime or runtime.metadata is None:
             self.last_block_hash = block_hash
