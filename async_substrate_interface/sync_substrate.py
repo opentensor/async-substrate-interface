@@ -534,7 +534,7 @@ class SubstrateInterface(SubstrateMixin):
             if not self._chain:
                 chain = self.rpc_request("system_chain", [])
                 self._chain = chain.get("result")
-            self._first_initialize_runtime()
+            self.init_runtime()
         self.initialized = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -642,26 +642,6 @@ class SubstrateInterface(SubstrateMixin):
             return ScaleObj(obj)
         else:
             return obj
-
-    def _first_initialize_runtime(self):
-        """
-        TODO docstring
-        """
-        metadata_v15 = self._load_registry_at_block(None)
-        self.load_runtime(
-            runtime_info = self.get_block_runtime_info(None),
-            metadata = self.get_block_metadata(),
-            metadata_v15 = metadata_v15,
-            registry = self.registry,
-        )
-
-        # Check and apply runtime constants
-        ss58_prefix_constant = self.get_constant(
-            "System", "SS58Prefix"
-        )
-
-        if ss58_prefix_constant:
-            self.ss58_format = ss58_prefix_constant
 
     def load_runtime(self,runtime_info=None,metadata=None,metadata_v15=None,registry=None):
         # Update type registry
@@ -772,6 +752,15 @@ class SubstrateInterface(SubstrateMixin):
                 metadata_v15=runtime.metadata_v15,
                 registry=runtime.registry,
             )
+
+        if self.ss58_format is None:
+            # Check and apply runtime constants
+            ss58_prefix_constant = self.get_constant(
+                "System", "SS58Prefix", block_hash=block_hash
+            )
+
+            if ss58_prefix_constant:
+                self.ss58_format = ss58_prefix_constant
 
     def create_storage_key(
         self,
