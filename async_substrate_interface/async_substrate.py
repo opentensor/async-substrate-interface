@@ -925,7 +925,18 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         await self.load_runtime(runtime_info=runtime_info, metadata=metadata)
 
+        # Check and apply runtime constants
+        ss58_prefix_constant = await self.get_constant(
+            "System", "SS58Prefix"
+        )
+
+        if ss58_prefix_constant:
+            self.ss58_format = ss58_prefix_constant
+
     async def load_runtime(self,runtime_info=None,metadata=None,metadata_v15=None):
+        # Update type registry
+        self.reload_type_registry(use_remote_preset=False, auto_discover=True)
+
         self.runtime_version = runtime_info.get("specVersion")
         self._metadata = metadata
         self._metadata_cache[self.runtime_version] = self._metadata
@@ -1037,17 +1048,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                 # Update metadata v15 cache
                 self._metadata_v15_cache[runtime_version] = metadata_v15
-
-            # Update type registry
-            self.reload_type_registry(use_remote_preset=False, auto_discover=True)
-
-            # Check and apply runtime constants
-            ss58_prefix_constant = await self.get_constant(
-                "System", "SS58Prefix", block_hash=block_hash
-            )
-
-            if ss58_prefix_constant:
-                self.ss58_format = ss58_prefix_constant
 
             await self.load_runtime(
                     runtime_info=runtime_info,
