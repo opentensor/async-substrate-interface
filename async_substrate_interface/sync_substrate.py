@@ -585,7 +585,7 @@ class SubstrateInterface(SubstrateMixin):
 
     def get_storage_item(self, module: str, storage_function: str, block_hash: str = None):
         self.init_runtime(block_hash=block_hash)
-        metadata_pallet = self._metadata.get_metadata_pallet(module)
+        metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
         storage_item = metadata_pallet.get_storage_function(storage_function)
         return storage_item
 
@@ -611,9 +611,9 @@ class SubstrateInterface(SubstrateMixin):
         metadata_option_hex_str = metadata_rpc_result["result"]
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
         metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
-        self.registry = PortableRegistry.from_metadata_v15(metadata)
-        self._load_registry_type_map()
-        return metadata
+        registry = PortableRegistry.from_metadata_v15(metadata)
+        self._load_registry_type_map(registry)
+        return metadata,registry
 
     def decode_scale(
         self,
@@ -638,25 +638,22 @@ class SubstrateInterface(SubstrateMixin):
             # Decode AccountId bytes to SS58 address
             return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
-            obj = decode_by_type_string(type_string, self.registry, scale_bytes)
+            obj = decode_by_type_string(type_string, self.runtime.registry, scale_bytes)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
             return obj
 
-    def load_runtime(self,runtime_info=None,metadata=None,metadata_v15=None,registry=None):
+    def load_runtime(self,runtime):
         # Update type registry
         self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
-        self.metadata_v15 = metadata_v15
-        self.registry = registry
-        self.runtime_version = runtime_info.get("specVersion")
-        self._metadata = metadata
-        self.runtime_config.set_active_spec_version_id(self.runtime_version)
-        self.transaction_version = runtime_info.get("transactionVersion")
+        self.runtime = runtime
+
+        self.runtime_config.set_active_spec_version_id(runtime.runtime_version)
         if self.implements_scaleinfo:
             logger.debug("Add PortableRegistry from metadata to type registry")
-            self.runtime_config.add_portable_registry(metadata)
+            self.runtime_config.add_portable_registry(runtime.metadata)
         # Set runtime compatibility flags
         try:
             _ = self.runtime_config.create_scale_object("sp_weights::weight_v2::Weight")
@@ -702,7 +699,7 @@ class SubstrateInterface(SubstrateMixin):
                 f"No runtime information for block '{block_hash}'"
             )
 
-        if runtime_version == self.runtime_version:
+        if self.runtime and runtime_version == self.runtime.runtime_version:
             return
 
         runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
@@ -727,7 +724,7 @@ class SubstrateInterface(SubstrateMixin):
                 )
             )
 
-            metadata_v15 = self._load_registry_at_block(
+            metadata_v15,registry = self._load_registry_at_block(
                 block_hash=runtime_block_hash
             )
             logger.debug(
@@ -743,16 +740,11 @@ class SubstrateInterface(SubstrateMixin):
                     type_registry=self.type_registry,
                     metadata_v15=metadata_v15,
                     runtime_info=runtime_info,
-                    registry=self.registry,
+                    registry=registry,
                 )
             self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
 
-        self.load_runtime(
-                runtime_info=runtime.runtime_info,
-                metadata=runtime.metadata,
-                metadata_v15=runtime.metadata_v15,
-                registry=runtime.registry,
-            )
+        self.load_runtime(runtime)
 
         if self.ss58_format is None:
             # Check and apply runtime constants
@@ -789,7 +781,7 @@ class SubstrateInterface(SubstrateMixin):
             storage_function,
             params,
             runtime_config=self.runtime_config,
-            metadata=self._metadata,
+            metadata=self.runtime.metadata,
         )
 
     def get_metadata_storage_functions(self, block_hash=None) -> list:
@@ -814,7 +806,7 @@ class SubstrateInterface(SubstrateMixin):
                         self.serialize_storage_item(
                             storage_item=storage,
                             module=module,
-                            spec_version_id=self.runtime_version,
+                            spec_version_id=self.runtime.runtime_version,
                         )
                     )
 
@@ -853,14 +845,14 @@ class SubstrateInterface(SubstrateMixin):
 
         error_list = []
 
-        for module_idx, module in enumerate(self._metadata.pallets):
+        for module_idx, module in enumerate(self.runtime.metadata.pallets):
             if module.errors:
                 for error in module.errors:
                     error_list.append(
                         self.serialize_module_error(
                             module=module,
                             error=error,
-                            spec_version=self.runtime_version,
+                            spec_version=self.runtime.runtime_version,
                         )
                     )
 
@@ -881,7 +873,7 @@ class SubstrateInterface(SubstrateMixin):
         """
         self.init_runtime(block_hash=block_hash)
 
-        for module_idx, module in enumerate(self._metadata.pallets):
+        for module_idx, module in enumerate(self.runtime.metadata.pallets):
             if module.name == module_name and module.errors:
                 for error in module.errors:
                     if error_name == error.name:
@@ -974,7 +966,7 @@ class SubstrateInterface(SubstrateMixin):
                         try:
                             extrinsic_decoder = extrinsic_cls(
                                 data=ScaleBytes(extrinsic_data),
-                                metadata=self._metadata,
+                                metadata=self.runtime.metadata,
                                 runtime_config=self.runtime_config,
                             )
                             extrinsic_decoder.decode(check_remaining=True)
@@ -1496,7 +1488,7 @@ class SubstrateInterface(SubstrateMixin):
         """
         params = query_for if query_for else []
         # Search storage call in metadata
-        metadata_pallet = self._metadata.get_metadata_pallet(module)
+        metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
 
         if not metadata_pallet:
             raise SubstrateRequestException(f'Pallet "{module}" not found')
@@ -1531,7 +1523,7 @@ class SubstrateInterface(SubstrateMixin):
                 storage_item.value["name"],
                 params,
                 runtime_config=self.runtime_config,
-                metadata=self._metadata,
+                metadata=self.runtime.metadata,
             )
         method = "state_getStorageAt"
         return Preprocessed(
@@ -1778,7 +1770,7 @@ class SubstrateInterface(SubstrateMixin):
         self.init_runtime(block_hash=block_hash)
 
         call = self.runtime_config.create_scale_object(
-            type_string="Call", metadata=self._metadata
+            type_string="Call", metadata=self.runtime.metadata
         )
 
         call.encode(
@@ -1947,12 +1939,12 @@ class SubstrateInterface(SubstrateMixin):
         )
 
         # Process signed extensions in metadata
-        if "signed_extensions" in self._metadata[1][1]["extrinsic"]:
+        if "signed_extensions" in self.runtime.metadata[1][1]["extrinsic"]:
             # Base signature payload
             signature_payload.type_mapping = [["call", "CallBytes"]]
 
             # Add signed extensions to payload
-            signed_extensions = self._metadata.get_signed_extensions()
+            signed_extensions = self.runtime.metadata.get_signed_extensions()
 
             if "CheckMortality" in signed_extensions:
                 signature_payload.type_mapping.append(
@@ -2041,10 +2033,10 @@ class SubstrateInterface(SubstrateMixin):
             "era": era,
             "nonce": nonce,
             "tip": tip,
-            "spec_version": self.runtime_version,
+            "spec_version": self.runtime.runtime_version,
             "genesis_hash": genesis_hash,
             "block_hash": block_hash,
-            "transaction_version": self.transaction_version,
+            "transaction_version": self.runtime.transaction_version,
             "asset_id": {"tip": tip, "asset_id": tip_asset_id},
             "metadata_hash": None,
             "mode": "Disabled",
@@ -2093,9 +2085,9 @@ class SubstrateInterface(SubstrateMixin):
             raise TypeError("'call' must be of type Call")
 
         # Check if extrinsic version is supported
-        if self._metadata[1][1]["extrinsic"]["version"] != 4:  # type: ignore
+        if self.runtime.metadata[1][1]["extrinsic"]["version"] != 4:  # type: ignore
             raise NotImplementedError(
-                f"Extrinsic version {self._metadata[1][1]['extrinsic']['version']} not supported"  # type: ignore
+                f"Extrinsic version {self.runtime.metadata[1][1]['extrinsic']['version']} not supported"  # type: ignore
             )
 
         # Retrieve nonce
@@ -2135,7 +2127,7 @@ class SubstrateInterface(SubstrateMixin):
 
         # Create extrinsic
         extrinsic = self.runtime_config.create_scale_object(
-            type_string="Extrinsic", metadata=self._metadata
+            type_string="Extrinsic", metadata=self.runtime.metadata
         )
 
         value = {
@@ -2249,7 +2241,7 @@ class SubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            metadata_v15_value = self.metadata_v15.value()
+            metadata_v15_value = self.runtime.metadata_v15.value()
 
             apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
             api_entry = apis[api]
@@ -2348,7 +2340,7 @@ class SubstrateInterface(SubstrateMixin):
         """
         self.init_runtime(block_hash=block_hash)
 
-        for module in self._metadata.pallets:
+        for module in self.runtime.metadata.pallets:
             if module_name == module.name and module.constants:
                 for constant in module.constants:
                     if constant_name == constant.value["name"]:
@@ -2491,7 +2483,7 @@ class SubstrateInterface(SubstrateMixin):
                 "metadata_index": idx,
                 "module_id": module.get_identifier(),
                 "name": module.name,
-                "spec_version": self.runtime_version,
+                "spec_version": self.runtime.runtime_version,
                 "count_call_functions": len(module.calls or []),
                 "count_storage_functions": len(module.storage or []),
                 "count_events": len(module.events or []),
@@ -2608,7 +2600,7 @@ class SubstrateInterface(SubstrateMixin):
             self.last_block_hash = block_hash
         self.init_runtime(block_hash=block_hash)
 
-        metadata_pallet = self._metadata.get_metadata_pallet(module)
+        metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
         if not metadata_pallet:
             raise ValueError(f'Pallet "{module}" not found')
         storage_item = metadata_pallet.get_storage_function(storage_function)
@@ -2637,7 +2629,7 @@ class SubstrateInterface(SubstrateMixin):
             storage_item.value["name"],
             params,
             runtime_config=self.runtime_config,
-            metadata=self._metadata,
+            metadata=self.runtime.metadata,
         )
         prefix = storage_key.to_hex()
 

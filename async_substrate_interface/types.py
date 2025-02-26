@@ -83,6 +83,8 @@ class Runtime:
         self.metadata_v15 = metadata_v15
         self.runtime_info = runtime_info
         self.registry = registry
+        self.runtime_version = runtime_info.get('specVersion')
+        self.transaction_version = runtime_info.get("transactionVersion")
 
     def __str__(self):
         return f"Runtime: {self.chain} | {self.config}"
@@ -352,8 +354,6 @@ class ScaleObj:
 
 
 class SubstrateMixin(ABC):
-    registry: Optional[PortableRegistry] = None
-    runtime_version = None
     type_registry_preset = None
     transaction_version = None
     block_id: Optional[int] = None
@@ -363,8 +363,6 @@ class SubstrateMixin(ABC):
     _version = None
     _token_decimals = None
     _token_symbol = None
-    _metadata = None
-    metadata_v15 = None
     _chain: str
     runtime_config: RuntimeConfigurationObject
     type_registry: Optional[dict]
@@ -372,7 +370,7 @@ class SubstrateMixin(ABC):
     ws_max_size = 2**32
     registry_type_map: dict[str, int]
     type_id_to_name: dict[int, str]
-    metadata_v15 = None
+    runtime: Runtime = None
 
     @property
     def chain(self):
@@ -383,22 +381,13 @@ class SubstrateMixin(ABC):
 
     @property
     def metadata(self):
-        if self._metadata is None:
+        if not self.runtime or self.runtime.metadata is None:
             raise AttributeError(
                 "Metadata not found. This generally indicates that the AsyncSubstrateInterface object "
                 "is not properly async initialized."
             )
         else:
-            return self._metadata
-
-    @property
-    def runtime(self):
-        return Runtime(
-            self.chain,
-            self.runtime_config,
-            self._metadata,
-            self.type_registry,
-        )
+            return self.runtime.metadata
 
     @property
     def implements_scaleinfo(self) -> Optional[bool]:
@@ -409,8 +398,8 @@ class SubstrateMixin(ABC):
         -------
         bool
         """
-        if self._metadata:
-            return self._metadata.portable_registry is not None
+        if self.runtime and self.runtime.metadata:
+            return self.runtime.metadata.portable_registry is not None
         else:
             return None
 
@@ -628,10 +617,10 @@ class SubstrateMixin(ABC):
             "spec_version": spec_version,
         }
 
-    def _load_registry_type_map(self):
+    def _load_registry_type_map(self,registry):
         registry_type_map = {}
         type_id_to_name = {}
-        types = json.loads(self.registry.registry)["types"]
+        types = json.loads(registry.registry)["types"]
         for type_entry in types:
             type_type = type_entry["type"]
             type_id = type_entry["id"]
