@@ -985,7 +985,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if runtime and runtime.metadata is not None:
             return runtime
 
-        async def get_runtime(block_hash,runtime_version) -> Runtime:
+        if True: # keep indenting, this used to be a local function
             self.last_block_hash = block_hash
 
             runtime_block_hash = await self.get_parent_block_hash(block_hash)
@@ -1055,20 +1055,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     metadata_v15=metadata_v15,
                 )
 
-            return Runtime(
+        runtime = Runtime(
                 self.chain,
                 self.runtime_config,
                 metadata,
                 self.type_registry,
             )
 
-        if not self.metadata_v15:
-            raise SubstrateRequestException(
-                "Metadata V15 was not loaded. This usually indicates that you did not correctly initialize"
-                " the AsyncSubstrateInterface class with `async with` or by calling `initialize()`"
-            )
-
-        runtime = await get_runtime(block_hash,runtime_version)
         self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
         return runtime
 
