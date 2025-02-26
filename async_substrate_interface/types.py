@@ -87,93 +87,92 @@ class Runtime:
     def __str__(self):
         return f"Runtime: {self.chain} | {self.config}"
 
-    @property
-    def implements_scaleinfo(self) -> bool:
-        """
-        Returns True if current runtime implementation a `PortableRegistry` (`MetadataV14` and higher)
-        """
-        if self.metadata:
-            return self.metadata.portable_registry is not None
-        else:
-            return False
-
-    def reload_type_registry(
-        self, use_remote_preset: bool = True, auto_discover: bool = True
-    ):
-        """
-        Reload type registry and preset used to instantiate the SubstrateInterface object. Useful to periodically apply
-        changes in type definitions when a runtime upgrade occurred
-
-        Args:
-            use_remote_preset: When True preset is downloaded from Github master, otherwise use files from local
-                installed scalecodec package
-            auto_discover: Whether to automatically discover the type registry presets based on the chain name and the
-                type registry
-        """
-        self.runtime_config.clear_type_registry()
-
-        self.runtime_config.implements_scale_info = self.implements_scaleinfo
-
-        # Load metadata types in runtime configuration
-        self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
-        self.apply_type_registry_presets(
-            use_remote_preset=use_remote_preset, auto_discover=auto_discover
-        )
-
-    def apply_type_registry_presets(
-        self,
-        use_remote_preset: bool = True,
-        auto_discover: bool = True,
-    ):
-        """
-        Applies type registry presets to the runtime
-
-        Args:
-            use_remote_preset: whether to use presets from remote
-            auto_discover: whether to use presets from local installed scalecodec package
-        """
-        if self.type_registry_preset is not None:
-            # Load type registry according to preset
-            type_registry_preset_dict = load_type_registry_preset(
-                name=self.type_registry_preset, use_remote_preset=use_remote_preset
-            )
-
-            if not type_registry_preset_dict:
-                raise ValueError(
-                    f"Type registry preset '{self.type_registry_preset}' not found"
-                )
-
-        elif auto_discover:
-            # Try to auto discover type registry preset by chain name
-            type_registry_name = self.chain.lower().replace(" ", "-")
-            try:
-                type_registry_preset_dict = load_type_registry_preset(
-                    type_registry_name
-                )
-                self.type_registry_preset = type_registry_name
-            except ValueError:
-                type_registry_preset_dict = None
-
-        else:
-            type_registry_preset_dict = None
-
-        if type_registry_preset_dict:
-            # Load type registries in runtime configuration
-            if self.implements_scaleinfo is False:
-                # Only runtime with no embedded types in metadata need the default set of explicit defined types
-                self.runtime_config.update_type_registry(
-                    load_type_registry_preset(
-                        "legacy", use_remote_preset=use_remote_preset
-                    )
-                )
-
-            if self.type_registry_preset != "legacy":
-                self.runtime_config.update_type_registry(type_registry_preset_dict)
-
-        if self.type_registry:
-            # Load type registries in runtime configuration
-            self.runtime_config.update_type_registry(self.type_registry)
-
+#    @property
+#    def implements_scaleinfo(self) -> bool:
+#        """
+#        Returns True if current runtime implementation a `PortableRegistry` (`MetadataV14` and higher)
+#        """
+#        if self.metadata:
+#            return self.metadata.portable_registry is not None
+#        else:
+#            return False
+#
+#    def reload_type_registry(
+#        self, use_remote_preset: bool = True, auto_discover: bool = True
+#    ):
+#        """
+#        Reload type registry and preset used to instantiate the SubstrateInterface object. Useful to periodically apply
+#        changes in type definitions when a runtime upgrade occurred
+#
+#        Args:
+#            use_remote_preset: When True preset is downloaded from Github master, otherwise use files from local
+#                installed scalecodec package
+#            auto_discover: Whether to automatically discover the type registry presets based on the chain name and the
+#                type registry
+#        """
+#        self.runtime_config.clear_type_registry()
+#
+#        self.runtime_config.implements_scale_info = self.implements_scaleinfo
+#
+#        # Load metadata types in runtime configuration
+#        self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
+#        self.apply_type_registry_presets(
+#            use_remote_preset=use_remote_preset, auto_discover=auto_discover
+#        )
+#
+#    def apply_type_registry_presets(
+#        self,
+#        use_remote_preset: bool = True,
+#        auto_discover: bool = True,
+#    ):
+#        """
+#        Applies type registry presets to the runtime
+#
+#        Args:
+#            use_remote_preset: whether to use presets from remote
+#            auto_discover: whether to use presets from local installed scalecodec package
+#        """
+#        if self.type_registry_preset is not None:
+#            # Load type registry according to preset
+#            type_registry_preset_dict = load_type_registry_preset(
+#                name=self.type_registry_preset, use_remote_preset=use_remote_preset
+#            )
+#
+#            if not type_registry_preset_dict:
+#                raise ValueError(
+#                    f"Type registry preset '{self.type_registry_preset}' not found"
+#                )
+#
+#        elif auto_discover:
+#            # Try to auto discover type registry preset by chain name
+#            type_registry_name = self.chain.lower().replace(" ", "-")
+#            try:
+#                type_registry_preset_dict = load_type_registry_preset(
+#                    type_registry_name
+#                )
+#                self.type_registry_preset = type_registry_name
+#            except ValueError:
+#                type_registry_preset_dict = None
+#
+#        else:
+#            type_registry_preset_dict = None
+#
+#        if type_registry_preset_dict:
+#            # Load type registries in runtime configuration
+#            if self.implements_scaleinfo is False:
+#                # Only runtime with no embedded types in metadata need the default set of explicit defined types
+#                self.runtime_config.update_type_registry(
+#                    load_type_registry_preset(
+#                        "legacy", use_remote_preset=use_remote_preset
+#                    )
+#                )
+#
+#            if self.type_registry_preset != "legacy":
+#                self.runtime_config.update_type_registry(type_registry_preset_dict)
+#
+#        if self.type_registry:
+#            # Load type registries in runtime configuration
+#            self.runtime_config.update_type_registry(self.type_registry)
 
 class RequestManager:
     RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
