@@ -720,11 +720,17 @@ class SubstrateInterface(SubstrateMixin):
         if not block_hash:
             block_hash = self.get_chain_head()
 
-        runtime = self.runtime_cache.retrieve(block_hash=block_hash)
+        runtime_version = self.get_block_runtime_version_for(block_hash)
+        if runtime_version is None:
+            raise SubstrateRequestException(
+                f"No runtime information for block '{block_hash}'"
+            )
+
+        runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
         if runtime and runtime.metadata is not None:
             return runtime
 
-        def get_runtime(block_hash) -> Runtime:
+        def get_runtime(block_hash,runtime_version) -> Runtime:
             # Check if runtime state already set to current block
             if (
                 block_hash and block_hash == self.last_block_hash
@@ -741,12 +747,6 @@ class SubstrateInterface(SubstrateMixin):
 
             self.last_block_hash = block_hash
 
-            runtime_version = self.get_block_runtime_version_for(block_hash)
-
-            if runtime_version is None:
-                raise SubstrateRequestException(
-                    f"No runtime information for block '{block_hash}'"
-                )
             # Check if runtime state already set to current block
             if runtime_version == self.runtime_version and all(
                 x is not None
@@ -829,8 +829,8 @@ class SubstrateInterface(SubstrateMixin):
                 self.type_registry,
             )
 
-        runtime = get_runtime(block_hash)
-        self.runtime_cache.add_item(block_hash=block_hash, runtime=runtime)
+        runtime = get_runtime(block_hash,runtime_version)
+        self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
         return runtime
 
     def create_storage_key(
