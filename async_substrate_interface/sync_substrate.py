@@ -671,14 +671,17 @@ class SubstrateInterface(SubstrateMixin):
             metadata = self.get_block_metadata(),
         )
 
-    def load_runtime(self,runtime_info=None,metadata=None):
+    def load_runtime(self,runtime_info=None,metadata=None,metadata_v15=None):
         self.runtime_version = runtime_info.get("specVersion")
         self._metadata = metadata
         self._metadata_cache[self.runtime_version] = self._metadata
         self.runtime_config.set_active_spec_version_id(self.runtime_version)
         self.transaction_version = runtime_info.get("transactionVersion")
         if self.implements_scaleinfo:
+            logger.debug("Add PortableRegistry from metadata to type registry")
             self.runtime_config.add_portable_registry(metadata)
+        if metadata_v15 is not None:
+            self._old_metadata_v15 = metadata_v15
         # Set runtime compatibility flags
         try:
             _ = self.runtime_config.create_scale_object("sp_weights::weight_v2::Weight")
@@ -770,66 +773,52 @@ class SubstrateInterface(SubstrateMixin):
                     self.type_registry,
                 )
 
-            self.runtime_version = runtime_info.get("specVersion")
-            self.transaction_version = runtime_info.get("transactionVersion")
+            runtime_version = runtime_info.get("specVersion")
 
-            if not self._metadata:
-                if self.runtime_version in self._metadata_cache:
-                    # Get metadata from cache
-                    logger.debug(
-                        "Retrieved metadata for {} from memory".format(
-                            self.runtime_version
-                        )
+            if runtime_version in self._metadata_cache:
+                # Get metadata from cache
+                logger.debug(
+                    "Retrieved metadata for {} from memory".format(
+                        runtime_version
                     )
-                    metadata = self._metadata = self._metadata_cache[
-                        self.runtime_version
-                    ]
-                else:
-                    metadata = self._metadata = self.get_block_metadata(
-                        block_hash=runtime_block_hash, decode=True
-                    )
-                    logger.debug(
-                        "Retrieved metadata for {} from Substrate node".format(
-                            self.runtime_version
-                        )
-                    )
-
-                    # Update metadata cache
-                    self._metadata_cache[self.runtime_version] = self._metadata
+                )
+                metadata = self._metadata_cache[
+                    runtime_version
+                ]
             else:
-                metadata = self._metadata
+                metadata = self.get_block_metadata(
+                    block_hash=runtime_block_hash, decode=True
+                )
+                logger.debug(
+                    "Retrieved metadata for {} from Substrate node".format(
+                        runtime_version
+                    )
+                )
 
-            if self.runtime_version in self._metadata_v15_cache:
+            if runtime_version in self._metadata_v15_cache:
                 # Get metadata v15 from cache
                 logger.debug(
                     "Retrieved metadata v15 for {} from memory".format(
-                        self.runtime_version
+                        runtime_version
                     )
                 )
-                metadata_v15 = self._old_metadata_v15 = self._metadata_v15_cache[
-                    self.runtime_version
+                metadata_v15 = self._metadata_v15_cache[
+                    runtime_version
                 ]
             else:
-                metadata_v15 = self._old_metadata_v15 = self._load_registry_at_block(
+                metadata_v15 = self._load_registry_at_block(
                     block_hash=runtime_block_hash
                 )
                 logger.debug(
                     "Retrieved metadata v15 for {} from Substrate node".format(
-                        self.runtime_version
+                        runtime_version
                     )
                 )
                 # Update metadata v15 cache
-                self._metadata_v15_cache[self.runtime_version] = metadata_v15
+                self._metadata_v15_cache[runtime_version] = metadata_v15
 
             # Update type registry
             self.reload_type_registry(use_remote_preset=False, auto_discover=True)
-
-            if self.implements_scaleinfo:
-                logger.debug("Add PortableRegistry from metadata to type registry")
-                self.runtime_config.add_portable_registry(metadata)
-
-            # Set active runtime version
-            self.runtime_config.set_active_spec_version_id(self.runtime_version)
 
             # Check and apply runtime constants
             ss58_prefix_constant = self.get_constant(
@@ -839,18 +828,12 @@ class SubstrateInterface(SubstrateMixin):
             if ss58_prefix_constant:
                 self.ss58_format = ss58_prefix_constant
 
-            # Set runtime compatibility flags
-            try:
-                _ = self.runtime_config.create_scale_object(
-                    "sp_weights::weight_v2::Weight"
+            self.load_runtime(
+                    runtime_info=runtime_info,
+                    metadata=metadata,
+                    metadata_v15=metadata_v15,
                 )
-                self.config["is_weight_v2"] = True
-                self.runtime_config.update_type_registry_types(
-                    {"Weight": "sp_weights::weight_v2::Weight"}
-                )
-            except NotImplementedError:
-                self.config["is_weight_v2"] = False
-                self.runtime_config.update_type_registry_types({"Weight": "WeightV1"})
+
             return Runtime(
                 self.chain,
                 self.runtime_config,
