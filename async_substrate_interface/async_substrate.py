@@ -1018,12 +1018,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 )
             )
 
-            await self.load_runtime(
-                    runtime_info=runtime_info,
-                    metadata=metadata,
-                    metadata_v15=metadata_v15,
-                )
-
             runtime = Runtime(
                     chain=self.chain,
                     runtime_config=self.runtime_config,
@@ -1033,6 +1027,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     runtime_info=runtime_info,
                 )
             self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
+
+        await self.load_runtime(
+                runtime_info=runtime.runtime_info,
+                metadata=runtime.metadata,
+                metadata_v15=runtime.metadata_v15,
+            )
+
         return runtime
 
     async def create_storage_key(
