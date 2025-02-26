@@ -741,7 +741,7 @@ class SubstrateInterface(SubstrateMixin):
             return
 
         runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
-        if not runtime or runtime.metadata is None:
+        if not runtime:
             self.last_block_hash = block_hash
 
             runtime_block_hash = self.get_parent_block_hash(block_hash)
@@ -751,6 +751,11 @@ class SubstrateInterface(SubstrateMixin):
             metadata = self.get_block_metadata(
                 block_hash=runtime_block_hash, decode=True
             )
+            if metadata is None:
+                # does this ever happen?
+                raise SubstrateRequestException(
+                    f"No metadata for block '{runtime_block_hash}'"
+                )
             logger.debug(
                 "Retrieved metadata for {} from Substrate node".format(
                     runtime_version
