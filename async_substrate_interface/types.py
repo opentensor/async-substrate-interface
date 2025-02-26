@@ -370,7 +370,7 @@ class SubstrateMixin(ABC):
     type_registry: Optional[dict]
     ss58_format: Optional[int]
     ws_max_size = 2**32
-    registry_type_map: dict[str, int]
+    registry_type_map: dict[str, int] = {}
     type_id_to_name: dict[int, str]
     metadata_v15 = None
 
