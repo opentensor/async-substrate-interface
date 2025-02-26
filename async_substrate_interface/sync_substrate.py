@@ -604,19 +604,11 @@ class SubstrateInterface(SubstrateMixin):
 
     def load_registry(self):
         # This needs to happen before init_runtime
-        metadata_rpc_result = self.rpc_request(
-            "state_call",
-            ["Metadata_metadata_at_version", self.metadata_version_hex],
-        )
-        metadata_option_hex_str = metadata_rpc_result["result"]
-        metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
-        self.metadata_v15 = MetadataV15.decode_from_metadata_option(
-            metadata_option_bytes
-        )
+        self.metadata_v15 = self._load_registry_at_block(None)
         self.registry = PortableRegistry.from_metadata_v15(self.metadata_v15)
         self._load_registry_type_map()
 
-    def _load_registry_at_block(self, block_hash: str) -> MetadataV15:
+    def _load_registry_at_block(self, block_hash: Optional[str]) -> MetadataV15:
         # Should be called for any block that fails decoding.
         # Possibly the metadata was different.
         metadata_rpc_result = self.rpc_request(
@@ -626,9 +618,8 @@ class SubstrateInterface(SubstrateMixin):
         )
         metadata_option_hex_str = metadata_rpc_result["result"]
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
-        old_metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
-
-        return old_metadata
+        metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
+        return metadata
 
     def decode_scale(
         self,
