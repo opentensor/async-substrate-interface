@@ -728,7 +728,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     chain = await self.rpc_request("system_chain", [])
                     self._chain = chain.get("result")
                 init_load = await asyncio.gather(
-                    self._first_initialize_runtime(),
+                    self.init_runtime(),
                     return_exceptions=True,
                 )
                 for potential_exception in init_load:
@@ -899,30 +899,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             return obj
 
-    async def _first_initialize_runtime(self):
-        """
-        TODO docstring
-        """
-        runtime_info, metadata, metadata_v15 = await asyncio.gather(
-            self.get_block_runtime_info(None),
-            self.get_block_metadata(),
-            self._load_registry_at_block(None)
-        )
-        await self.load_runtime(
-            runtime_info = runtime_info,
-            metadata = metadata,
-            metadata_v15 = metadata_v15,
-            registry = self.registry
-        )
-
-        # Check and apply runtime constants
-        ss58_prefix_constant = await self.get_constant(
-            "System", "SS58Prefix"
-        )
-
-        if ss58_prefix_constant:
-            self.ss58_format = ss58_prefix_constant
-
     async def load_runtime(self,runtime_info=None,metadata=None,metadata_v15=None,registry=None):
         # Update type registry
         self.reload_type_registry(use_remote_preset=False, auto_discover=True)
@@ -1032,6 +1008,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 metadata_v15=runtime.metadata_v15,
                 registry=runtime.registry,
             )
+
+        if self.ss58_format is None:
+            # Check and apply runtime constants
+            ss58_prefix_constant = await self.get_constant(
+                "System", "SS58Prefix", block_hash=block_hash
+            )
+
+            if ss58_prefix_constant:
+                self.ss58_format = ss58_prefix_constant
 
     async def create_storage_key(
         self,
