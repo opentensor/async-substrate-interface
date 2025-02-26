@@ -706,8 +706,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.runtime_config = RuntimeConfigurationObject(
             ss58_format=self.ss58_format, implements_scale_info=True
         )
-        self._metadata_cache = {}
-        self._metadata_v15_cache = {}
         self._old_metadata_v15 = None
         self._nonces = {}
         self.metadata_version_hex = "0x0f000000"  # v15
@@ -939,7 +937,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         self.runtime_version = runtime_info.get("specVersion")
         self._metadata = metadata
-        self._metadata_cache[self.runtime_version] = self._metadata
         self.runtime_config.set_active_spec_version_id(self.runtime_version)
         self.transaction_version = runtime_info.get("transactionVersion")
         if self.implements_scaleinfo:
