@@ -743,11 +743,11 @@ class SubstrateInterface(SubstrateMixin):
 
             # In fact calls and storage functions are decoded against runtime of previous block, therefore retrieve
             # metadata and apply type registry of runtime of parent block
-            block_header = self.rpc_request("chain_getHeader", [self.last_block_hash])
+            block_header = self.rpc_request("chain_getHeader", [block_hash])
 
             if block_header["result"] is None:
                 raise SubstrateRequestException(
-                    f'Block not found for "{self.last_block_hash}"'
+                    f'Block not found for "{block_hash}"'
                 )
             parent_block_hash: str = block_header["result"]["parentHash"]
 
@@ -755,7 +755,7 @@ class SubstrateInterface(SubstrateMixin):
                 parent_block_hash
                 == "0x0000000000000000000000000000000000000000000000000000000000000000"
             ):
-                runtime_block_hash = self.last_block_hash
+                runtime_block_hash = block_hash
             else:
                 runtime_block_hash = parent_block_hash
 
