@@ -70,9 +70,10 @@ class Runtime:
     runtime_config: RuntimeConfigurationObject
     runtime_info = None
     type_registry_preset = None
+    registry: Optional[PortableRegistry] = None
 
     def __init__(
-        self, chain, runtime_config: RuntimeConfigurationObject, metadata, type_registry, metadata_v15=None, runtime_info=None
+        self, chain, runtime_config: RuntimeConfigurationObject, metadata, type_registry, metadata_v15=None, runtime_info=None, registry=None
     ):
         self.config = {}
         self.chain = chain
@@ -81,6 +82,7 @@ class Runtime:
         self.metadata = metadata
         self.metadata_v15 = metadata_v15
         self.runtime_info = runtime_info
+        self.registry = registry
 
     def __str__(self):
         return f"Runtime: {self.chain} | {self.config}"
