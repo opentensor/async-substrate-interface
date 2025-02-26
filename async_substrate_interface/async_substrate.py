@@ -986,33 +986,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return runtime
 
         async def get_runtime(block_hash,runtime_version) -> Runtime:
-            # Check if runtime state already set to current block
-            if (
-                block_hash and block_hash == self.last_block_hash
-            ) and all(
-                x is not None
-                for x in [self._metadata, self._old_metadata_v15, self.metadata_v15]
-            ):
-                return Runtime(
-                    self.chain,
-                    self.runtime_config,
-                    self._metadata,
-                    self.type_registry,
-                )
-
             self.last_block_hash = block_hash
-
-            # Check if runtime state already set to current block
-            if runtime_version == self.runtime_version and all(
-                x is not None
-                for x in [self._metadata, self._old_metadata_v15, self.metadata_v15]
-            ):
-                return Runtime(
-                    self.chain,
-                    self.runtime_config,
-                    self._metadata,
-                    self.type_registry,
-                )
 
             runtime_block_hash = await self.get_parent_block_hash(block_hash)
 
