@@ -66,17 +66,21 @@ class Runtime:
     transaction_version = None
     cache_region = None
     metadata = None
+    metadata_v15 = None
     runtime_config: RuntimeConfigurationObject
+    runtime_info = None
     type_registry_preset = None
 
     def __init__(
-        self, chain, runtime_config: RuntimeConfigurationObject, metadata, type_registry
+        self, chain, runtime_config: RuntimeConfigurationObject, metadata, type_registry, metadata_v15=None, runtime_info=None
     ):
         self.config = {}
         self.chain = chain
         self.type_registry = type_registry
         self.runtime_config = runtime_config
         self.metadata = metadata
+        self.metadata_v15 = metadata_v15
+        self.runtime_info = runtime_info
 
     def __str__(self):
         return f"Runtime: {self.chain} | {self.config}"

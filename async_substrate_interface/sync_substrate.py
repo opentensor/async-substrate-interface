@@ -773,10 +773,12 @@ class SubstrateInterface(SubstrateMixin):
                 )
 
         runtime = Runtime(
-                self.chain,
-                self.runtime_config,
-                metadata,
-                self.type_registry,
+                chain=self.chain,
+                runtime_config=self.runtime_config,
+                metadata=metadata,
+                type_registry=self.type_registry,
+                metadata_v15=metadata_v15,
+                runtime_info=runtime_info,
             )
         self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
         return runtime
