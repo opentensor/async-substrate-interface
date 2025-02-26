@@ -714,6 +714,10 @@ class SubstrateInterface(SubstrateMixin):
         if block_id and block_hash:
             raise ValueError("Cannot provide block_hash and block_id at the same time")
 
+        runtime = self.runtime_cache.retrieve(block_id, block_hash)
+        if runtime and runtime.metadata is not None:
+            return runtime
+
         def get_runtime(block_hash, block_id) -> Runtime:
             # Check if runtime state already set to current block
             if (
@@ -842,10 +846,6 @@ class SubstrateInterface(SubstrateMixin):
                 metadata,
                 self.type_registry,
             )
-
-        runtime = self.runtime_cache.retrieve(block_id, block_hash)
-        if runtime and runtime.metadata is not None:
-            return runtime
 
         runtime = get_runtime(block_hash, block_id)
         self.runtime_cache.add_item(block_id, block_hash, runtime)
