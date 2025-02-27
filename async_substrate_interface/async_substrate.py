@@ -924,9 +924,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         runtime_info, metadata = await asyncio.gather(
             self.get_block_runtime_version(None), self.get_block_metadata()
         )
+        await self.load_runtime(runtime_info=runtime_info, metadata=metadata)
+
+    async def load_runtime(self,runtime_info,metadata):
+        self.runtime_version = runtime_info.get("specVersion")
         self._metadata = metadata
         self._metadata_cache[self.runtime_version] = self._metadata
-        self.runtime_version = runtime_info.get("specVersion")
         self.runtime_config.set_active_spec_version_id(self.runtime_version)
         self.transaction_version = runtime_info.get("transactionVersion")
         if self.implements_scaleinfo:
