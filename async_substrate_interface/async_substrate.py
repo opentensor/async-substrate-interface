@@ -966,6 +966,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             Runtime object
         """
 
+        if block_id and block_hash:
+            raise ValueError("Cannot provide block_hash and block_id at the same time")
+
         async def get_runtime(block_hash, block_id) -> Runtime:
             # Check if runtime state already set to current block
             if (
@@ -1103,16 +1106,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 self.type_registry,
             )
 
-        if block_id and block_hash:
-            raise ValueError("Cannot provide block_hash and block_id at the same time")
-
         if not self.metadata_v15:
             raise SubstrateRequestException(
                 "Metadata V15 was not loaded. This usually indicates that you did not correctly initialize"
                 " the AsyncSubstrateInterface class with `async with` or by calling `initialize()`"
             )
+        runtime = self.runtime_cache.retrieve(block_id, block_hash)
         if (
-            not (runtime := self.runtime_cache.retrieve(block_id, block_hash))
+            not runtime
             or runtime.metadata is None
         ):
             runtime = await get_runtime(block_hash, block_id)
