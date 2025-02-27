@@ -779,9 +779,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             self._name = (await self.rpc_request("system_name", [])).get("result")
         return self._name
 
-    async def get_storage_item(self, module: str, storage_function: str):
-        if not self._metadata:
-            await self.init_runtime()
+    async def get_storage_item(self, module: str, storage_function: str, block_hash: str = None):
+        await self.init_runtime(block_hash=block_hash)
         metadata_pallet = self._metadata.get_metadata_pallet(module)
         storage_item = metadata_pallet.get_storage_function(storage_function)
         return storage_item
@@ -1139,8 +1138,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             StorageKey
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         return StorageKey.create_from_storage_function(
             pallet,
@@ -1161,8 +1159,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of storage functions
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         storage_list = []
 
@@ -1193,8 +1190,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Metadata storage function
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         pallet = self.metadata.get_metadata_pallet(module_name)
 
@@ -1213,8 +1209,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of errors in the metadata
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         error_list = []
 
@@ -1244,8 +1239,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             error
 
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         for module_idx, module in enumerate(self._metadata.pallets):
             if module.name == module_name and module.errors:
@@ -1254,7 +1248,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         return error
 
     async def get_metadata_runtime_call_functions(
-        self,
+        self, block_hash: str = None
     ) -> list[GenericRuntimeCallDefinition]:
         """
         Get a list of available runtime API calls
@@ -1262,8 +1256,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of runtime call functions
         """
-        if not self._metadata:
-            await self.init_runtime()
+        await self.init_runtime(block_hash=block_hash)
         call_functions = []
 
         for api, methods in self.runtime_config.type_registry["runtime_api"].items():
@@ -1275,7 +1268,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return call_functions
 
     async def get_metadata_runtime_call_function(
-        self, api: str, method: str
+        self, api: str, method: str, block_hash: str = None
     ) -> GenericRuntimeCallDefinition:
         """
         Get details of a runtime API call
@@ -1287,8 +1280,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             runtime call function
         """
-        if not self._metadata:
-            await self.init_runtime()
+        await self.init_runtime(block_hash=block_hash)
 
         try:
             runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
@@ -2077,7 +2069,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 logger.warning(
                     "Failed to get runtime. Re-fetching from chain, and retrying."
                 )
-                await self.init_runtime()
+                await self.init_runtime(block_hash=block_hash)
                 return await self.rpc_request(
                     method, params, result_handler, block_hash, reuse_block_hash
                 )
@@ -2126,8 +2118,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if call_params is None:
             call_params = {}
 
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         call = self.runtime_config.create_scale_object(
             type_string="Call", metadata=self._metadata
@@ -2160,8 +2151,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
         preprocessed: tuple[Preprocessed] = await asyncio.gather(
             *[
                 self._preprocess([x], block_hash, storage_function, module)
@@ -2211,8 +2201,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of `(storage_key, scale_obj)` tuples
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         # Retrieve corresponding value
         response = await self.rpc_request(
@@ -2265,10 +2254,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              The created Scale Type object
         """
-        if not self._metadata or block_hash:
-            runtime = await self.init_runtime(block_hash=block_hash)
-        else:
-            runtime = self.runtime
+        runtime = await self.init_runtime(block_hash=block_hash)
         if "metadata" not in kwargs:
             kwargs["metadata"] = runtime.metadata
 
@@ -2452,7 +2438,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              The signed Extrinsic
         """
-        await self.init_runtime()
+        # only support creating extrinsics for current block
+        await self.init_runtime(block_id=self.get_block_number())
 
         # Check requirements
         if not isinstance(call, GenericCall):
@@ -2613,8 +2600,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              ScaleType from the runtime call
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         if params is None:
             params = {}
@@ -2733,8 +2719,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             MetadataModuleConstants
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         for module in self._metadata.pallets:
             if module_name == module.name and module.constants:
@@ -2829,8 +2814,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             dict mapping the type strings to the type decompositions
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         if not self.implements_scaleinfo:
             raise NotImplementedError("MetadataV14 or higher runtimes is required")
@@ -2879,8 +2863,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             List of metadata modules
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         return [
             {
@@ -2908,8 +2891,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             MetadataModule
         """
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         return self.metadata.get_metadata_pallet(name)
 
@@ -2930,8 +2912,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
         preprocessed: Preprocessed = await self._preprocess(
             params, block_hash, storage_function, module, raw_storage_key
         )
@@ -3004,8 +2985,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        if not self._metadata or block_hash:
-            await self.init_runtime(block_hash=block_hash)
+        await self.init_runtime(block_hash=block_hash)
 
         metadata_pallet = self._metadata.get_metadata_pallet(module)
         if not metadata_pallet:
@@ -3274,10 +3254,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of call functions
         """
-        if not self._metadata or block_hash:
-            runtime = await self.init_runtime(block_hash=block_hash)
-        else:
-            runtime = self.runtime
+        runtime = await self.init_runtime(block_hash=block_hash)
 
         for pallet in runtime.metadata.pallets:
             if pallet.name == module_name and pallet.calls:
