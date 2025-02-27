@@ -1112,12 +1112,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 " the AsyncSubstrateInterface class with `async with` or by calling `initialize()`"
             )
         runtime = self.runtime_cache.retrieve(block_id, block_hash)
-        if (
-            not runtime
-            or runtime.metadata is None
-        ):
-            runtime = await get_runtime(block_hash, block_id)
-            self.runtime_cache.add_item(block_id, block_hash, runtime)
+        if runtime and runtime.metadata is not None:
+            return runtime
+
+        runtime = await get_runtime(block_hash, block_id)
+        self.runtime_cache.add_item(block_id, block_hash, runtime)
         return runtime
 
     async def create_storage_key(
