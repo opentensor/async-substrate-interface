@@ -969,15 +969,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if block_id and block_hash:
             raise ValueError("Cannot provide block_hash and block_id at the same time")
 
+        if block_id is not None:
+            block_hash = await self.get_block_hash(block_id)
+
+        if not block_hash:
+            block_hash = await self.get_chain_head()
+
         runtime = self.runtime_cache.retrieve(block_id, block_hash)
         if runtime and runtime.metadata is not None:
             return runtime
 
-        async def get_runtime(block_hash, block_id) -> Runtime:
+        async def get_runtime(block_hash) -> Runtime:
             # Check if runtime state already set to current block
             if (
-                (block_hash and block_hash == self.last_block_hash)
-                or (block_id and block_id == self.block_id)
+                block_hash and block_hash == self.last_block_hash
             ) and all(
                 x is not None
                 for x in [self._metadata, self._old_metadata_v15, self.metadata_v15]
@@ -989,14 +994,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     self.type_registry,
                 )
 
-            if block_id is not None:
-                block_hash = await self.get_block_hash(block_id)
-
-            if not block_hash:
-                block_hash = await self.get_chain_head()
-
             self.last_block_hash = block_hash
-            self.block_id = block_id
 
             # In fact calls and storage functions are decoded against runtime of previous block, therefore retrieve
             # metadata and apply type registry of runtime of parent block
@@ -1116,7 +1114,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 " the AsyncSubstrateInterface class with `async with` or by calling `initialize()`"
             )
 
-        runtime = await get_runtime(block_hash, block_id)
+        runtime = await get_runtime(block_hash)
         self.runtime_cache.add_item(block_id, block_hash, runtime)
         return runtime
 
