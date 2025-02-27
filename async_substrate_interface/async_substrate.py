@@ -998,23 +998,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             # In fact calls and storage functions are decoded against runtime of previous block, therefore retrieve
             # metadata and apply type registry of runtime of parent block
-            block_header = await self.rpc_request(
-                "chain_getHeader", [block_hash]
-            )
-
-            if block_header["result"] is None:
-                raise SubstrateRequestException(
-                    f'Block not found for "{block_hash}"'
-                )
-            parent_block_hash: str = block_header["result"]["parentHash"]
-
-            if (
-                parent_block_hash
-                == "0x0000000000000000000000000000000000000000000000000000000000000000"
-            ):
-                runtime_block_hash = block_hash
-            else:
-                runtime_block_hash = parent_block_hash
+            runtime_block_hash = await self.get_parent_block_hash(block_hash)
 
             runtime_info = await self.get_block_runtime_version(
                 block_hash=runtime_block_hash
@@ -1776,6 +1760,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
             for item in list(storage_obj):
                 events.append(convert_event_data(item))
         return events
+
+    async def get_parent_block_hash(self,block_hash):
+        block_header = await self.rpc_request("chain_getHeader", [block_hash])
+
+        if block_header["result"] is None:
+            raise SubstrateRequestException(
+                f'Block not found for "{block_hash}"'
+            )
+        parent_block_hash: str = block_header["result"]["parentHash"]
+
+        if int(parent_block_hash,16) == 0:
+            # "0x0000000000000000000000000000000000000000000000000000000000000000"
+            return block_hash
+        return parent_block_hash
 
     async def get_block_runtime_version(self, block_hash: str) -> dict:
         """
