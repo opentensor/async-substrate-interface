@@ -2078,6 +2078,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
+    @a.lru_cache(maxsize=512) # block_id->block_hash does not change
     async def get_block_hash(self, block_id: int) -> str:
         return (await self.rpc_request("chain_getBlockHash", [block_id]))["result"]
 
