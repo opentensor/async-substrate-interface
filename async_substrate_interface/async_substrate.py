@@ -900,10 +900,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return obj
 
     async def load_runtime(self,runtime):
+        self.runtime = runtime
+
         # Update type registry
         self.reload_type_registry(use_remote_preset=False, auto_discover=True)
-
-        self.runtime = runtime
 
         self.runtime_config.set_active_spec_version_id(runtime.runtime_version)
         if self.implements_scaleinfo:
