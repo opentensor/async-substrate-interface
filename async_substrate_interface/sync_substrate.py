@@ -583,7 +583,9 @@ class SubstrateInterface(SubstrateMixin):
             else:
                 return connect(self.chain_endpoint, max_size=self.ws_max_size)
 
-    def get_storage_item(self, module: str, storage_function: str, block_hash: str = None):
+    def get_storage_item(
+        self, module: str, storage_function: str, block_hash: str = None
+    ):
         self.init_runtime(block_hash=block_hash)
         metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
         storage_item = metadata_pallet.get_storage_function(storage_function)
@@ -613,7 +615,7 @@ class SubstrateInterface(SubstrateMixin):
         metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
         registry = PortableRegistry.from_metadata_v15(metadata)
         self._load_registry_type_map(registry)
-        return metadata,registry
+        return metadata, registry
 
     def decode_scale(
         self,
@@ -644,7 +646,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             return obj
 
-    def load_runtime(self,runtime):
+    def load_runtime(self, runtime):
         self.runtime = runtime
 
         # Update type registry
@@ -719,12 +721,10 @@ class SubstrateInterface(SubstrateMixin):
                     f"No metadata for block '{runtime_block_hash}'"
                 )
             logger.debug(
-                "Retrieved metadata for {} from Substrate node".format(
-                    runtime_version
-                )
+                "Retrieved metadata for {} from Substrate node".format(runtime_version)
             )
 
-            metadata_v15,registry = self._load_registry_at_block(
+            metadata_v15, registry = self._load_registry_at_block(
                 block_hash=runtime_block_hash
             )
             logger.debug(
@@ -734,15 +734,17 @@ class SubstrateInterface(SubstrateMixin):
             )
 
             runtime = Runtime(
-                    chain=self.chain,
-                    runtime_config=self.runtime_config,
-                    metadata=metadata,
-                    type_registry=self.type_registry,
-                    metadata_v15=metadata_v15,
-                    runtime_info=runtime_info,
-                    registry=registry,
-                )
-            self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
+                chain=self.chain,
+                runtime_config=self.runtime_config,
+                metadata=metadata,
+                type_registry=self.type_registry,
+                metadata_v15=metadata_v15,
+                runtime_info=runtime_info,
+                registry=registry,
+            )
+            self.runtime_cache.add_item(
+                runtime_version=runtime_version, runtime=runtime
+            )
 
         self.load_runtime(runtime)
 
@@ -1404,22 +1406,20 @@ class SubstrateInterface(SubstrateMixin):
                 events.append(convert_event_data(item))
         return events
 
-    @lru_cache(maxsize=16) # small cache with large items
-    def get_parent_block_hash(self,block_hash):
+    @lru_cache(maxsize=512)  # large cache with small items
+    def get_parent_block_hash(self, block_hash):
         block_header = self.rpc_request("chain_getHeader", [block_hash])
 
         if block_header["result"] is None:
-            raise SubstrateRequestException(
-                f'Block not found for "{block_hash}"'
-            )
+            raise SubstrateRequestException(f'Block not found for "{block_hash}"')
         parent_block_hash: str = block_header["result"]["parentHash"]
 
-        if int(parent_block_hash,16) == 0:
+        if int(parent_block_hash, 16) == 0:
             # "0x0000000000000000000000000000000000000000000000000000000000000000"
             return block_hash
         return parent_block_hash
 
-    @lru_cache(maxsize=16) # small cache with large items
+    @lru_cache(maxsize=16)  # small cache with large items
     def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -1427,7 +1427,7 @@ class SubstrateInterface(SubstrateMixin):
         response = self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @lru_cache(maxsize=512) # large cache with small items
+    @lru_cache(maxsize=512)  # large cache with small items
     def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -1727,7 +1727,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @lru_cache(maxsize=512) # block_id->block_hash does not change
+    @lru_cache(maxsize=512)  # block_id->block_hash does not change
     def get_block_hash(self, block_id: int) -> str:
         return self.rpc_request("chain_getBlockHash", [block_id])["result"]
 
@@ -1899,7 +1899,7 @@ class SubstrateInterface(SubstrateMixin):
         if "metadata" not in kwargs:
             kwargs["metadata"] = self.runtime.metadata
 
-        return runtime.runtime_config.create_scale_object(
+        return self.runtime.runtime_config.create_scale_object(
             type_string, data=data, **kwargs
         )
 

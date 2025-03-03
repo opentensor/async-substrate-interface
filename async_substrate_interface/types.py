@@ -47,7 +47,7 @@ class RuntimeCache:
         self,
         block: Optional[int] = None,
         block_hash: Optional[str] = None,
-        runtime_version: Optional[int] = None
+        runtime_version: Optional[int] = None,
     ) -> Optional["Runtime"]:
         if block is not None:
             return self.blocks.get(block)
@@ -71,7 +71,14 @@ class Runtime:
     registry: Optional[PortableRegistry] = None
 
     def __init__(
-        self, chain, runtime_config: RuntimeConfigurationObject, metadata, type_registry, metadata_v15=None, runtime_info=None, registry=None
+        self,
+        chain,
+        runtime_config: RuntimeConfigurationObject,
+        metadata,
+        type_registry,
+        metadata_v15=None,
+        runtime_info=None,
+        registry=None,
     ):
         self.config = {}
         self.chain = chain
@@ -81,11 +88,12 @@ class Runtime:
         self.metadata_v15 = metadata_v15
         self.runtime_info = runtime_info
         self.registry = registry
-        self.runtime_version = runtime_info.get('specVersion')
+        self.runtime_version = runtime_info.get("specVersion")
         self.transaction_version = runtime_info.get("transactionVersion")
 
     def __str__(self):
         return f"Runtime: {self.chain} | {self.config}"
+
 
 #    @property
 #    def implements_scaleinfo(self) -> bool:
@@ -173,6 +181,7 @@ class Runtime:
 #        if self.type_registry:
 #            # Load type registries in runtime configuration
 #            self.runtime_config.update_type_registry(self.type_registry)
+
 
 class RequestManager:
     RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
@@ -613,7 +622,7 @@ class SubstrateMixin(ABC):
             "spec_version": spec_version,
         }
 
-    def _load_registry_type_map(self,registry):
+    def _load_registry_type_map(self, registry):
         registry_type_map = {}
         type_id_to_name = {}
         types = json.loads(registry.registry)["types"]
@@ -839,5 +848,7 @@ class SubstrateMixin(ABC):
                 else:
                     value = value.value  # Unwrap the value of the type
 
-            result = bytes(encode_by_type_string(type_string, self.registry, value))
+            result = bytes(
+                encode_by_type_string(type_string, self.runtime.registry, value)
+            )
         return result

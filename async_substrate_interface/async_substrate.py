@@ -727,13 +727,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 if not self._chain:
                     chain = await self.rpc_request("system_chain", [])
                     self._chain = chain.get("result")
-                init_load = await asyncio.gather(
-                    self.init_runtime(),
-                    return_exceptions=True,
-                )
-                for potential_exception in init_load:
-                    if isinstance(potential_exception, Exception):
-                        raise potential_exception
+                await self.init_runtime()
             self.initialized = True
             self._initializing = False
 
@@ -775,7 +769,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             self._name = (await self.rpc_request("system_name", [])).get("result")
         return self._name
 
-    async def get_storage_item(self, module: str, storage_function: str, block_hash: str = None):
+    async def get_storage_item(
+        self, module: str, storage_function: str, block_hash: str = None
+    ):
         await self.init_runtime(block_hash=block_hash)
         metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
         storage_item = metadata_pallet.get_storage_function(storage_function)
@@ -792,7 +788,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 return self.last_block_hash
         return block_hash
 
-    async def _load_registry_at_block(self, block_hash: Optional[str]) -> MetadataV15:
+    async def _load_registry_at_block(
+        self, block_hash: Optional[str]
+    ) -> tuple[MetadataV15, PortableRegistry]:
         # Should be called for any block that fails decoding.
         # Possibly the metadata was different.
         try:
@@ -817,7 +815,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
         registry = PortableRegistry.from_metadata_v15(metadata)
         self._load_registry_type_map(registry)
-        return metadata,registry
+        return metadata, registry
 
     async def _wait_for_registry(self, _attempt: int = 1, _retries: int = 3) -> None:
         async def _waiter():
@@ -899,7 +897,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             return obj
 
-    async def load_runtime(self,runtime):
+    async def load_runtime(self, runtime):
         self.runtime = runtime
 
         # Update type registry
@@ -965,10 +963,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             runtime_info = await self.get_block_runtime_info(runtime_block_hash)
 
-            # TODO when someone gets time, someone'd like to add this and the metadata v15 as tasks with callbacks
-            # TODO to update the caches, but someone doesn't have time now.
-            metadata = await self.get_block_metadata(
-                block_hash=runtime_block_hash, decode=True
+            metadata, (metadata_v15, registry) = await asyncio.gather(
+                self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
+                self._load_registry_at_block(block_hash=runtime_block_hash),
             )
             if metadata is None:
                 # does this ever happen?
@@ -976,28 +973,21 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     f"No metadata for block '{runtime_block_hash}'"
                 )
             logger.debug(
-                "Retrieved metadata for {} from Substrate node".format(
-                    runtime_version
-                )
-            )
-
-            metadata_v15,registry = await self._load_registry_at_block(block_hash=runtime_block_hash)
-            logger.debug(
-                "Retrieved metadata v15 for {} from Substrate node".format(
-                    runtime_version
-                )
+                f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
             )
 
             runtime = Runtime(
-                    chain=self.chain,
-                    runtime_config=self.runtime_config,
-                    metadata=metadata,
-                    type_registry=self.type_registry,
-                    metadata_v15=metadata_v15,
-                    runtime_info=runtime_info,
-                    registry=registry,
-                )
-            self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
+                chain=self.chain,
+                runtime_config=self.runtime_config,
+                metadata=metadata,
+                type_registry=self.type_registry,
+                metadata_v15=metadata_v15,
+                runtime_info=runtime_info,
+                registry=registry,
+            )
+            self.runtime_cache.add_item(
+                runtime_version=runtime_version, runtime=runtime
+            )
 
         await self.load_runtime(runtime)
 
@@ -1669,22 +1659,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 events.append(convert_event_data(item))
         return events
 
-    @a.lru_cache(maxsize=16) # small cache with large items
-    async def get_parent_block_hash(self,block_hash):
+    @a.lru_cache(maxsize=512)  # large cache with small items
+    async def get_parent_block_hash(self, block_hash):
         block_header = await self.rpc_request("chain_getHeader", [block_hash])
 
         if block_header["result"] is None:
-            raise SubstrateRequestException(
-                f'Block not found for "{block_hash}"'
-            )
+            raise SubstrateRequestException(f'Block not found for "{block_hash}"')
         parent_block_hash: str = block_header["result"]["parentHash"]
 
-        if int(parent_block_hash,16) == 0:
+        if int(parent_block_hash, 16) == 0:
             # "0x0000000000000000000000000000000000000000000000000000000000000000"
             return block_hash
         return parent_block_hash
 
-    @a.lru_cache(maxsize=16) # small cache with large items
+    @a.lru_cache(maxsize=16)  # small cache with large items
     async def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -1692,7 +1680,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         response = await self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @a.lru_cache(maxsize=512) # large cache with small items
+    @a.lru_cache(maxsize=512)  # large cache with small items
     async def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -1997,7 +1985,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @a.lru_cache(maxsize=512) # block_id->block_hash does not change
+    @a.lru_cache(maxsize=512)  # block_id->block_hash does not change
     async def get_block_hash(self, block_id: int) -> str:
         return (await self.rpc_request("chain_getBlockHash", [block_id]))["result"]
 
@@ -2177,7 +2165,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if "metadata" not in kwargs:
             kwargs["metadata"] = self.runtime.metadata
 
-        return runtime.runtime_config.create_scale_object(
+        return self.runtime.runtime_config.create_scale_object(
             type_string, data=data, **kwargs
         )
 
@@ -2358,7 +2346,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
              The signed Extrinsic
         """
         # only support creating extrinsics for current block
-        await self.init_runtime(block_id=self.get_block_number())
+        await self.init_runtime(block_id=await self.get_block_number())
 
         # Check requirements
         if not isinstance(call, GenericCall):
