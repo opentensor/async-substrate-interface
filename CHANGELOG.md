@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3 /2025-02-20
+
+## What's Changed
+* Refactor generate_unique_id by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/56
+* Backmerge main to staging 103 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/57
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.1...v1.0.3
+
 ## 1.0.2 /2025-02-19
 
 ## What's Changed
