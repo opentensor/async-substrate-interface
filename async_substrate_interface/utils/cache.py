@@ -11,8 +11,6 @@ CACHE_LOCATION = (
     else ":memory:"
 )
 
-# TODO do not cache for localnets
-
 
 def _get_table_name(func):
     """Convert "ClassName.method_name" to "ClassName_method_name"""
