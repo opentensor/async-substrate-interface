@@ -18,8 +18,7 @@ def _get_table_name(func):
     return func.__qualname__.replace(".", "_")
 
 
-def _create_table(conn, table_name):
-    c = conn.cursor()
+def _create_table(c, conn, table_name):
     c.execute(
         f"CREATE TABLE IF NOT EXISTS {table_name} (key BLOB PRIMARY KEY, value BLOB, chain TEXT)"
     )
@@ -53,9 +52,9 @@ def _insert_into_cache(c, conn, table_name, key, result, chain):
 
 def sql_lru_cache(func, max_size=None):
     conn = sqlite3.connect(CACHE_LOCATION)
-
+    c = conn.cursor()
     table_name = _get_table_name(func)
-    _create_table(conn, table_name)
+    _create_table(c, conn, table_name)
 
     @functools.lru_cache(maxsize=max_size)
     def inner(self, *args, **kwargs):
@@ -78,8 +77,9 @@ def sql_lru_cache(func, max_size=None):
 
 def async_sql_lru_cache(func, max_size=None):
     conn = sqlite3.connect(CACHE_LOCATION)
+    c = conn.cursor()
     table_name = _get_table_name(func)
-    _create_table(conn, table_name)
+    _create_table(c, conn, table_name)
 
     @a.lru_cache(maxsize=max_size)
     async def inner(self, *args, **kwargs):
