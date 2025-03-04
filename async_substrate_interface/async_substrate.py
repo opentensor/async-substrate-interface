@@ -21,7 +21,6 @@ from typing import (
     TYPE_CHECKING,
 )
 
-import asyncstdlib as a
 from bittensor_wallet.keypair import Keypair
 from bittensor_wallet.utils import SS58_FORMAT
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
@@ -49,6 +48,7 @@ from async_substrate_interface.types import (
     Preprocessed,
 )
 from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
+from async_substrate_interface.utils.cache import async_sql_lru_cache
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -1659,7 +1659,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 events.append(convert_event_data(item))
         return events
 
-    @a.lru_cache(maxsize=512)  # large cache with small items
+    @async_sql_lru_cache(max_size=512)
     async def get_parent_block_hash(self, block_hash):
         block_header = await self.rpc_request("chain_getHeader", [block_hash])
 
@@ -1672,7 +1672,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return block_hash
         return parent_block_hash
 
-    @a.lru_cache(maxsize=16)  # small cache with large items
+    @async_sql_lru_cache(max_size=16)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -1680,7 +1680,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         response = await self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @a.lru_cache(maxsize=512)  # large cache with small items
+    @async_sql_lru_cache(max_size=512)
     async def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -1914,7 +1914,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return request_manager.get_results()
 
-    @a.lru_cache(maxsize=512)  # RPC methods are unlikely to change often
+    @async_sql_lru_cache(max_size=512)
     async def supports_rpc_method(self, name: str) -> bool:
         """
         Check if substrate RPC supports given method
@@ -1985,7 +1985,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @a.lru_cache(maxsize=512)  # block_id->block_hash does not change
+    @async_sql_lru_cache(max_size=512)
     async def get_block_hash(self, block_id: int) -> str:
         return (await self.rpc_request("chain_getBlockHash", [block_id]))["result"]
 
