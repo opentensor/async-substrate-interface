@@ -4,9 +4,10 @@ import pickle
 import sqlite3
 import asyncstdlib as a
 
+USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
 CACHE_LOCATION = (
     os.path.expanduser("~/.cache/async-substrate_interface")
-    if os.getenv("NO_CACHE") != "1"
+    if USE_CACHE
     else ":memory:"
 )
 
@@ -16,6 +17,10 @@ CACHE_LOCATION = (
 def _get_table_name(func):
     """Convert "ClassName.method_name" to "ClassName_method_name"""
     return func.__qualname__.replace(".", "_")
+
+
+def _check_if_local(chain: str) -> bool:
+    return any([x in chain for x in ["127.0.0.1", "localhost", "0.0.0.0"]])
 
 
 def _create_table(c, conn, table_name):
@@ -61,14 +66,16 @@ def sql_lru_cache(func, max_size=None):
         c = conn.cursor()
         key = pickle.dumps((args, kwargs))
         chain = self.url
-
-        result = _retrieve_from_cache(c, table_name, key, chain)
-        if result is not None:
-            return result
+        if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
+            result = _retrieve_from_cache(c, table_name, key, chain)
+            if result is not None:
+                return result
 
         # If not in DB, call func and store in DB
         result = func(self, *args, **kwargs)
-        _insert_into_cache(c, conn, table_name, key, result, chain)
+
+        if not local_chain or not USE_CACHE:
+            _insert_into_cache(c, conn, table_name, key, result, chain)
 
         return result
 
@@ -87,13 +94,15 @@ def async_sql_lru_cache(func, max_size=None):
         key = pickle.dumps((args, kwargs))
         chain = self.url
 
-        result = _retrieve_from_cache(c, table_name, key, chain)
-        if result is not None:
-            return result
+        if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
+            result = _retrieve_from_cache(c, table_name, key, chain)
+            if result is not None:
+                return result
 
         # If not in DB, call func and store in DB
         result = await func(self, *args, **kwargs)
-        _insert_into_cache(c, conn, table_name, key, result, chain)
+        if not local_chain or not USE_CACHE:
+            _insert_into_cache(c, conn, table_name, key, result, chain)
 
         return result
 
