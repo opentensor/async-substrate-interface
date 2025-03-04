@@ -1,7 +1,10 @@
 import functools
+import os
 import pickle
 import sqlite3
 import asyncstdlib as a
+
+CACHE_LOCATION = os.path.expanduser("~/.cache/async-substrate_interface") if os.getenv("NO_CACHE") != "1" else ":memory:"
 
 
 def _get_table_name(func):
@@ -43,7 +46,7 @@ def _insert_into_cache(c, conn, table_name, key, result, chain):
 
 
 def sql_lru_cache(func, max_size=None):
-    conn = sqlite3.connect("/tmp/cache.db")
+    conn = sqlite3.connect(CACHE_LOCATION)
 
     table_name = _get_table_name(func)
     _create_table(conn, table_name)
@@ -68,7 +71,7 @@ def sql_lru_cache(func, max_size=None):
 
 
 def async_sql_lru_cache(func, max_size=None):
-    conn = sqlite3.connect("/tmp/cache.db")
+    conn = sqlite3.connect(CACHE_LOCATION)
     table_name = _get_table_name(func)
     _create_table(conn, table_name)
 
