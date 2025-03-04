@@ -4,7 +4,11 @@ import pickle
 import sqlite3
 import asyncstdlib as a
 
-CACHE_LOCATION = os.path.expanduser("~/.cache/async-substrate_interface") if os.getenv("NO_CACHE") != "1" else ":memory:"
+CACHE_LOCATION = (
+    os.path.expanduser("~/.cache/async-substrate_interface")
+    if os.getenv("NO_CACHE") != "1"
+    else ":memory:"
+)
 
 
 def _get_table_name(func):
@@ -55,7 +59,7 @@ def sql_lru_cache(func, max_size=None):
     def inner(self, *args, **kwargs):
         c = conn.cursor()
         key = pickle.dumps((args, kwargs))
-        chain = self._chain
+        chain = self.url
 
         result = _retrieve_from_cache(c, table_name, key, chain)
         if result is not None:
@@ -79,7 +83,7 @@ def async_sql_lru_cache(func, max_size=None):
     async def inner(self, *args, **kwargs):
         c = conn.cursor()
         key = pickle.dumps((args, kwargs))
-        chain = self._chain
+        chain = self.url
 
         result = _retrieve_from_cache(c, table_name, key, chain)
         if result is not None:
