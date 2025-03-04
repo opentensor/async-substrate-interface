@@ -55,55 +55,61 @@ def _insert_into_cache(c, conn, table_name, key, result, chain):
         pass
 
 
-def sql_lru_cache(func, max_size=None):
-    conn = sqlite3.connect(CACHE_LOCATION)
-    c = conn.cursor()
-    table_name = _get_table_name(func)
-    _create_table(c, conn, table_name)
-
-    @functools.lru_cache(maxsize=max_size)
-    def inner(self, *args, **kwargs):
+def sql_lru_cache(max_size=None):
+    def decorator(func):
+        conn = sqlite3.connect(CACHE_LOCATION)
         c = conn.cursor()
-        key = pickle.dumps((args, kwargs))
-        chain = self.url
-        if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
-            result = _retrieve_from_cache(c, table_name, key, chain)
-            if result is not None:
-                return result
+        table_name = _get_table_name(func)
+        _create_table(c, conn, table_name)
 
-        # If not in DB, call func and store in DB
-        result = func(self, *args, **kwargs)
+        @functools.lru_cache(maxsize=max_size)
+        def inner(self, *args, **kwargs):
+            c = conn.cursor()
+            key = pickle.dumps((args, kwargs))
+            chain = self.url
+            if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
+                result = _retrieve_from_cache(c, table_name, key, chain)
+                if result is not None:
+                    return result
 
-        if not local_chain or not USE_CACHE:
-            _insert_into_cache(c, conn, table_name, key, result, chain)
+            # If not in DB, call func and store in DB
+            result = func(self, *args, **kwargs)
 
-        return result
+            if not local_chain or not USE_CACHE:
+                _insert_into_cache(c, conn, table_name, key, result, chain)
 
-    return inner
+            return result
+
+        return inner
+
+    return decorator
 
 
-def async_sql_lru_cache(func, max_size=None):
-    conn = sqlite3.connect(CACHE_LOCATION)
-    c = conn.cursor()
-    table_name = _get_table_name(func)
-    _create_table(c, conn, table_name)
-
-    @a.lru_cache(maxsize=max_size)
-    async def inner(self, *args, **kwargs):
+def async_sql_lru_cache(max_size=None):
+    def decorator(func):
+        conn = sqlite3.connect(CACHE_LOCATION)
         c = conn.cursor()
-        key = pickle.dumps((args, kwargs))
-        chain = self.url
+        table_name = _get_table_name(func)
+        _create_table(c, conn, table_name)
 
-        if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
-            result = _retrieve_from_cache(c, table_name, key, chain)
-            if result is not None:
-                return result
+        @a.lru_cache(maxsize=max_size)
+        async def inner(self, *args, **kwargs):
+            c = conn.cursor()
+            key = pickle.dumps((args, kwargs))
+            chain = self.url
 
-        # If not in DB, call func and store in DB
-        result = await func(self, *args, **kwargs)
-        if not local_chain or not USE_CACHE:
-            _insert_into_cache(c, conn, table_name, key, result, chain)
+            if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
+                result = _retrieve_from_cache(c, table_name, key, chain)
+                if result is not None:
+                    return result
 
-        return result
+            # If not in DB, call func and store in DB
+            result = await func(self, *args, **kwargs)
+            if not local_chain or not USE_CACHE:
+                _insert_into_cache(c, conn, table_name, key, result, chain)
 
-    return inner
+            return result
+
+        return inner
+
+    return decorator
