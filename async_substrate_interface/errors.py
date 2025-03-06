@@ -16,11 +16,11 @@ class SubstrateRequestException(Exception, metaclass=_SubstrateRequestExceptionM
     @classmethod
     def from_error(cls, error):
         try:
-            Exception = _SubstrateRequestExceptionMeta._exceptions[error["name"]]
+            error_cls = _SubstrateRequestExceptionMeta._exceptions[error["name"]]
         except KeyError:
             return cls(error)
         else:
-            return Exception(" ".join(error["docs"]))
+            return error_cls(" ".join(error["docs"]))
 
 
 class HotKeyAccountNotExists(SubstrateRequestException):
