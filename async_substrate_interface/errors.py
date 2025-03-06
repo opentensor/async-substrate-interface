@@ -11,12 +11,18 @@ class _SubstrateRequestExceptionMeta(type):
 
         return cls
 
+    @classmethod
+    def get_exception_class(mcs, exception_name):
+        return mcs._exceptions[exception_name]
+
 
 class SubstrateRequestException(Exception, metaclass=_SubstrateRequestExceptionMeta):
     @classmethod
     def from_error(cls, error):
         try:
-            error_cls = _SubstrateRequestExceptionMeta._exceptions[error["name"]]
+            error_cls = _SubstrateRequestExceptionMeta.get_exception_class(
+                error["name"]
+            )
         except KeyError:
             return cls(error)
         else:
