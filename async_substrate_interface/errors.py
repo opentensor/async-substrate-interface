@@ -1,8 +1,5 @@
-from typing import Dict
-
-
 class _SubstrateRequestExceptionMeta(type):
-    _exceptions: Dict[str, Exception] = {}
+    _exceptions: dict[str, Exception] = {}
 
     def __new__(mcs, name, bases, attrs):
         cls = super().__new__(mcs, name, bases, attrs)
