@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.4 /2025-03-05
+
+## What's Changed
+* Warn users about too old blocks by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/60
+* Runtime version fixes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/65
+* Feat/mvds00/runtime version fixes by @mvds00 in https://github.com/opentensor/async-substrate-interface/pull/63
+* Backmerge main to staging 103 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/66
+
+## New Contributors
+* @mvds00 made their first contribution in https://github.com/opentensor/async-substrate-interface/pull/63
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.3...v1.0.4
+
 ## 1.0.3 /2025-02-20
 
 ## What's Changed
