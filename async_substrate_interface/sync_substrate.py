@@ -1,3 +1,4 @@
+import functools
 import logging
 import random
 from hashlib import blake2b
@@ -30,7 +31,6 @@ from async_substrate_interface.types import (
     ScaleObj,
 )
 from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
-from async_substrate_interface.utils.cache import sql_lru_cache
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -1406,7 +1406,7 @@ class SubstrateInterface(SubstrateMixin):
                 events.append(convert_event_data(item))
         return events
 
-    @sql_lru_cache(max_size=512)
+    @functools.lru_cache(maxsize=512)
     def get_parent_block_hash(self, block_hash):
         block_header = self.rpc_request("chain_getHeader", [block_hash])
 
@@ -1419,7 +1419,7 @@ class SubstrateInterface(SubstrateMixin):
             return block_hash
         return parent_block_hash
 
-    @sql_lru_cache(max_size=16)
+    @functools.lru_cache(maxsize=16)
     def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -1427,7 +1427,7 @@ class SubstrateInterface(SubstrateMixin):
         response = self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @sql_lru_cache(max_size=512)
+    @functools.lru_cache(maxsize=512)
     def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -1655,8 +1655,7 @@ class SubstrateInterface(SubstrateMixin):
 
         return request_manager.get_results()
 
-    # TODO change this logic
-    @sql_lru_cache(max_size=512)
+    @functools.lru_cache(maxsize=512)
     def supports_rpc_method(self, name: str) -> bool:
         """
         Check if substrate RPC supports given method
@@ -1727,7 +1726,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @sql_lru_cache(max_size=512)
+    @functools.lru_cache(maxsize=512)
     def get_block_hash(self, block_id: int) -> str:
         return self.rpc_request("chain_getBlockHash", [block_id])["result"]
 

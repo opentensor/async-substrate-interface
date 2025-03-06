@@ -53,14 +53,14 @@ def _insert_into_cache(c, conn, table_name, key, result, chain):
         pass
 
 
-def sql_lru_cache(max_size=None):
+def sql_lru_cache(maxsize=None):
     def decorator(func):
         conn = sqlite3.connect(CACHE_LOCATION)
         c = conn.cursor()
         table_name = _get_table_name(func)
         _create_table(c, conn, table_name)
 
-        @functools.lru_cache(maxsize=max_size)
+        @functools.lru_cache(maxsize=maxsize)
         def inner(self, *args, **kwargs):
             c = conn.cursor()
             key = pickle.dumps((args, kwargs))
@@ -83,14 +83,14 @@ def sql_lru_cache(max_size=None):
     return decorator
 
 
-def async_sql_lru_cache(max_size=None):
+def async_sql_lru_cache(maxsize=None):
     def decorator(func):
         conn = sqlite3.connect(CACHE_LOCATION)
         c = conn.cursor()
         table_name = _get_table_name(func)
         _create_table(c, conn, table_name)
 
-        @a.lru_cache(maxsize=max_size)
+        @a.lru_cache(maxsize=maxsize)
         async def inner(self, *args, **kwargs):
             c = conn.cursor()
             key = pickle.dumps((args, kwargs))
