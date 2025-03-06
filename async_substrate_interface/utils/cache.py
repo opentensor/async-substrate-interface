@@ -25,7 +25,26 @@ def _check_if_local(chain: str) -> bool:
 
 def _create_table(c, conn, table_name):
     c.execute(
-        f"CREATE TABLE IF NOT EXISTS {table_name} (key BLOB PRIMARY KEY, value BLOB, chain TEXT)"
+        f"""CREATE TABLE IF NOT EXISTS {table_name} 
+        (
+           rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+           key BLOB,
+           value BLOB,
+           chain TEXT,
+           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    c.execute(
+        f"""CREATE TRIGGER IF NOT EXISTS prune_rows_trigger AFTER INSERT ON {table_name}
+            BEGIN
+              DELETE FROM {table_name}
+              WHERE rowid IN (
+                SELECT rowid FROM {table_name}
+                ORDER BY created_at DESC
+                LIMIT -1 OFFSET 500
+              );
+            END;"""
     )
     conn.commit()
 
@@ -46,7 +65,7 @@ def _retrieve_from_cache(c, table_name, key, chain):
 def _insert_into_cache(c, conn, table_name, key, result, chain):
     try:
         c.execute(
-            f"INSERT OR REPLACE INTO {table_name} VALUES (?,?,?)",
+            f"INSERT OR REPLACE INTO {table_name} (key, value, chain) VALUES (?,?,?)",
             (key, pickle.dumps(result), chain),
         )
         conn.commit()
