@@ -6,7 +6,9 @@ import asyncstdlib as a
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
 CACHE_LOCATION = (
-    os.path.expanduser("~/.cache/async-substrate_interface")
+    os.path.expanduser(
+        os.getenv("CACHE_LOCATION", "~/.cache/async-substrate_interface")
+    )
     if USE_CACHE
     else ":memory:"
 )
