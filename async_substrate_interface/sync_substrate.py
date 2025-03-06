@@ -581,7 +581,8 @@ class SubstrateInterface(SubstrateMixin):
             if not self.ws.close_code:
                 return self.ws
             else:
-                return connect(self.chain_endpoint, max_size=self.ws_max_size)
+                self.ws = connect(self.chain_endpoint, max_size=self.ws_max_size)
+                return self.ws
 
     def get_storage_item(
         self, module: str, storage_function: str, block_hash: str = None

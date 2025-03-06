@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.5 /2025-03-06
+
+## What's Changed
+* Fixes a memory leak by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/70
+* Backmerge main to staging 104 by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/71
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.4...v1.0.5
+
 ## 1.0.4 /2025-03-05
 
 ## What's Changed
