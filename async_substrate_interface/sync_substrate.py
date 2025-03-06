@@ -1,6 +1,6 @@
+import functools
 import logging
 import random
-from functools import lru_cache
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 
@@ -1407,7 +1407,7 @@ class SubstrateInterface(SubstrateMixin):
                 events.append(convert_event_data(item))
         return events
 
-    @lru_cache(maxsize=512)  # large cache with small items
+    @functools.lru_cache(maxsize=512)
     def get_parent_block_hash(self, block_hash):
         block_header = self.rpc_request("chain_getHeader", [block_hash])
 
@@ -1420,7 +1420,7 @@ class SubstrateInterface(SubstrateMixin):
             return block_hash
         return parent_block_hash
 
-    @lru_cache(maxsize=16)  # small cache with large items
+    @functools.lru_cache(maxsize=16)
     def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -1428,7 +1428,7 @@ class SubstrateInterface(SubstrateMixin):
         response = self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @lru_cache(maxsize=512)  # large cache with small items
+    @functools.lru_cache(maxsize=512)
     def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -1656,8 +1656,7 @@ class SubstrateInterface(SubstrateMixin):
 
         return request_manager.get_results()
 
-    # TODO change this logic
-    @lru_cache(maxsize=512)  # RPC methods are unlikely to change often
+    @functools.lru_cache(maxsize=512)
     def supports_rpc_method(self, name: str) -> bool:
         """
         Check if substrate RPC supports given method
@@ -1728,7 +1727,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @lru_cache(maxsize=512)  # block_id->block_hash does not change
+    @functools.lru_cache(maxsize=512)
     def get_block_hash(self, block_id: int) -> str:
         return self.rpc_request("chain_getBlockHash", [block_id])["result"]
 
