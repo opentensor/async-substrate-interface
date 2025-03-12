@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.7 /2025-03-12
+
+## What's Changed
+* Improves the logic of the disk cache so that it doesn't spill over by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/76
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.6...v1.0.7
+
 ## 1.0.6 /2025-03-12
 
 ## What's Changed
