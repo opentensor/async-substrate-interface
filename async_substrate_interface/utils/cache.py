@@ -2,6 +2,7 @@ import functools
 import os
 import pickle
 import sqlite3
+from pathlib import Path
 import asyncstdlib as a
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
@@ -12,6 +13,12 @@ CACHE_LOCATION = (
     if USE_CACHE
     else ":memory:"
 )
+
+
+def _ensure_dir():
+    path = Path(CACHE_LOCATION).parent
+    if not path.exists():
+        path.mkdir(parents=True, exist_ok=True)
 
 
 def _get_table_name(func):
@@ -74,22 +81,28 @@ def _insert_into_cache(c, conn, table_name, key, result, chain):
         pass
 
 
+def _shared_inner_fn_logic(func, self, args, kwargs):
+    _ensure_dir()
+    conn = sqlite3.connect(CACHE_LOCATION)
+    c = conn.cursor()
+    table_name = _get_table_name(func)
+    _create_table(c, conn, table_name)
+    key = pickle.dumps((args, kwargs))
+    chain = self.url
+    if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
+        result = _retrieve_from_cache(c, table_name, key, chain)
+    else:
+        result = None
+    return c, conn, table_name, key, result, chain, local_chain
+
+
 def sql_lru_cache(maxsize=None):
     def decorator(func):
-        conn = sqlite3.connect(CACHE_LOCATION)
-        c = conn.cursor()
-        table_name = _get_table_name(func)
-        _create_table(c, conn, table_name)
-
         @functools.lru_cache(maxsize=maxsize)
         def inner(self, *args, **kwargs):
-            c = conn.cursor()
-            key = pickle.dumps((args, kwargs))
-            chain = self.url
-            if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
-                result = _retrieve_from_cache(c, table_name, key, chain)
-                if result is not None:
-                    return result
+            c, conn, table_name, key, result, chain, local_chain = (
+                _shared_inner_fn_logic(func, self, args, kwargs)
+            )
 
             # If not in DB, call func and store in DB
             result = func(self, *args, **kwargs)
@@ -106,21 +119,11 @@ def sql_lru_cache(maxsize=None):
 
 def async_sql_lru_cache(maxsize=None):
     def decorator(func):
-        conn = sqlite3.connect(CACHE_LOCATION)
-        c = conn.cursor()
-        table_name = _get_table_name(func)
-        _create_table(c, conn, table_name)
-
         @a.lru_cache(maxsize=maxsize)
         async def inner(self, *args, **kwargs):
-            c = conn.cursor()
-            key = pickle.dumps((args, kwargs))
-            chain = self.url
-
-            if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
-                result = _retrieve_from_cache(c, table_name, key, chain)
-                if result is not None:
-                    return result
+            c, conn, table_name, key, result, chain, local_chain = (
+                _shared_inner_fn_logic(func, self, args, kwargs)
+            )
 
             # If not in DB, call func and store in DB
             result = await func(self, *args, **kwargs)
