@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.6 /2025-03-12
+
+## What's Changed
+* On-disk cache by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/67
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.5...v1.0.6
+
 ## 1.0.5 /2025-03-06
 
 ## What's Changed
