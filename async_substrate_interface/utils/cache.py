@@ -82,17 +82,21 @@ def _insert_into_cache(c, conn, table_name, key, result, chain):
 
 
 def _shared_inner_fn_logic(func, self, args, kwargs):
-    _ensure_dir()
-    conn = sqlite3.connect(CACHE_LOCATION)
-    c = conn.cursor()
-    table_name = _get_table_name(func)
-    _create_table(c, conn, table_name)
-    key = pickle.dumps((args, kwargs))
     chain = self.url
     if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
+        _ensure_dir()
+        conn = sqlite3.connect(CACHE_LOCATION)
+        c = conn.cursor()
+        table_name = _get_table_name(func)
+        _create_table(c, conn, table_name)
+        key = pickle.dumps((args, kwargs))
         result = _retrieve_from_cache(c, table_name, key, chain)
     else:
         result = None
+        c = None
+        conn = None
+        table_name = None
+        key = None
     return c, conn, table_name, key, result, chain, local_chain
 
 
