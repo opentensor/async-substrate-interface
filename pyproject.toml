@@ -16,7 +16,7 @@ dependencies = [
   "xxhash"
 ]
 
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.9"
 
 authors = [
   { name = "Opentensor Foundation" },
