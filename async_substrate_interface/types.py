@@ -631,6 +631,11 @@ class SubstrateMixin(ABC):
             type_id = type_entry["id"]
             type_def = type_type["def"]
             type_path = type_type.get("path")
+            if type_path and type_path[-1] == "Option":
+                self._handle_option_type(
+                    type_entry, type_id, registry_type_map, type_id_to_name
+                )
+                continue
             if type_entry.get("params") or type_def.get("variant"):
                 continue  # has generics or is Enum
             if type_path:
@@ -685,6 +690,23 @@ class SubstrateMixin(ABC):
                 registry_type_map[type_name] = type_id
         self.registry_type_map = registry_type_map
         self.type_id_to_name = type_id_to_name
+
+    def _handle_option_type(
+        self, type_entry, type_id, registry_type_map, type_id_to_name
+    ):
+        params = type_entry["type"].get("params", [])
+        if params:
+            inner_names = []
+            for param in params:
+                inner_id = param["type"]
+                inner_name = type_id_to_name.get(inner_id, f"Type{inner_id}")
+                inner_names.append(inner_name)
+            type_name = f"Option<{', '.join(inner_names)}>"
+        else:
+            type_name = "Option"
+
+        registry_type_map[type_name] = type_id
+        type_id_to_name[type_id] = type_name
 
     def reload_type_registry(
         self, use_remote_preset: bool = True, auto_discover: bool = True
@@ -815,10 +837,28 @@ class SubstrateMixin(ABC):
             except KeyError:
                 vec_acct_id = "scale_info::152"
 
+            try:
+                optional_acct_u16 = f"scale_info::{self.registry_type_map['Option<(AccountId32, u16)>']}"
+            except KeyError:
+                optional_acct_u16 = "scale_info::573"
+
             if type_string == "scale_info::0":  # Is an AccountId
                 # encode string into AccountId
                 ## AccountId is a composite type with one, unnamed field
-                return bytes.fromhex(ss58_decode(value, SS58_FORMAT))
+                return self._encode_account_id(value)
+
+            elif type_string == optional_acct_u16:
+                if value is None:
+                    return b"\x00"  # None
+
+                if not isinstance(value, (list, tuple)) or len(value) != 2:
+                    raise ValueError("Expected tuple of (account_id, u16)")
+                account_id, u16_value = value
+
+                result = b"\x01"
+                result += self._encode_account_id(account_id)
+                result += u16_value.to_bytes(2, "little")
+                return result
 
             elif type_string == vec_acct_id:  # Vec<AccountId>
                 if not isinstance(value, (list, tuple)):
@@ -833,12 +873,7 @@ class SubstrateMixin(ABC):
 
                 # Encode each AccountId
                 for account in value:
-                    if isinstance(account, bytes):
-                        result += account  # Already encoded
-                    else:
-                        result += bytes.fromhex(
-                            ss58_decode(account, SS58_FORMAT)
-                        )  # SS58 string
+                    result += self._encode_account_id(account)
                 return result
 
             if isinstance(value, ScaleType):
@@ -852,3 +887,16 @@ class SubstrateMixin(ABC):
                 encode_by_type_string(type_string, self.runtime.registry, value)
             )
         return result
+
+    def _encode_account_id(self, account) -> bytes:
+        """Encode an account ID into bytes.
+
+        Args:
+            account: Either bytes (already encoded) or SS58 string
+
+        Returns:
+            bytes: The encoded account ID
+        """
+        if isinstance(account, bytes):
+            return account  # Already encoded
+        return bytes.fromhex(ss58_decode(account, SS58_FORMAT))  # SS58 string
