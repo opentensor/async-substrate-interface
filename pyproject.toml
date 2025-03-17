@@ -1,6 +1,6 @@
 [project]
 name = "async-substrate-interface"
-version = "1.0.7"
+version = "1.0.8"
 description = "Asyncio library for interacting with substrate. Mostly API-compatible with py-substrate-interface"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -16,7 +16,7 @@ dependencies = [
   "xxhash"
 ]
 
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.9,<3.14"
 
 authors = [
   { name = "Opentensor Foundation" },

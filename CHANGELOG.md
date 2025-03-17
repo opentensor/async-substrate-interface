@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.8 /2025-03-17
+
+## What's Changed
+* Allows installing on Python 3.13 by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/79
+* Support Option types by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/80
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.7...v1.0.8
+
 ## 1.0.7 /2025-03-12
 
 ## What's Changed
