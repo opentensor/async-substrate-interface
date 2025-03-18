@@ -215,7 +215,7 @@ jobs:
 
       - name: Create Python virtual environment
         working-directory: ${{ github.workspace }}
-        run: python3 -m venv ${{ github.workspace }}/venv
+        run:  python3 -m venv venv
 
       - name: Clone Bittensor SDK repo
         working-directory: ${{ github.workspace }}
@@ -231,8 +231,8 @@ jobs:
           python3 -m pip install '.[dev]'
           python3 -m pip install -r requirements/torch.txt
 
-      - name: Clone Bittensor Wallet repo
-        run: git clone https://github.com/opentensor/btwallet.git
+      - name: Clone async-substrate-interface repo
+        run: git clone https://github.com/opentensor/async-substrate-interface.git
 
       - name: Checkout PR branch in async-substrate-interface repo
         working-directory: ${{ github.workspace }}/async-substrate-interface
@@ -241,11 +241,12 @@ jobs:
           git checkout ${{ github.event.pull_request.head.ref }}
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
-#      - name: Install async-substrate-interface package
-#        run: |
-#          source ${{ github.workspace }}/venv/bin/activate
-#          python3 -m pip uninstall async-substrate-interface -y
-#          python3 -m pip install .
+      - name: Install /async-substrate-interface package
+        working-directory: ${{ github.workspace }}/async-substrate-interface
+        run: |
+          source ${{ github.workspace }}/venv/bin/activate
+          pip uninstall async-substrate-interface -y
+          pip install .
 
       - name: Run SDK integration tests
         run: |
@@ -253,7 +254,6 @@ jobs:
           pytest ${{ github.workspace }}/bittensor/tests/integration_tests
 
       - name: Run bittensor-sdk unit tests
-        working-directory: ${{ github.workspace }}
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           pytest ${{ github.workspace }}/bittensor/tests/unit_tests
