@@ -152,12 +152,9 @@ jobs:
           sudo apt-get update &&
           sudo apt-get install -y clang curl libssl-dev llvm libudev-dev protobuf-compiler
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
       - name: Create Python virtual environment
         working-directory: ${{ github.workspace }}
-        run: uv venv ${{ github.workspace }}/venv
+        run: python3 -m venv ${{ github.workspace }}/venv
 
       - name: Clone Bittensor CLI repo
         working-directory: ${{ github.workspace }}
@@ -169,8 +166,8 @@ jobs:
           source ${{ github.workspace }}/venv/bin/activate
           git checkout staging
           git fetch origin staging
-          uv run --active pip install --upgrade pip
-          uv run --active pip install pytest
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pytest
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
@@ -186,8 +183,8 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           source ${{ github.workspace }}/venv/bin/activate
-          uv run --active pip uninstall async-substrate-interface -y
-          uv run --active pip install .
+          python3 -m pip uninstall async-substrate-interface -y
+          python3 -m pip install .
 
       - name: Download Cached Docker Image
         uses: actions/download-artifact@v4
@@ -220,7 +217,7 @@ jobs:
 
       - name: Create Python virtual environment
         working-directory: ${{ github.workspace }}
-        run: python3 -m venv venv
+        run: python3 -m venv ${{ github.workspace }}/venv
 
       - name: Clone Bittensor CLI repo
         working-directory: ${{ github.workspace }}
@@ -252,8 +249,8 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           source ${{ github.workspace }}/venv/bin/activate
-          pip uninstall async-substrate-interface -y
-          pip install .
+          python3 -m pip uninstall async-substrate-interface -y
+          python3 -m pip install .
 
       - name: Run SDK unit tests
         working-directory: ${{ github.workspace }}
