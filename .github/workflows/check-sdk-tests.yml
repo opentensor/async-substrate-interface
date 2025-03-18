@@ -194,7 +194,6 @@ jobs:
         run: docker load -i subtensor-localnet.tar
 
       - name: Run tests
-        working-directory: ${{ github.workspace }}
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           python3 -m pytest ${{ matrix.test-file }} -s
@@ -243,14 +242,12 @@ jobs:
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
       - name: Install async-substrate-interface package
-        working-directory: ${{ github.workspace }}
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           python3 -m pip uninstall async-substrate-interface -y
           python3 -m pip install .
 
       - name: Run SDK integration tests
-        working-directory: ${{ github.workspace }}
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           pytest ${{ github.workspace }}/bittensor/tests/integration_tests
