@@ -179,11 +179,12 @@ jobs:
           git checkout ${{ github.event.pull_request.head.ref }}
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
-#      - name: Install async-substrate-interface package
-#        run: |
-#          source ${{ github.workspace }}/venv/bin/activate
-#          python3 -m pip uninstall async-substrate-interface -y
-#          python3 -m pip install .
+      - name: Install async-substrate-interface package
+        working-directory: ${{ github.workspace }}/async-substrate-interface
+        run: |
+          source ${{ github.workspace }}/venv/bin/activate
+          python3 -m pip uninstall async-substrate-interface -y
+          python3 -m pip install .
 
       - name: Download Cached Docker Image
         uses: actions/download-artifact@v4
@@ -241,6 +242,7 @@ jobs:
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
       - name: Install /async-substrate-interface package
+        working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           pip uninstall async-substrate-interface -y
