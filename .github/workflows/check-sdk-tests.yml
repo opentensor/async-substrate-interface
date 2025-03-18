@@ -171,10 +171,6 @@ jobs:
           uv run --active pip install --upgrade pip
           uv run --active pip install '.[dev]'
 
-      - name: Install uv dependencies
-        working-directory: ${{ github.workspace }}
-        run: uv sync --all-extras --dev
-
       - name: Clone Bittensor async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
 
