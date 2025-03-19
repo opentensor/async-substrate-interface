@@ -9,11 +9,12 @@ class ScaleObj:
     def __init__(self, value):
         self.value = value
 
+
 def _decode_scale_with_runtime(
-        type_string: str,
-        scale_bytes: bytes,
-        runtime_registry: "Runtime",
-        return_scale_obj: bool = False
+    type_string: str,
+    scale_bytes: bytes,
+    runtime_registry: "Runtime",
+    return_scale_obj: bool = False,
 ):
     if scale_bytes == b"":
         return None
@@ -27,8 +28,17 @@ def _decode_scale_with_runtime(
     else:
         return obj
 
-def _decode_query_map(result_group_changes, prefix, runtime_registry,
-                      param_types, params, value_type, key_hashers, ignore_decoding_errors):
+
+def decode_query_map(
+    result_group_changes,
+    prefix,
+    runtime_registry,
+    param_types,
+    params,
+    value_type,
+    key_hashers,
+    ignore_decoding_errors,
+):
     def concat_hash_len(key_hasher: str) -> int:
         """
         Helper function to avoid if statements
@@ -51,16 +61,14 @@ def _decode_query_map(result_group_changes, prefix, runtime_registry,
             # Determine type string
             key_type_string = []
             for n in range(len(params), len(param_types)):
-                key_type_string.append(
-                    f"[u8; {concat_hash_len(key_hashers[n])}]"
-                )
+                key_type_string.append(f"[u8; {concat_hash_len(key_hashers[n])}]")
                 key_type_string.append(param_types[n])
 
             item_key_obj = _decode_scale_with_runtime(
                 f"({', '.join(key_type_string)})",
-                bytes.fromhex(item[0][len(prefix):]),
+                bytes.fromhex(item[0][len(prefix) :]),
                 runtime_registry,
-                False
+                False,
             )
 
             # strip key_hashers to use as item key
@@ -81,10 +89,7 @@ def _decode_query_map(result_group_changes, prefix, runtime_registry,
             item_bytes = hex_to_bytes_(item[1])
 
             item_value = _decode_scale_with_runtime(
-                value_type,
-                item_bytes,
-                runtime_registry,
-                True
+                value_type, item_bytes, runtime_registry, True
             )
 
         except Exception as _:

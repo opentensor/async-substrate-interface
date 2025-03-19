@@ -5,7 +5,6 @@ regard to how to instantiate and use it.
 """
 
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
 import inspect
 import logging
 import random
@@ -57,10 +56,14 @@ from async_substrate_interface.utils.decoding import (
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
-from async_substrate_interface.utils.decoding_attempt import _decode_query_map, _decode_scale_with_runtime
+from async_substrate_interface.utils.decoding_attempt import (
+    decode_query_map,
+    _decode_scale_with_runtime,
+)
 
 if TYPE_CHECKING:
     from websockets.asyncio.client import ClientConnection
+    from concurrent.futures import ProcessPoolExecutor
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
@@ -415,7 +418,7 @@ class AsyncQueryMapResult:
         last_key: Optional[str] = None,
         max_results: Optional[int] = None,
         ignore_decoding_errors: bool = False,
-        executor: Optional["ProcessPoolExecutor"] = None
+        executor: Optional["ProcessPoolExecutor"] = None,
     ):
         self.records = records
         self.page_size = page_size
@@ -441,7 +444,7 @@ class AsyncQueryMapResult:
             start_key=start_key,
             max_results=self.max_results,
             ignore_decoding_errors=self.ignore_decoding_errors,
-            executor=self.executor
+            executor=self.executor,
         )
         if len(result.records) < self.page_size:
             self.loading_complete = True
@@ -866,7 +869,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         await self._wait_for_registry(_attempt, _retries)
         return self._encode_scale(type_string, value)
-
 
     async def decode_scale(
         self,
@@ -2865,7 +2867,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         page_size: int = 100,
         ignore_decoding_errors: bool = False,
         reuse_block_hash: bool = False,
-        executor: Optional["ProcessPoolExecutor"] = None
+        executor: Optional["ProcessPoolExecutor"] = None,
     ) -> AsyncQueryMapResult:
         """
         Iterates over all key-pairs located at the given module and storage_function. The storage
@@ -2982,13 +2984,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     # )
                     result = await asyncio.get_running_loop().run_in_executor(
                         executor,
-                        _decode_query_map,
+                        decode_query_map,
                         result_group["changes"],
                         prefix,
                         runtime.registry.registry,
                         param_types,
                         params,
-                        value_type, key_hashers, ignore_decoding_errors
+                        value_type,
+                        key_hashers,
+                        ignore_decoding_errors,
                     )
                     # max_workers = executor._max_workers
                     # result_group_changes_groups = [result_group["changes"][i:i + max_workers] for i in range(0, len(result_group["changes"]), max_workers)]
@@ -3006,13 +3010,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     # for r in all_results:
                     #     result.extend(r)
                 else:
-                    result = _decode_query_map(
+                    result = decode_query_map(
                         result_group["changes"],
                         prefix,
                         runtime.registry.registry,
                         param_types,
                         params,
-                        value_type, key_hashers, ignore_decoding_errors
+                        value_type,
+                        key_hashers,
+                        ignore_decoding_errors,
                     )
         return AsyncQueryMapResult(
             records=result,
@@ -3025,7 +3031,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             last_key=last_key,
             max_results=max_results,
             ignore_decoding_errors=ignore_decoding_errors,
-            executor=executor
+            executor=executor,
         )
 
     async def submit_extrinsic(
