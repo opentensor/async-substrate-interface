@@ -840,7 +840,7 @@ class SubstrateMixin(ABC):
             try:
                 optional_acct_u16 = f"scale_info::{self.registry_type_map['Option<(AccountId32, u16)>']}"
             except KeyError:
-                optional_acct_u16 = "scale_info::573"
+                optional_acct_u16 = "scale_info::579"
 
             if type_string == "scale_info::0":  # Is an AccountId
                 # encode string into AccountId
