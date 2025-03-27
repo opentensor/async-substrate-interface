@@ -633,12 +633,8 @@ class SubstrateMixin(ABC):
             type_id = type_entry["id"]
             type_def = type_entry["type"]["def"]
             type_path = type_entry["type"].get("path")
-            if type_id == 514:
-                print(type_id)
-
             if type_entry.get("params") or "variant" in type_def:
                 continue
-
             if type_path:
                 type_name = type_path[-1]
                 registry_type_map[type_name] = type_id
@@ -862,10 +858,6 @@ class SubstrateMixin(ABC):
                 )
             except KeyError:
                 vec_acct_id = "scale_info::152"
-            import json
-
-            with open("registry_final_pass_elif.json", "w") as json_file:
-                json.dump(self.registry_type_map, json_file, indent=4)
             try:
                 optional_acct_u16 = f"scale_info::{self.registry_type_map['Option<(AccountId32, u16)>']}"
             except KeyError:
