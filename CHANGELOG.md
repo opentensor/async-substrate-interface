@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.9 /2025-03-26
+
+## What's Changed
+* Add workflows for run SDK and BTCLI tests if labels are applied by @roman-opentensor in https://github.com/opentensor/async-substrate-interface/pull/83
+* Update docker image name  by @roman-opentensor in https://github.com/opentensor/async-substrate-interface/pull/85
+* Updates `_load_registry_type_map` by @ibraheem-opentensor in https://github.com/opentensor/async-substrate-interface/pull/87
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.8...v1.0.9
+
 ## 1.0.8 /2025-03-17
 
 ## What's Changed
