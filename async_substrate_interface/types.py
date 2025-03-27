@@ -718,8 +718,6 @@ class SubstrateMixin(ABC):
         while resolved_type and pending_ids:
             resolved_type = False
             for type_id in list(pending_ids):
-                if type_id == 514:
-                    print(type_id)
                 name = resolve_type_definition(type_id)
                 if name is not None:
                     type_id_to_name[type_id] = name
