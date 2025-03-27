@@ -626,40 +626,65 @@ class SubstrateMixin(ABC):
         registry_type_map = {}
         type_id_to_name = {}
         types = json.loads(registry.registry)["types"]
+        type_by_id = {entry["id"]: entry for entry in types}
+
+        # Pass 1: Gather simple types
         for type_entry in types:
-            type_type = type_entry["type"]
             type_id = type_entry["id"]
-            type_def = type_type["def"]
-            type_path = type_type.get("path")
-            if type_path and type_path[-1] == "Option":
-                self._handle_option_type(
-                    type_entry, type_id, registry_type_map, type_id_to_name
-                )
+            type_def = type_entry["type"]["def"]
+            type_path = type_entry["type"].get("path")
+            if type_id == 514:
+                print(type_id)
+
+            if type_entry.get("params") or "variant" in type_def:
                 continue
-            if type_entry.get("params") or type_def.get("variant"):
-                continue  # has generics or is Enum
+
             if type_path:
                 type_name = type_path[-1]
                 registry_type_map[type_name] = type_id
                 type_id_to_name[type_id] = type_name
             else:
-                # probably primitive
-                if type_def.get("primitive"):
-                    type_name = type_def["primitive"]
-                    registry_type_map[type_name] = type_id
-                    type_id_to_name[type_id] = type_name
-        for type_entry in types:
-            type_type = type_entry["type"]
-            type_id = type_entry["id"]
-            type_def = type_type["def"]
-            if type_def.get("sequence"):
+                # Possibly a primitive
+                if "primitive" in type_def:
+                    prim_name = type_def["primitive"]
+                    registry_type_map[prim_name] = type_id
+                    type_id_to_name[type_id] = prim_name
+
+        # Pass 2: Resolve remaining types
+        pending_ids = set(type_by_id.keys()) - set(type_id_to_name.keys())
+
+        def resolve_type_definition(type_id):
+            type_entry = type_by_id[type_id]
+            type_def = type_entry["type"]["def"]
+            type_path = type_entry["type"].get("path", [])
+            type_params = type_entry["type"].get("params", [])
+
+            if type_id in type_id_to_name:
+                return type_id_to_name[type_id]
+
+            # Resolve complex types with paths (including generics like Option etc)
+            if type_path:
+                type_name = type_path[-1]
+                if type_params:
+                    inner_names = []
+                    for param in type_params:
+                        dep_id = param["type"]
+                        if dep_id not in type_id_to_name:
+                            return None
+                        inner_names.append(type_id_to_name[dep_id])
+                    return f"{type_name}<{', '.join(inner_names)}>"
+                if "variant" in type_def:
+                    return None
+                return type_name
+
+            elif "sequence" in type_def:
                 sequence_type_id = type_def["sequence"]["type"]
                 inner_type = type_id_to_name.get(sequence_type_id)
                 if inner_type:
                     type_name = f"Vec<{inner_type}>"
-                    type_id_to_name[type_id] = type_name
-                    registry_type_map[type_name] = type_id
-            elif type_def.get("array"):
+                    return type_name
+
+            elif "array" in type_def:
                 array_type_id = type_def["array"]["type"]
                 inner_type = type_id_to_name.get(array_type_id)
                 maybe_len = type_def["array"].get("len")
@@ -668,45 +693,46 @@ class SubstrateMixin(ABC):
                         type_name = f"[{inner_type}; {maybe_len}]"
                     else:
                         type_name = f"[{inner_type}]"
-                    type_id_to_name[type_id] = type_name
-                    registry_type_map[type_name] = type_id
-            elif type_def.get("compact"):
+                return type_name
+
+            elif "compact" in type_def:
                 compact_type_id = type_def["compact"]["type"]
                 inner_type = type_id_to_name.get(compact_type_id)
                 if inner_type:
                     type_name = f"Compact<{inner_type}>"
-                    type_id_to_name[type_id] = type_name
-                    registry_type_map[type_name] = type_id
-            elif type_def.get("tuple"):
+                    return type_name
+
+            elif "tuple" in type_def:
                 tuple_type_ids = type_def["tuple"]
                 type_names = []
                 for inner_type_id in tuple_type_ids:
-                    inner_type = type_id_to_name.get(inner_type_id)
-                    if inner_type:
-                        type_names.append(inner_type)
+                    if inner_type_id not in type_id_to_name:
+                        return None
+                    type_names.append(type_id_to_name[inner_type_id])
                 type_name = ", ".join(type_names)
                 type_name = f"({type_name})"
-                type_id_to_name[type_id] = type_name
-                registry_type_map[type_name] = type_id
+                return type_name
+
+            elif "variant" in type_def:
+                return None
+
+            return None
+
+        resolved_type = True
+        while resolved_type and pending_ids:
+            resolved_type = False
+            for type_id in list(pending_ids):
+                if type_id == 514:
+                    print(type_id)
+                name = resolve_type_definition(type_id)
+                if name is not None:
+                    type_id_to_name[type_id] = name
+                    registry_type_map[name] = type_id
+                    pending_ids.remove(type_id)
+                    resolved_type = True
+
         self.registry_type_map = registry_type_map
         self.type_id_to_name = type_id_to_name
-
-    def _handle_option_type(
-        self, type_entry, type_id, registry_type_map, type_id_to_name
-    ):
-        params = type_entry["type"].get("params", [])
-        if params:
-            inner_names = []
-            for param in params:
-                inner_id = param["type"]
-                inner_name = type_id_to_name.get(inner_id, f"Type{inner_id}")
-                inner_names.append(inner_name)
-            type_name = f"Option<{', '.join(inner_names)}>"
-        else:
-            type_name = "Option"
-
-        registry_type_map[type_name] = type_id
-        type_id_to_name[type_id] = type_name
 
     def reload_type_registry(
         self, use_remote_preset: bool = True, auto_discover: bool = True
@@ -836,11 +862,14 @@ class SubstrateMixin(ABC):
                 )
             except KeyError:
                 vec_acct_id = "scale_info::152"
+            import json
 
+            with open("registry_final_pass_elif.json", "w") as json_file:
+                json.dump(self.registry_type_map, json_file, indent=4)
             try:
                 optional_acct_u16 = f"scale_info::{self.registry_type_map['Option<(AccountId32, u16)>']}"
             except KeyError:
-                optional_acct_u16 = "scale_info::573"
+                optional_acct_u16 = "scale_info::579"
 
             if type_string == "scale_info::0":  # Is an AccountId
                 # encode string into AccountId
