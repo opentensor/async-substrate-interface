@@ -1626,7 +1626,7 @@ class SubstrateInterface(SubstrateMixin):
                 if item_id not in request_manager.responses or isinstance(
                     result_handler, Callable
                 ):
-                    if response := _received.pop(item_id):
+                    if response := _received.pop(item_id, None):
                         if (
                             isinstance(result_handler, Callable)
                             and not subscription_added
