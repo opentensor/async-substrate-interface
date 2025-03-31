@@ -55,18 +55,12 @@ def _bt_decode_to_dict_or_list(obj) -> Union[dict, list[dict]]:
 
 
 def _decode_scale_list_with_runtime(
-    type_string: list[str],
-    scale_bytes: list[bytes],
+    type_strings: list[str],
+    scale_bytes_list: list[bytes],
     runtime_registry,
     return_scale_obj: bool = False,
 ):
-    if scale_bytes == b"":
-        return None
-    if type_string == "scale_info::0":  # Is an AccountId
-        # Decode AccountId bytes to SS58 address
-        return ss58_encode(scale_bytes, SS58_FORMAT)
-    else:
-        obj = decode_list(type_string, runtime_registry, scale_bytes)
+    obj = decode_list(type_strings, runtime_registry, scale_bytes_list)
     if return_scale_obj:
         return [ScaleObj(x) for x in obj]
     else:
