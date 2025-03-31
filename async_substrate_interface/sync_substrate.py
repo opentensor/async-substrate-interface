@@ -34,6 +34,7 @@ from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
+    decode_query_map,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
@@ -2600,7 +2601,7 @@ class SubstrateInterface(SubstrateMixin):
         block_hash = self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        self.init_runtime(block_hash=block_hash)
+        runtime = self.init_runtime(block_hash=block_hash)
 
         metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
         if not metadata_pallet:
@@ -2656,19 +2657,6 @@ class SubstrateInterface(SubstrateMixin):
         result = []
         last_key = None
 
-        def concat_hash_len(key_hasher: str) -> int:
-            """
-            Helper function to avoid if statements
-            """
-            if key_hasher == "Blake2_128Concat":
-                return 16
-            elif key_hasher == "Twox64Concat":
-                return 8
-            elif key_hasher == "Identity":
-                return 0
-            else:
-                raise ValueError("Unsupported hash type")
-
         if len(result_keys) > 0:
             last_key = result_keys[-1]
 
@@ -2681,49 +2669,16 @@ class SubstrateInterface(SubstrateMixin):
                 raise SubstrateRequestException(response["error"]["message"])
 
             for result_group in response["result"]:
-                for item in result_group["changes"]:
-                    try:
-                        # Determine type string
-                        key_type_string = []
-                        for n in range(len(params), len(param_types)):
-                            key_type_string.append(
-                                f"[u8; {concat_hash_len(key_hashers[n])}]"
-                            )
-                            key_type_string.append(param_types[n])
-
-                        item_key_obj = self.decode_scale(
-                            type_string=f"({', '.join(key_type_string)})",
-                            scale_bytes=bytes.fromhex(item[0][len(prefix) :]),
-                            return_scale_obj=True,
-                        )
-
-                        # strip key_hashers to use as item key
-                        if len(param_types) - len(params) == 1:
-                            item_key = item_key_obj[1]
-                        else:
-                            item_key = tuple(
-                                item_key_obj[key + 1]
-                                for key in range(len(params), len(param_types) + 1, 2)
-                            )
-
-                    except Exception as _:
-                        if not ignore_decoding_errors:
-                            raise
-                        item_key = None
-
-                    try:
-                        item_bytes = hex_to_bytes_(item[1])
-
-                        item_value = self.decode_scale(
-                            type_string=value_type,
-                            scale_bytes=item_bytes,
-                            return_scale_obj=True,
-                        )
-                    except Exception as _:
-                        if not ignore_decoding_errors:
-                            raise
-                        item_value = None
-                    result.append([item_key, item_value])
+                result = decode_query_map(
+                    result_group["changes"],
+                    prefix,
+                    runtime,
+                    param_types,
+                    params,
+                    value_type,
+                    key_hashers,
+                    ignore_decoding_errors,
+                )
         return QueryMapResult(
             records=result,
             page_size=page_size,
