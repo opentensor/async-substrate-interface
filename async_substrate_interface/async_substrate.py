@@ -56,14 +56,12 @@ from async_substrate_interface.utils.decoding import (
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
-from async_substrate_interface.utils.decoding_attempt import (
+from async_substrate_interface.utils.decoding import (
     decode_query_map,
-    _decode_scale_with_runtime,
 )
 
 if TYPE_CHECKING:
     from websockets.asyncio.client import ClientConnection
-    from concurrent.futures import ProcessPoolExecutor
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
@@ -418,7 +416,6 @@ class AsyncQueryMapResult:
         last_key: Optional[str] = None,
         max_results: Optional[int] = None,
         ignore_decoding_errors: bool = False,
-        executor: Optional["ProcessPoolExecutor"] = None,
     ):
         self.records = records
         self.page_size = page_size
@@ -431,7 +428,6 @@ class AsyncQueryMapResult:
         self.params = params
         self.ignore_decoding_errors = ignore_decoding_errors
         self.loading_complete = False
-        self.executor = executor
         self._buffer = iter(self.records)  # Initialize the buffer with initial records
 
     async def retrieve_next_page(self, start_key) -> list:
@@ -444,7 +440,6 @@ class AsyncQueryMapResult:
             start_key=start_key,
             max_results=self.max_results,
             ignore_decoding_errors=self.ignore_decoding_errors,
-            executor=self.executor,
         )
         if len(result.records) < self.page_size:
             self.loading_complete = True
@@ -2867,7 +2862,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         page_size: int = 100,
         ignore_decoding_errors: bool = False,
         reuse_block_hash: bool = False,
-        executor: Optional["ProcessPoolExecutor"] = None,
     ) -> AsyncQueryMapResult:
         """
         Iterates over all key-pairs located at the given module and storage_function. The storage
@@ -2972,54 +2966,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if "error" in response:
                 raise SubstrateRequestException(response["error"]["message"])
             for result_group in response["result"]:
-                if executor:
-                    # print(
-                    #     ("prefix", type("prefix")),
-                    #     ("runtime_registry", type(runtime.registry)),
-                    #     ("param_types", type(param_types)),
-                    #     ("params", type(params)),
-                    #     ("value_type", type(value_type)),
-                    #     ("key_hasher", type(key_hashers)),
-                    #     ("ignore_decoding_errors", type(ignore_decoding_errors)),
-                    # )
-                    result = await asyncio.get_running_loop().run_in_executor(
-                        executor,
-                        decode_query_map,
-                        result_group["changes"],
-                        prefix,
-                        runtime.registry.registry,
-                        param_types,
-                        params,
-                        value_type,
-                        key_hashers,
-                        ignore_decoding_errors,
-                    )
-                    # max_workers = executor._max_workers
-                    # result_group_changes_groups = [result_group["changes"][i:i + max_workers] for i in range(0, len(result_group["changes"]), max_workers)]
-                    # all_results = executor.map(
-                    #     self._decode_query_map,
-                    #     result_group["changes"],
-                    #     repeat(prefix),
-                    #     repeat(runtime.registry),
-                    #     repeat(param_types),
-                    #     repeat(params),
-                    #     repeat(value_type),
-                    #     repeat(key_hashers),
-                    #     repeat(ignore_decoding_errors)
-                    # )
-                    # for r in all_results:
-                    #     result.extend(r)
-                else:
-                    result = decode_query_map(
-                        result_group["changes"],
-                        prefix,
-                        runtime.registry.registry,
-                        param_types,
-                        params,
-                        value_type,
-                        key_hashers,
-                        ignore_decoding_errors,
-                    )
+                result = decode_query_map(
+                    result_group["changes"],
+                    prefix,
+                    runtime,
+                    param_types,
+                    params,
+                    value_type,
+                    key_hashers,
+                    ignore_decoding_errors,
+                )
         return AsyncQueryMapResult(
             records=result,
             page_size=page_size,
@@ -3031,7 +2987,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
             last_key=last_key,
             max_results=max_results,
             ignore_decoding_errors=ignore_decoding_errors,
-            executor=executor,
         )
 
     async def submit_extrinsic(
