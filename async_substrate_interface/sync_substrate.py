@@ -706,7 +706,7 @@ class SubstrateInterface(SubstrateMixin):
             )
 
         if self.runtime and runtime_version == self.runtime.runtime_version:
-            return
+            return self.runtime
 
         runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
         if not runtime:
@@ -760,6 +760,7 @@ class SubstrateInterface(SubstrateMixin):
 
             if ss58_prefix_constant:
                 self.ss58_format = ss58_prefix_constant
+        return runtime
 
     def create_storage_key(
         self,
