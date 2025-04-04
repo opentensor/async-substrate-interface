@@ -9,13 +9,14 @@ import pytest
 import substrateinterface
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface
+from async_substrate_interface.sync_substrate import SubstrateInterface
 
 try:
     n = int(os.getenv("NUMBER_RUNS"))
 except TypeError:
     n = 3
 
-
+FINNEY_ENTRYPOINT = "wss://entrypoint-finney.opentensor.ai:443"
 coldkey = "5HHHHHzgLnYRvnKkHd45cRUDMHXTSwx7MjUzxBrKbY4JfZWn"
 
 # dtao epoch is 4920350
@@ -70,7 +71,7 @@ async def test_query_map():
 
         start = time.time()
         async with AsyncSubstrateInterface(
-            "wss://entrypoint-finney.opentensor.ai:443", ss58_format=SS58_FORMAT
+            FINNEY_ENTRYPOINT, ss58_format=SS58_FORMAT
         ) as substrate:
             block_hash = await substrate.get_chain_head()
             tasks = [
@@ -92,16 +93,37 @@ async def test_query_map():
                 )
 
         elapsed = time.time() - start
-        print(f"time elapsed: {elapsed}")
+        print(f"Async Time: {elapsed}")
 
         print("Async Results", len(results_dicts_list))
         return results_dicts_list, block_hash
+
+    def sync_new_method(block_hash):
+        result_dicts_list = []
+        start = time.time()
+        with SubstrateInterface(
+            FINNEY_ENTRYPOINT, ss58_format=SS58_FORMAT
+        ) as substrate:
+            for netuid in range(1, 51):
+                tao_divs = list(
+                    substrate.query_map(
+                        "SubtensorModule",
+                        "TaoDividendsPerSubnet",
+                        [netuid],
+                        block_hash=block_hash,
+                    )
+                )
+                tao_divs = [(decode_account_id(k), v.value) for k, v in tao_divs]
+                result_dicts_list.extend(tao_divs)
+        print("New Sync Time:", time.time() - start)
+        print("New Sync Results", len(result_dicts_list))
+        return result_dicts_list
 
     def sync_old_method(block_hash):
         results_dicts_list = []
         start = time.time()
         substrate = substrateinterface.SubstrateInterface(
-            "wss://entrypoint-finney.opentensor.ai:443"
+            FINNEY_ENTRYPOINT, ss58_format=SS58_FORMAT
         )
         for netuid in range(1, 51):
             tao_divs = list(
@@ -114,11 +136,15 @@ async def test_query_map():
             )
             tao_divs = [(k.value, v.value) for k, v in tao_divs]
             results_dicts_list.extend(tao_divs)
-        print(time.time() - start)
-        print("Sync Results", len(results_dicts_list))
+        substrate.close()
+        print("Legacy Sync Time:", time.time() - start)
+        print("Legacy Sync Results", len(results_dicts_list))
         return results_dicts_list
 
     async_, block_hash_ = await async_gathering()
-    sync_ = sync_old_method(block_hash_)
+    new_sync_ = sync_new_method(block_hash_)
+    legacy_sync = sync_old_method(block_hash_)
     for k_v in async_:
-        assert k_v in sync_
+        assert k_v in legacy_sync
+    for k_v in new_sync_:
+        assert k_v in legacy_sync
