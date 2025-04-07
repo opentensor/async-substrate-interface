@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0 /2025-04-07
+
+## What's Changed
+* Fix: response is still missing for callback by @zyzniewski-reef in https://github.com/opentensor/async-substrate-interface/pull/90
+* Expose websockets exceptions by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/91
+* Improved Query Map Decodes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/84
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.0.9...v1.1.0
+
 ## 1.0.9 /2025-03-26
 
 ## What's Changed
