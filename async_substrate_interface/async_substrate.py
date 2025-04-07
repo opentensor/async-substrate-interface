@@ -56,6 +56,9 @@ from async_substrate_interface.utils.decoding import (
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
+from async_substrate_interface.utils.decoding import (
+    decode_query_map,
+)
 
 if TYPE_CHECKING:
     from websockets.asyncio.client import ClientConnection
@@ -898,7 +901,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             return obj
 
-    async def load_runtime(self, runtime):
+    def load_runtime(self, runtime):
         self.runtime = runtime
 
         # Update type registry
@@ -954,7 +957,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
 
         if self.runtime and runtime_version == self.runtime.runtime_version:
-            return
+            return self.runtime
 
         runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
         if not runtime:
@@ -990,7 +993,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 runtime_version=runtime_version, runtime=runtime
             )
 
-        await self.load_runtime(runtime)
+        self.load_runtime(runtime)
 
         if self.ss58_format is None:
             # Check and apply runtime constants
@@ -1000,6 +1003,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             if ss58_prefix_constant:
                 self.ss58_format = ss58_prefix_constant
+        return runtime
 
     async def create_storage_key(
         self,
@@ -2892,12 +2896,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              AsyncQueryMapResult object
         """
-        hex_to_bytes_ = hex_to_bytes
         params = params or []
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        await self.init_runtime(block_hash=block_hash)
+        runtime = await self.init_runtime(block_hash=block_hash)
 
         metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
         if not metadata_pallet:
@@ -2952,19 +2955,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         result = []
         last_key = None
 
-        def concat_hash_len(key_hasher: str) -> int:
-            """
-            Helper function to avoid if statements
-            """
-            if key_hasher == "Blake2_128Concat":
-                return 16
-            elif key_hasher == "Twox64Concat":
-                return 8
-            elif key_hasher == "Identity":
-                return 0
-            else:
-                raise ValueError("Unsupported hash type")
-
         if len(result_keys) > 0:
             last_key = result_keys[-1]
 
@@ -2975,51 +2965,17 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             if "error" in response:
                 raise SubstrateRequestException(response["error"]["message"])
-
             for result_group in response["result"]:
-                for item in result_group["changes"]:
-                    try:
-                        # Determine type string
-                        key_type_string = []
-                        for n in range(len(params), len(param_types)):
-                            key_type_string.append(
-                                f"[u8; {concat_hash_len(key_hashers[n])}]"
-                            )
-                            key_type_string.append(param_types[n])
-
-                        item_key_obj = await self.decode_scale(
-                            type_string=f"({', '.join(key_type_string)})",
-                            scale_bytes=bytes.fromhex(item[0][len(prefix) :]),
-                            return_scale_obj=True,
-                        )
-
-                        # strip key_hashers to use as item key
-                        if len(param_types) - len(params) == 1:
-                            item_key = item_key_obj[1]
-                        else:
-                            item_key = tuple(
-                                item_key_obj[key + 1]
-                                for key in range(len(params), len(param_types) + 1, 2)
-                            )
-
-                    except Exception as _:
-                        if not ignore_decoding_errors:
-                            raise
-                        item_key = None
-
-                    try:
-                        item_bytes = hex_to_bytes_(item[1])
-
-                        item_value = await self.decode_scale(
-                            type_string=value_type,
-                            scale_bytes=item_bytes,
-                            return_scale_obj=True,
-                        )
-                    except Exception as _:
-                        if not ignore_decoding_errors:
-                            raise
-                        item_value = None
-                    result.append([item_key, item_value])
+                result = decode_query_map(
+                    result_group["changes"],
+                    prefix,
+                    runtime,
+                    param_types,
+                    params,
+                    value_type,
+                    key_hashers,
+                    ignore_decoding_errors,
+                )
         return AsyncQueryMapResult(
             records=result,
             page_size=page_size,
