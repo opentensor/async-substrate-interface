@@ -1,3 +1,9 @@
+from websockets.exceptions import ConnectionClosed, InvalidHandshake
+
+ConnectionClosed = ConnectionClosed
+InvalidHandshake = InvalidHandshake
+
+
 class SubstrateRequestException(Exception):
     pass
 
