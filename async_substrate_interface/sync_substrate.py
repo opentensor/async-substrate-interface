@@ -4,8 +4,6 @@ import random
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 
-from bittensor_wallet.keypair import Keypair
-from bittensor_wallet.utils import SS58_FORMAT
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec import (
     GenericCall,
@@ -17,11 +15,13 @@ from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
 from websockets.sync.client import connect
 from websockets.exceptions import ConnectionClosed
 
+from async_substrate_interface.const import SS58_FORMAT
 from async_substrate_interface.errors import (
     ExtrinsicNotFound,
     SubstrateRequestException,
     BlockNotFound,
 )
+from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
     SubstrateMixin,
     RuntimeCache,
