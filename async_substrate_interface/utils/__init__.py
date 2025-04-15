@@ -5,13 +5,15 @@ import string
 
 id_cycle = cycle(range(1, 999))
 
+rng = random.Random()
+
 
 def get_next_id() -> str:
     """
     Generates a pseudo-random ID by returning the next int of a range from 1-998 prepended with
     two random ascii characters.
     """
-    random_letters = "".join(random.choices(string.ascii_letters, k=2))
+    random_letters = "".join(rng.choices(string.ascii_letters, k=2))
     return f"{random_letters}{next(id_cycle)}"
 
 
