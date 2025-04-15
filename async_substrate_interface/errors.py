@@ -8,6 +8,10 @@ class SubstrateRequestException(Exception):
     pass
 
 
+class MaxRetriesExceeded(SubstrateRequestException):
+    pass
+
+
 class StorageFunctionNotFound(ValueError):
     pass
 
