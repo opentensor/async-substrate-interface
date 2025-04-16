@@ -20,12 +20,12 @@ requires-python = ">=3.9,<3.14"
 
 authors = [
   { name = "Opentensor Foundation" },
-  { name = "BD Himes", email = "benhimes@opentensor.dev" }
+  { name = "BD Himes", email = "b@latent.to" }
 ]
 
 maintainers = [
-  { name = "Opentensor Foundation", email = "benhimes@opentensor.dev" },
-  { name = "BD Himes", email = "benhimes@opentensor.dev" }
+  { name = "Latent Holdings" },
+  { name = "BD Himes", email = "b@latent.to" }
 ]
 
 classifiers = [
