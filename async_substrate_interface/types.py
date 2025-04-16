@@ -7,12 +7,12 @@ from datetime import datetime
 from typing import Optional, Union, Any
 
 from bt_decode import PortableRegistry, encode as encode_by_type_string
-from bittensor_wallet.utils import SS58_FORMAT
 from scalecodec import ss58_encode, ss58_decode, is_valid_ss58_address
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes
 from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import GenericCall, ScaleType
 
+from .const import SS58_FORMAT
 from .utils import json
 
 
