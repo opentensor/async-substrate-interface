@@ -38,6 +38,7 @@ from async_substrate_interface.errors import (
     SubstrateRequestException,
     ExtrinsicNotFound,
     BlockNotFound,
+    MaxRetriesExceeded,
 )
 from async_substrate_interface.types import (
     ScaleObj,
@@ -1914,7 +1915,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         logger.warning(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
                         )
-                        raise SubstrateRequestException("Max retries reached.")
+                        raise MaxRetriesExceeded("Max retries reached.")
                     else:
                         self.ws.last_received = time.time()
                         await self.ws.connect(force=True)

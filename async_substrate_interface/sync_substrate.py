@@ -20,6 +20,7 @@ from async_substrate_interface.errors import (
     ExtrinsicNotFound,
     SubstrateRequestException,
     BlockNotFound,
+    MaxRetriesExceeded,
 )
 from async_substrate_interface.types import (
     SubstrateMixin,
@@ -1615,7 +1616,7 @@ class SubstrateInterface(SubstrateMixin):
                     logger.warning(
                         f"Timed out waiting for RPC requests {attempt} times. Exiting."
                     )
-                    raise SubstrateRequestException("Max retries reached.")
+                    raise MaxRetriesExceeded("Max retries reached.")
                 else:
                     return self._make_rpc_request(
                         payloads,
