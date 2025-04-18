@@ -229,7 +229,6 @@ jobs:
           git fetch origin staging
           python3 -m pip install --upgrade pip
           python3 -m pip install '.[dev]'
-          python3 -m pip install -r requirements/torch.txt
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git

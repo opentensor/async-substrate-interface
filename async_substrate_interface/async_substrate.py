@@ -7,7 +7,6 @@ regard to how to instantiate and use it.
 import asyncio
 import inspect
 import logging
-import random
 import ssl
 import time
 from hashlib import blake2b
@@ -49,7 +48,12 @@ from async_substrate_interface.types import (
     SubstrateMixin,
     Preprocessed,
 )
-from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
+from async_substrate_interface.utils import (
+    hex_to_bytes,
+    json,
+    get_next_id,
+    rng as random,
+)
 from async_substrate_interface.utils.cache import async_sql_lru_cache
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
