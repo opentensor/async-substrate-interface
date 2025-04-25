@@ -4,8 +4,6 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
-from itertools import cycle
 from typing import Optional, Union, Any
 
 from bt_decode import PortableRegistry, encode as encode_by_type_string
@@ -15,7 +13,6 @@ from scalecodec.base import RuntimeConfigurationObject, ScaleBytes
 from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import GenericCall, ScaleType
 
-from .errors import MaxRetriesExceeded
 from .utils import json
 
 
