@@ -28,7 +28,7 @@ class Keypair(Protocol):
         ...
 
     @property
-    def public_key(self) -> bytes | None:
+    def public_key(self) -> Optional[bytes]:
         ...
 
     @property
