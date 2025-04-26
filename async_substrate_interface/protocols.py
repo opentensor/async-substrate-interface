@@ -1,4 +1,4 @@
-from typing import Protocol, Union, Optional
+from typing import Awaitable, Protocol, Union, Optional
 
 
 __all__: list[str] = [
@@ -39,5 +39,5 @@ class Keypair(Protocol):
     def ss58_format(self) -> int:
         ...
 
-    def sign(self, data: Union[bytes, str]) -> bytes:
+    def sign(self, data: Union[bytes, str]) -> Union[bytes, Awaitable[bytes]]:
         ...
