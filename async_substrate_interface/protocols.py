@@ -39,5 +39,5 @@ class Keypair(Protocol):
     def ss58_format(self) -> int:
         ...
 
-    def sign(self, data: bytes | str) -> bytes:
+    def sign(self, data: Union[bytes, str]) -> bytes:
         ...
