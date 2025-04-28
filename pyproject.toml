@@ -1,6 +1,6 @@
 [project]
 name = "async-substrate-interface"
-version = "1.1.0"
+version = "1.1.1"
 description = "Asyncio library for interacting with substrate. Mostly API-compatible with py-substrate-interface"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -20,12 +20,12 @@ requires-python = ">=3.9,<3.14"
 
 authors = [
   { name = "Opentensor Foundation" },
-  { name = "BD Himes", email = "benhimes@opentensor.dev" }
+  { name = "BD Himes", email = "b@latent.to" }
 ]
 
 maintainers = [
-  { name = "Opentensor Foundation", email = "benhimes@opentensor.dev" },
-  { name = "BD Himes", email = "benhimes@opentensor.dev" }
+  { name = "Latent Holdings" },
+  { name = "BD Himes", email = "b@latent.to" }
 ]
 
 classifiers = [

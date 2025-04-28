@@ -7,7 +7,6 @@ regard to how to instantiate and use it.
 import asyncio
 import inspect
 import logging
-import random
 import ssl
 import time
 from hashlib import blake2b
@@ -39,6 +38,7 @@ from async_substrate_interface.errors import (
     SubstrateRequestException,
     ExtrinsicNotFound,
     BlockNotFound,
+    MaxRetriesExceeded,
 )
 from async_substrate_interface.types import (
     ScaleObj,
@@ -48,7 +48,12 @@ from async_substrate_interface.types import (
     SubstrateMixin,
     Preprocessed,
 )
-from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
+from async_substrate_interface.utils import (
+    hex_to_bytes,
+    json,
+    get_next_id,
+    rng as random,
+)
 from async_substrate_interface.utils.cache import async_sql_lru_cache
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
@@ -1910,7 +1915,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         logger.warning(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
                         )
-                        raise SubstrateRequestException("Max retries reached.")
+                        raise MaxRetriesExceeded("Max retries reached.")
                     else:
                         self.ws.last_received = time.time()
                         await self.ws.connect(force=True)

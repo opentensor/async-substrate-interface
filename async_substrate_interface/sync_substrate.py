@@ -1,6 +1,5 @@
 import functools
 import logging
-import random
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 
@@ -21,6 +20,7 @@ from async_substrate_interface.errors import (
     ExtrinsicNotFound,
     SubstrateRequestException,
     BlockNotFound,
+    MaxRetriesExceeded,
 )
 from async_substrate_interface.types import (
     SubstrateMixin,
@@ -30,7 +30,12 @@ from async_substrate_interface.types import (
     Preprocessed,
     ScaleObj,
 )
-from async_substrate_interface.utils import hex_to_bytes, json, get_next_id
+from async_substrate_interface.utils import (
+    hex_to_bytes,
+    json,
+    get_next_id,
+    rng as random,
+)
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -1611,7 +1616,7 @@ class SubstrateInterface(SubstrateMixin):
                     logger.warning(
                         f"Timed out waiting for RPC requests {attempt} times. Exiting."
                     )
-                    raise SubstrateRequestException("Max retries reached.")
+                    raise MaxRetriesExceeded("Max retries reached.")
                 else:
                     return self._make_rpc_request(
                         payloads,
