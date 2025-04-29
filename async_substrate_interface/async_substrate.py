@@ -30,6 +30,7 @@ from scalecodec.types import (
     GenericExtrinsic,
     GenericRuntimeCallDefinition,
     ss58_encode,
+    MultiAccountId,
 )
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
@@ -1137,6 +1138,32 @@ class AsyncSubstrateInterface(SubstrateMixin):
             result_handler=result_handler,
         )
 
+    async def retrieve_pending_extrinsics(self) -> list:
+        """
+        Retrieves and decodes pending extrinsics from the node's transaction pool
+
+        Returns:
+            list of extrinsics
+        """
+
+        runtime = await self.init_runtime()
+
+        result_data = await self.rpc_request("author_pendingExtrinsics", [])
+
+        extrinsics = []
+
+        for extrinsic_data in result_data["result"]:
+            extrinsic = runtime.runtime_config.create_scale_object(
+                "Extrinsic", metadata=runtime.metadata
+            )
+            extrinsic.decode(
+                ScaleBytes(extrinsic_data),
+                check_remaining=self.config.get("strict_scale_decode"),
+            )
+            extrinsics.append(extrinsic)
+
+        return extrinsics
+
     async def get_metadata_storage_functions(self, block_hash=None) -> list:
         """
         Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if block_hash is
@@ -1802,7 +1829,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 events.append(convert_event_data(item))
         return events
 
-    async def get_metadata(self, block_hash=None):
+    async def get_metadata(self, block_hash=None) -> MetadataV15:
         """
         Returns `MetadataVersioned` object for given block_hash or chaintip if block_hash is omitted
 
@@ -1815,7 +1842,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         runtime = await self.init_runtime(block_hash=block_hash)
 
-        return runtime.metadata
+        return runtime.metadata_v15
 
     @a.lru_cache(maxsize=512)
     async def get_parent_block_hash(self, block_hash):
@@ -1833,9 +1860,42 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return block_hash
         return parent_block_hash
 
+    async def get_storage_by_key(self, block_hash: str, storage_key: str) -> Any:
+        """
+        A pass-though to existing JSONRPC method `state_getStorage`/`state_getStorageAt`
+
+        Args:
+            block_hash: hash of the block
+            storage_key: storage key to query
+
+        Returns:
+            result of the query
+
+        """
+
+        if await self.supports_rpc_method("state_getStorageAt"):
+            response = await self.rpc_request(
+                "state_getStorageAt", [storage_key, block_hash]
+            )
+        else:
+            response = await self.rpc_request(
+                "state_getStorage", [storage_key, block_hash]
+            )
+
+        if "result" in response:
+            return response.get("result")
+        elif "error" in response:
+            raise SubstrateRequestException(response["error"]["message"])
+        else:
+            raise SubstrateRequestException(
+                "Unknown error occurred during retrieval of events"
+            )
+
     @a.lru_cache(maxsize=16)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
         return await self._get_block_runtime_info(block_hash)
+
+    get_block_runtime_version = get_block_runtime_info
 
     async def _get_block_runtime_info(self, block_hash: str) -> dict:
         """
@@ -2591,6 +2651,34 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return extrinsic
 
+    async def create_unsigned_extrinsic(self, call: GenericCall) -> GenericExtrinsic:
+        """
+        Create unsigned extrinsic for given `Call`
+
+        Args:
+            call: GenericCall the call the extrinsic should contain
+
+        Returns:
+            GenericExtrinsic
+        """
+
+        runtime = await self.init_runtime()
+
+        # Create extrinsic
+        extrinsic = self.runtime_config.create_scale_object(
+            type_string="Extrinsic", metadata=runtime.metadata
+        )
+
+        extrinsic.encode(
+            {
+                "call_function": call.value["call_function"],
+                "call_module": call.value["call_module"],
+                "call_args": call.value["call_args"],
+            }
+        )
+
+        return extrinsic
+
     async def get_chain_finalised_head(self):
         """
         A pass-though to existing JSONRPC method `chain_getFinalizedHead`
@@ -3163,6 +3251,100 @@ class AsyncSubstrateInterface(SubstrateMixin):
             last_key=last_key,
             max_results=max_results,
             ignore_decoding_errors=ignore_decoding_errors,
+        )
+
+    async def create_multisig_extrinsic(
+        self,
+        call: GenericCall,
+        keypair: Keypair,
+        multisig_account: MultiAccountId,
+        max_weight: Optional[Union[dict, int]] = None,
+        era: dict = None,
+        nonce: int = None,
+        tip: int = 0,
+        tip_asset_id: int = None,
+        signature: Union[bytes, str] = None,
+    ) -> GenericExtrinsic:
+        """
+        Create a Multisig extrinsic that will be signed by one of the signatories. Checks on-chain if the threshold
+        of the multisig account is reached and try to execute the call accordingly.
+
+        Args:
+            call: GenericCall to create extrinsic for
+            keypair: Keypair of the signatory to approve given call
+            multisig_account: MultiAccountId to use of origin of the extrinsic (see `generate_multisig_account()`)
+            max_weight: Maximum allowed weight to execute the call ( Uses `get_payment_info()` by default)
+            era: Specify mortality in blocks in follow format: {'period': [amount_blocks]} If omitted the extrinsic is
+                immortal
+            nonce: nonce to include in extrinsics, if omitted the current nonce is retrieved on-chain
+            tip: The tip for the block author to gain priority during network congestion
+            tip_asset_id: Optional asset ID with which to pay the tip
+            signature: Optionally provide signature if externally signed
+
+        Returns:
+            GenericExtrinsic
+        """
+        if max_weight is None:
+            payment_info = await self.get_payment_info(call, keypair)
+            max_weight = payment_info["weight"]
+
+        # Check if call has existing approvals
+        multisig_details_ = await self.query(
+            "Multisig", "Multisigs", [multisig_account.value, call.call_hash]
+        )
+        multisig_details = getattr(multisig_details_, "value", multisig_details_)
+        if multisig_details:
+            maybe_timepoint = multisig_details["when"]
+        else:
+            maybe_timepoint = None
+
+        # Compose 'as_multi' when final, 'approve_as_multi' otherwise
+        if (
+            multisig_details.value
+            and len(multisig_details.value["approvals"]) + 1
+            == multisig_account.threshold
+        ):
+            multi_sig_call = await self.compose_call(
+                "Multisig",
+                "as_multi",
+                {
+                    "other_signatories": [
+                        s
+                        for s in multisig_account.signatories
+                        if s != f"0x{keypair.public_key.hex()}"
+                    ],
+                    "threshold": multisig_account.threshold,
+                    "maybe_timepoint": maybe_timepoint,
+                    "call": call,
+                    "store_call": False,
+                    "max_weight": max_weight,
+                },
+            )
+        else:
+            multi_sig_call = await self.compose_call(
+                "Multisig",
+                "approve_as_multi",
+                {
+                    "other_signatories": [
+                        s
+                        for s in multisig_account.signatories
+                        if s != f"0x{keypair.public_key.hex()}"
+                    ],
+                    "threshold": multisig_account.threshold,
+                    "maybe_timepoint": maybe_timepoint,
+                    "call_hash": call.call_hash,
+                    "max_weight": max_weight,
+                },
+            )
+
+        return await self.create_signed_extrinsic(
+            multi_sig_call,
+            keypair,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            signature=signature,
         )
 
     async def submit_extrinsic(
