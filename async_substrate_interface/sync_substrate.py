@@ -796,6 +796,100 @@ class SubstrateInterface(SubstrateMixin):
             metadata=self.runtime.metadata,
         )
 
+    def subscribe_storage(
+        self,
+        storage_keys: list[StorageKey],
+        subscription_handler: Callable[[StorageKey, Any, str], Any],
+    ):
+        """
+
+        Subscribe to provided storage_keys and keep tracking until `subscription_handler` returns a value
+
+        Example of a StorageKey:
+        ```
+        StorageKey.create_from_storage_function(
+            "System", "Account", ["5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"]
+        )
+        ```
+
+        Example of a subscription handler:
+        ```
+        def subscription_handler(storage_key, obj, subscription_id):
+            if obj is not None:
+                # the subscription will run until your subscription_handler returns something other than `None`
+                return obj
+        ```
+
+        Args:
+            storage_keys: StorageKey list of storage keys to subscribe to
+            subscription_handler: coroutine function to handle value changes of subscription
+
+        """
+        self.init_runtime()
+
+        storage_key_map = {s.to_hex(): s for s in storage_keys}
+
+        def result_handler(
+            message: dict, subscription_id: str
+        ) -> tuple[bool, Optional[Any]]:
+            result_found = False
+            subscription_result = None
+            if "params" in message:
+                # Process changes
+                for change_storage_key, change_data in message["params"]["result"][
+                    "changes"
+                ]:
+                    # Check for target storage key
+                    storage_key = storage_key_map[change_storage_key]
+
+                    if change_data is not None:
+                        change_scale_type = storage_key.value_scale_type
+                        result_found = True
+                    elif (
+                        storage_key.metadata_storage_function.value["modifier"]
+                        == "Default"
+                    ):
+                        # Fallback to default value of storage function if no result
+                        change_scale_type = storage_key.value_scale_type
+                        change_data = (
+                            storage_key.metadata_storage_function.value_object[
+                                "default"
+                            ].value_object
+                        )
+                    else:
+                        # No result is interpreted as an Option<...> result
+                        change_scale_type = f"Option<{storage_key.value_scale_type}>"
+                        change_data = (
+                            storage_key.metadata_storage_function.value_object[
+                                "default"
+                            ].value_object
+                        )
+
+                    # Decode SCALE result data
+                    updated_obj = self.decode_scale(
+                        type_string=change_scale_type,
+                        scale_bytes=hex_to_bytes(change_data),
+                    )
+
+                    subscription_result = subscription_handler(
+                        storage_key, updated_obj, subscription_id
+                    )
+
+                    if subscription_result is not None:
+                        # Handler returned end result: unsubscribe from further updates
+                        self.rpc_request("state_unsubscribeStorage", [subscription_id])
+
+            return result_found, subscription_result
+
+        if not callable(subscription_handler):
+            raise ValueError("Provided `subscription_handler` is not callable")
+
+        return self.rpc_request(
+            "state_subscribeStorage",
+            [[s.to_hex() for s in storage_keys]],
+            result_handler=result_handler,
+        )
+
     def get_metadata_storage_functions(self, block_hash=None) -> list:
         """
         Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if block_hash is

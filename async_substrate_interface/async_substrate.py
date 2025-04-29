@@ -1042,10 +1042,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def subscribe_storage(
         self,
         storage_keys: list[StorageKey],
-        subscription_handler: Callable[
-            [StorageKey, Any, str],
-            Awaitable[Any]
-        ],
+        subscription_handler: Callable[[StorageKey, Any, str], Awaitable[Any]],
     ):
         """
 
@@ -1075,7 +1072,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         storage_key_map = {s.to_hex(): s for s in storage_keys}
 
-        async def result_handler(message: dict, subscription_id: str) -> tuple[bool, Optional[ScaleType]]:
+        async def result_handler(
+            message: dict, subscription_id: str
+        ) -> tuple[bool, Optional[Any]]:
             result_found = False
             subscription_result = None
             if "params" in message:
@@ -1112,7 +1111,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     # Decode SCALE result data
                     updated_obj = await self.decode_scale(
                         type_string=change_scale_type,
-                        scale_bytes=hex_to_bytes(change_data)
+                        scale_bytes=hex_to_bytes(change_data),
                     )
 
                     subscription_result = await subscription_handler(
