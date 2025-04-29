@@ -59,7 +59,7 @@ class RetrySubstrate:
                 logging.warning(f"Unable to connect to {chain_url}")
         if not initialized:
             raise ConnectionError(
-                f"Unable to connect at any chains specified: {[main_url]+fallback_chains}"
+                f"Unable to connect at any chains specified: {[main_url] + fallback_chains}"
             )
 
         # retries
