@@ -822,7 +822,7 @@ class SubstrateInterface(SubstrateMixin):
 
         Args:
             storage_keys: StorageKey list of storage keys to subscribe to
-            subscription_handler: coroutine function to handle value changes of subscription
+            subscription_handler: function to handle value changes of subscription
 
         """
         self.init_runtime()
@@ -1019,6 +1019,41 @@ class SubstrateInterface(SubstrateMixin):
             runtime call function
         """
         self.init_runtime(block_hash=block_hash)
+
+        try:
+            runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
+                "methods"
+            ][method]
+            runtime_call_def["api"] = api
+            runtime_call_def["method"] = method
+            runtime_api_types = self.runtime_config.type_registry["runtime_api"][
+                api
+            ].get("types", {})
+        except KeyError:
+            raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
+
+        # Add runtime API types to registry
+        self.runtime_config.update_type_registry_types(runtime_api_types)
+
+        runtime_call_def_obj = self.create_scale_object("RuntimeCallDefinition")
+        runtime_call_def_obj.encode(runtime_call_def)
+
+        return runtime_call_def_obj
+
+    def get_metadata_runtime_call_function(
+        self, api: str, method: str
+    ) -> GenericRuntimeCallDefinition:
+        """
+        Get details of a runtime API call
+
+        Args:
+            api: Name of the runtime API e.g. 'TransactionPaymentApi'
+            method: Name of the method e.g. 'query_fee_details'
+
+        Returns:
+            GenericRuntimeCallDefinition
+        """
+        self.init_runtime()
 
         try:
             runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
@@ -1509,6 +1544,21 @@ class SubstrateInterface(SubstrateMixin):
             for item in list(storage_obj):
                 events.append(convert_event_data(item))
         return events
+
+    def get_metadata(self, block_hash=None):
+        """
+        Returns `MetadataVersioned` object for given block_hash or chaintip if block_hash is omitted
+
+
+        Args:
+            block_hash
+
+        Returns:
+            MetadataVersioned
+        """
+        runtime = self.init_runtime(block_hash=block_hash)
+
+        return runtime.metadata
 
     @functools.lru_cache(maxsize=512)
     def get_parent_block_hash(self, block_hash):
@@ -2428,6 +2478,29 @@ class SubstrateInterface(SubstrateMixin):
         nonce_obj = self.rpc_request("account_nextIndex", [account_address])
         return nonce_obj["result"]
 
+    def get_metadata_constants(self, block_hash=None) -> list[dict]:
+        """
+        Retrieves a list of all constants in metadata active at given block_hash (or chaintip if block_hash is omitted)
+
+        Args:
+            block_hash: hash of the block
+
+        Returns:
+            list of constants
+        """
+
+        runtime = self.init_runtime(block_hash=block_hash)
+
+        constant_list = []
+
+        for module_idx, module in enumerate(self.metadata.pallets):
+            for constant in module.constants or []:
+                constant_list.append(
+                    self.serialize_constant(constant, module, runtime.runtime_version)
+                )
+
+        return constant_list
+
     def get_metadata_constant(self, module_name, constant_name, block_hash=None):
         """
         Retrieves the details of a constant for given module name, call function name and block_hash
@@ -2925,6 +2998,55 @@ class SubstrateInterface(SubstrateMixin):
                     if call.name == call_function_name:
                         return call
         return None
+
+    def get_metadata_events(self, block_hash=None) -> list[dict]:
+        """
+        Retrieves a list of all events in metadata active for given block_hash (or chaintip if block_hash is omitted)
+
+        Args:
+            block_hash
+
+        Returns:
+            list of module events
+        """
+
+        runtime = self.init_runtime(block_hash=block_hash)
+
+        event_list = []
+
+        for event_index, (module, event) in self.metadata.event_index.items():
+            event_list.append(
+                self.serialize_module_event(
+                    module, event, runtime.runtime_version, event_index
+                )
+            )
+
+        return event_list
+
+    def get_metadata_event(
+        self, module_name, event_name, block_hash=None
+    ) -> Optional[Any]:
+        """
+        Retrieves the details of an event for given module name, call function name and block_hash
+        (or chaintip if block_hash is omitted)
+
+        Args:
+            module_name: name of the module to call
+            event_name: name of the event
+            block_hash: hash of the block
+
+        Returns:
+            Metadata event
+
+        """
+
+        runtime = self.init_runtime(block_hash=block_hash)
+
+        for pallet in runtime.metadata.pallets:
+            if pallet.name == module_name and pallet.events:
+                for event in pallet.events:
+                    if event.name == event_name:
+                        return event
 
     def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""
