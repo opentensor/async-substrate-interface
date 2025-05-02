@@ -1557,6 +1557,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     response["result"]["block"], block_data_hash=block_hash
                 )
 
+    get_block_handler = _get_block_handler
+
     async def get_block(
         self,
         block_hash: Optional[str] = None,
