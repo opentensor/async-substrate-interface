@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.1 /2025-04-26
+
+## What's Changed
+* State-Safe RNG by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/97
+* Fix tests requirements by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/98
+* Update maintainers emails by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/99
+* Adds additional exception for catching by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/96
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.1.0...v1.1.1
+
 ## 1.1.0 /2025-04-07
 
 ## What's Changed
