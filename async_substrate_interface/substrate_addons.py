@@ -81,6 +81,8 @@ RETRY_METHODS = [
     "supports_rpc_method",
 ]
 
+RETRY_PROPS = ["properties", "version", "token_decimals", "token_symbol", "name"]
+
 
 class RetrySyncSubstrate(SubstrateInterface):
     def __init__(
@@ -132,6 +134,8 @@ class RetrySyncSubstrate(SubstrateInterface):
             )
         for method in RETRY_METHODS:
             setattr(self, method, partial(self._retry, method))
+        for property_ in RETRY_PROPS:
+            setattr(self, property_, partial(self._retry_property, property_))
 
     def _retry(self, method, *args, **kwargs):
         try:
@@ -142,6 +146,19 @@ class RetrySyncSubstrate(SubstrateInterface):
                 self._reinstantiate_substrate(e)
                 method_ = getattr(self, method)
                 return self._retry(method_(*args, **kwargs))
+            except StopIteration:
+                logging.error(
+                    f"Max retries exceeded with {self.url}. No more fallback chains."
+                )
+                raise MaxRetriesExceeded
+
+    def _retry_property(self, property_):
+        try:
+            return getattr(self, property_)
+        except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
+            try:
+                self._reinstantiate_substrate(e)
+                return self._retry_property(property_)
             except StopIteration:
                 logging.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
@@ -207,6 +224,8 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         )
         for method in RETRY_METHODS:
             setattr(self, method, partial(self._retry, method))
+        for property_ in RETRY_PROPS:
+            setattr(self, property_, partial(self._retry_property, property_))
 
     def _reinstantiate_substrate(self, e: Optional[Exception] = None) -> None:
         next_network = next(self.fallback_chains)
@@ -237,11 +256,25 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
             try:
                 self._reinstantiate_substrate(e)
+                await self.initialize()
                 method_ = getattr(self, method)
                 if asyncio.iscoroutinefunction(method_):
                     return await method_(*args, **kwargs)
                 else:
                     return method_(*args, **kwargs)
+            except StopIteration:
+                logging.error(
+                    f"Max retries exceeded with {self.url}. No more fallback chains."
+                )
+                raise MaxRetriesExceeded
+
+    async def _retry_property(self, property_):
+        try:
+            return await getattr(self, property_)
+        except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
+            try:
+                self._reinstantiate_substrate(e)
+                return await self._retry_property(property_)
             except StopIteration:
                 logging.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
