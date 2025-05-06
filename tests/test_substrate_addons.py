@@ -9,28 +9,34 @@ from tests.conftest import start_docker_container
 
 
 @pytest.fixture(scope="function")
-def start_containers():
-    # Store our subprocesses globally
+def docker_containers():
     processes = (start_docker_container(9945, 9945), start_docker_container(9946, 9946))
-    yield processes
+    try:
+        yield processes
 
-    # To stop the instances, you can iterate over the processes and kill them:
-    for process in processes:
-        subprocess.run(["docker", "kill", process[1]])
-        process[0].kill()
+    finally:
+        for process in processes:
+            subprocess.run(["docker", "kill", process[1]])
+            process[0].kill()
 
 
-def test_retry_sync_substrate(start_containers):
-    container1, container2 = start_containers
+def test_retry_sync_substrate(docker_containers):
     time.sleep(10)
     with RetrySyncSubstrate(
-        "ws://127.0.0.1:9945", fallback_chains=["ws://127.0.0.1:9946"]
+        docker_containers[0].uri, fallback_chains=[docker_containers[1].uri]
     ) as substrate:
         for i in range(10):
             assert substrate.get_chain_head().startswith("0x")
             if i == 8:
-                subprocess.run(["docker", "kill", container1[1]])
+                subprocess.run(["docker", "stop", docker_containers[0].name])
                 time.sleep(10)
             if i > 8:
-                assert substrate.chain_endpoint == "ws://127.0.0.1:9946"
+                assert substrate.chain_endpoint == docker_containers[1].uri
             time.sleep(2)
+
+
+def test_retry_sync_substrate_offline():
+    with pytest.raises(ConnectionError):
+        RetrySyncSubstrate(
+            "ws://127.0.0.1:9945", fallback_chains=["ws://127.0.0.1:9946"]
+        )
