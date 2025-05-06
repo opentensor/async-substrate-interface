@@ -1,5 +1,6 @@
 import functools
 import logging
+import socket
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 
@@ -511,7 +512,6 @@ class SubstrateInterface(SubstrateMixin):
             "strict_scale_decode": True,
         }
         self.initialized = False
-        self._forgettable_task = None
         self.ss58_format = ss58_format
         self.type_registry = type_registry
         self.type_registry_preset = type_registry_preset
@@ -587,13 +587,19 @@ class SubstrateInterface(SubstrateMixin):
 
     def connect(self, init=False):
         if init is True:
-            return connect(self.chain_endpoint, max_size=self.ws_max_size)
+            try:
+                return connect(self.chain_endpoint, max_size=self.ws_max_size)
+            except (ConnectionError, socket.gaierror) as e:
+                raise ConnectionError(e)
         else:
             if not self.ws.close_code:
                 return self.ws
             else:
-                self.ws = connect(self.chain_endpoint, max_size=self.ws_max_size)
-                return self.ws
+                try:
+                    self.ws = connect(self.chain_endpoint, max_size=self.ws_max_size)
+                    return self.ws
+                except (ConnectionError, socket.gaierror) as e:
+                    raise ConnectionError(e)
 
     def get_storage_item(
         self, module: str, storage_function: str, block_hash: str = None

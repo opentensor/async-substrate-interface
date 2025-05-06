@@ -3,10 +3,13 @@ import logging
 from functools import partial
 from itertools import cycle
 from typing import Optional
+from websockets.exceptions import ConnectionClosed
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 from async_substrate_interface.errors import MaxRetriesExceeded
 from async_substrate_interface.sync_substrate import SubstrateInterface
+
+logger = logging.getLogger("async_substrate_interface")
 
 
 RETRY_METHODS = [
@@ -106,30 +109,32 @@ class RetrySyncSubstrate(SubstrateInterface):
                     max_retries=max_retries,
                 )
                 initialized = True
+                logger.info(f"Connected to {chain_url}")
                 break
             except ConnectionError:
-                logging.warning(f"Unable to connect to {chain_url}")
+                logger.warning(f"Unable to connect to {chain_url}")
         if not initialized:
             raise ConnectionError(
                 f"Unable to connect at any chains specified: {[url] + fallback_chains}"
             )
+        retry_methods = ["connect"] + RETRY_METHODS
         self._original_methods = {
-            method: getattr(self, method) for method in RETRY_METHODS
+            method: getattr(self, method) for method in retry_methods
         }
-        for method in RETRY_METHODS:
+        for method in retry_methods:
             setattr(self, method, partial(self._retry, method))
 
     def _retry(self, method, *args, **kwargs):
         try:
             method_ = self._original_methods[method]
             return method_(*args, **kwargs)
-        except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
+        except (MaxRetriesExceeded, ConnectionError, EOFError, ConnectionClosed) as e:
             try:
                 self._reinstantiate_substrate(e)
-                method_ = getattr(self, method)
-                return self._retry(method_(*args, **kwargs))
+                method_ = self._original_methods[method]
+                return method_(*args, **kwargs)
             except StopIteration:
-                logging.error(
+                logger.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
                 )
                 raise MaxRetriesExceeded
@@ -137,34 +142,31 @@ class RetrySyncSubstrate(SubstrateInterface):
     def _retry_property(self, property_):
         try:
             return getattr(self, property_)
-        except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
+        except (MaxRetriesExceeded, ConnectionError, EOFError, ConnectionClosed) as e:
             try:
                 self._reinstantiate_substrate(e)
                 return self._retry_property(property_)
             except StopIteration:
-                logging.error(
+                logger.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
                 )
                 raise MaxRetriesExceeded
 
     def _reinstantiate_substrate(self, e: Optional[Exception] = None) -> None:
         next_network = next(self.fallback_chains)
+        self.ws.close()
         if e.__class__ == MaxRetriesExceeded:
-            logging.error(
+            logger.error(
                 f"Max retries exceeded with {self.url}. Retrying with {next_network}."
             )
         else:
-            print(f"Connection error. Trying again with {next_network}")
-        super().__init__(
-            url=next_network,
-            ss58_format=self.ss58_format,
-            type_registry=self.type_registry,
-            use_remote_preset=self.use_remote_preset,
-            chain_name=self.chain_name,
-            _mock=self._mock,
-            retry_timeout=self.retry_timeout,
-            max_retries=self.max_retries,
-        )
+            logger.error(f"Connection error. Trying again with {next_network}")
+        self.url = next_network
+        self.chain_endpoint = next_network
+        self.initialized = False
+        self.ws = self.connect(init=True)
+        if not self._mock:
+            self.initialize()
 
 
 class RetryAsyncSubstrate(AsyncSubstrateInterface):
@@ -213,7 +215,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
     def _reinstantiate_substrate(self, e: Optional[Exception] = None) -> None:
         next_network = next(self.fallback_chains)
         if e.__class__ == MaxRetriesExceeded:
-            logging.error(
+            logger.error(
                 f"Max retries exceeded with {self.url}. Retrying with {next_network}."
             )
         else:
@@ -228,12 +230,22 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             retry_timeout=self.retry_timeout,
             max_retries=self.max_retries,
         )
+        self._original_methods = {
+            method: getattr(self, method) for method in RETRY_METHODS
+        }
+        for method in RETRY_METHODS:
+            setattr(self, method, partial(self._retry, method))
 
     async def _retry(self, method, *args, **kwargs):
         try:
             method_ = self._original_methods[method]
             return await method_(*args, **kwargs)
-        except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
+        except (
+            MaxRetriesExceeded,
+            ConnectionError,
+            ConnectionRefusedError,
+            EOFError,
+        ) as e:
             try:
                 self._reinstantiate_substrate(e)
                 await self.initialize()
@@ -243,7 +255,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
                 else:
                     return method_(*args, **kwargs)
             except StopIteration:
-                logging.error(
+                logger.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
                 )
                 raise MaxRetriesExceeded
@@ -256,7 +268,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
                 self._reinstantiate_substrate(e)
                 return await self._retry_property(property_)
             except StopIteration:
-                logging.error(
+                logger.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
                 )
                 raise MaxRetriesExceeded
