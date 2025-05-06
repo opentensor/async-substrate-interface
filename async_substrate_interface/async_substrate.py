@@ -21,8 +21,6 @@ from typing import (
 )
 
 import asyncstdlib as a
-from bittensor_wallet.keypair import Keypair
-from bittensor_wallet.utils import SS58_FORMAT
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.types import (
@@ -35,12 +33,14 @@ from scalecodec.types import (
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
+from async_substrate_interface.const import SS58_FORMAT
 from async_substrate_interface.errors import (
     SubstrateRequestException,
     ExtrinsicNotFound,
     BlockNotFound,
     MaxRetriesExceeded,
 )
+from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
     ScaleObj,
     RequestManager,
@@ -2628,6 +2628,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             # Sign payload
             signature = keypair.sign(signature_payload)
+            if inspect.isawaitable(signature):
+                signature = await signature
 
         # Create extrinsic
         extrinsic = self.runtime_config.create_scale_object(

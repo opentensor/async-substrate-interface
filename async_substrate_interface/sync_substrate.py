@@ -3,8 +3,6 @@ import logging
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 
-from bittensor_wallet.keypair import Keypair
-from bittensor_wallet.utils import SS58_FORMAT
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec import (
     GenericCall,
@@ -17,12 +15,14 @@ from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
 from websockets.sync.client import connect
 from websockets.exceptions import ConnectionClosed
 
+from async_substrate_interface.const import SS58_FORMAT
 from async_substrate_interface.errors import (
     ExtrinsicNotFound,
     SubstrateRequestException,
     BlockNotFound,
     MaxRetriesExceeded,
 )
+from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
     SubstrateMixin,
     RuntimeCache,
@@ -532,8 +532,10 @@ class SubstrateInterface(SubstrateMixin):
         return self
 
     def __del__(self):
-        self.ws.close()
-        print("DELETING SUBSTATE")
+        try:
+            self.ws.close()
+        except AttributeError:
+            pass
         # self.ws.protocol.fail(code=1006)  # ABNORMAL_CLOSURE
 
     def initialize(self):
