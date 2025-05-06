@@ -21,6 +21,7 @@ from async_substrate_interface.errors import (
     SubstrateRequestException,
     BlockNotFound,
     MaxRetriesExceeded,
+    MetadataAtVersionNotFound,
 )
 from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
@@ -617,11 +618,20 @@ class SubstrateInterface(SubstrateMixin):
     def _load_registry_at_block(self, block_hash: Optional[str]) -> MetadataV15:
         # Should be called for any block that fails decoding.
         # Possibly the metadata was different.
-        metadata_rpc_result = self.rpc_request(
-            "state_call",
-            ["Metadata_metadata_at_version", self.metadata_version_hex],
-            block_hash=block_hash,
-        )
+        try:
+            metadata_rpc_result = self.rpc_request(
+                "state_call",
+                ["Metadata_metadata_at_version", self.metadata_version_hex],
+                block_hash=block_hash,
+            )
+        except SubstrateRequestException as e:
+            if (
+                "Client error: Execution failed: Other: Exported method Metadata_metadata_at_version is not found"
+                in e.args
+            ):
+                raise MetadataAtVersionNotFound
+            else:
+                raise e
         metadata_option_hex_str = metadata_rpc_result["result"]
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
         metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)

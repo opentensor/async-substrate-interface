@@ -39,6 +39,7 @@ from async_substrate_interface.errors import (
     ExtrinsicNotFound,
     BlockNotFound,
     MaxRetriesExceeded,
+    MetadataAtVersionNotFound,
 )
 from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
@@ -817,10 +818,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Client error: Execution failed: Other: Exported method Metadata_metadata_at_version is not found"
                 in e.args
             ):
-                raise SubstrateRequestException(
-                    "You are attempting to call a block too old for this version of async-substrate-interface. Please"
-                    " instead use legacy py-substrate-interface for these very old blocks."
-                )
+                raise MetadataAtVersionNotFound
             else:
                 raise e
         metadata_option_hex_str = metadata_rpc_result["result"]
