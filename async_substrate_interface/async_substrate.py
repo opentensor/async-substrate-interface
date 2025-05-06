@@ -734,15 +734,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         Initialize the connection to the chain.
         """
-        async with self._lock:
-            self._initializing = True
-            if not self.initialized:
-                if not self._chain:
-                    chain = await self.rpc_request("system_chain", [])
-                    self._chain = chain.get("result")
-                await self.init_runtime()
-            self.initialized = True
-            self._initializing = False
+        self._initializing = True
+        if not self.initialized:
+            if not self._chain:
+                chain = await self.rpc_request("system_chain", [])
+                self._chain = chain.get("result")
+            await self.init_runtime()
+        self.initialized = True
+        self._initializing = False
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass

@@ -1,11 +1,18 @@
+"""
+A number of "plugins" for SubstrateInterface (and AsyncSubstrateInterface). At initial creation, it contains only
+Retry (sync and async versions).
+"""
+
 import asyncio
 import logging
+import socket
 from functools import partial
 from itertools import cycle
 from typing import Optional
+
 from websockets.exceptions import ConnectionClosed
 
-from async_substrate_interface.async_substrate import AsyncSubstrateInterface
+from async_substrate_interface.async_substrate import AsyncSubstrateInterface, Websocket
 from async_substrate_interface.errors import MaxRetriesExceeded
 from async_substrate_interface.sync_substrate import SubstrateInterface
 
@@ -69,6 +76,34 @@ RETRY_PROPS = ["properties", "version", "token_decimals", "token_symbol", "name"
 
 
 class RetrySyncSubstrate(SubstrateInterface):
+    """
+    A subclass of SubstrateInterface that allows for handling chain failures by using backup chains. If a sustained
+    network failure is encountered on a chain endpoint, the object will initialize a new connection on the next chain in
+    the `fallback_chains` list. If the `retry_forever` flag is set, upon reaching the last chain in `fallback_chains`,
+    the connection will attempt to iterate over the list (starting with `url`) again.
+
+    E.g.
+    ```
+    substrate = RetrySyncSubstrate(
+        "wss://entrypoint-finney.opentensor.ai:443",
+        fallback_chains=["ws://127.0.0.1:9946"]
+    )
+    ```
+    In this case, if there is a failure on entrypoint-finney, the connection will next attempt to hit localhost. If this
+    also fails, a `MaxRetriesExceeded` exception will be raised.
+
+    ```
+    substrate = RetrySyncSubstrate(
+        "wss://entrypoint-finney.opentensor.ai:443",
+        fallback_chains=["ws://127.0.0.1:9946"],
+        retry_forever=True
+    )
+    ```
+    In this case, rather than a MaxRetriesExceeded exception being raised upon failure of the second chain (localhost),
+    the object will again being to initialize a new connection on entrypoint-finney, and then localhost, and so on and
+    so forth.
+    """
+
     def __init__(
         self,
         url: str,
@@ -117,6 +152,7 @@ class RetrySyncSubstrate(SubstrateInterface):
             raise ConnectionError(
                 f"Unable to connect at any chains specified: {[url] + fallback_chains}"
             )
+        # "connect" is only used by SubstrateInterface, not AsyncSubstrateInterface
         retry_methods = ["connect"] + RETRY_METHODS
         self._original_methods = {
             method: getattr(self, method) for method in retry_methods
@@ -125,27 +161,13 @@ class RetrySyncSubstrate(SubstrateInterface):
             setattr(self, method, partial(self._retry, method))
 
     def _retry(self, method, *args, **kwargs):
+        method_ = self._original_methods[method]
         try:
-            method_ = self._original_methods[method]
             return method_(*args, **kwargs)
         except (MaxRetriesExceeded, ConnectionError, EOFError, ConnectionClosed) as e:
             try:
                 self._reinstantiate_substrate(e)
-                method_ = self._original_methods[method]
                 return method_(*args, **kwargs)
-            except StopIteration:
-                logger.error(
-                    f"Max retries exceeded with {self.url}. No more fallback chains."
-                )
-                raise MaxRetriesExceeded
-
-    def _retry_property(self, property_):
-        try:
-            return getattr(self, property_)
-        except (MaxRetriesExceeded, ConnectionError, EOFError, ConnectionClosed) as e:
-            try:
-                self._reinstantiate_substrate(e)
-                return self._retry_property(property_)
             except StopIteration:
                 logger.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
@@ -170,6 +192,34 @@ class RetrySyncSubstrate(SubstrateInterface):
 
 
 class RetryAsyncSubstrate(AsyncSubstrateInterface):
+    """
+    A subclass of AsyncSubstrateInterface that allows for handling chain failures by using backup chains. If a
+    sustained network failure is encountered on a chain endpoint, the object will initialize a new connection on
+    the next chain in the `fallback_chains` list. If the `retry_forever` flag is set, upon reaching the last chain
+    in `fallback_chains`, the connection will attempt to iterate over the list (starting with `url`) again.
+
+    E.g.
+    ```
+    substrate = RetryAsyncSubstrate(
+        "wss://entrypoint-finney.opentensor.ai:443",
+        fallback_chains=["ws://127.0.0.1:9946"]
+    )
+    ```
+    In this case, if there is a failure on entrypoint-finney, the connection will next attempt to hit localhost. If this
+    also fails, a `MaxRetriesExceeded` exception will be raised.
+
+    ```
+    substrate = RetryAsyncSubstrate(
+        "wss://entrypoint-finney.opentensor.ai:443",
+        fallback_chains=["ws://127.0.0.1:9946"],
+        retry_forever=True
+    )
+    ```
+    In this case, rather than a MaxRetriesExceeded exception being raised upon failure of the second chain (localhost),
+    the object will again being to initialize a new connection on entrypoint-finney, and then localhost, and so on and
+    so forth.
+    """
+
     def __init__(
         self,
         url: str,
@@ -212,62 +262,53 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         for method in RETRY_METHODS:
             setattr(self, method, partial(self._retry, method))
 
-    def _reinstantiate_substrate(self, e: Optional[Exception] = None) -> None:
+    async def _reinstantiate_substrate(self, e: Optional[Exception] = None) -> None:
         next_network = next(self.fallback_chains)
         if e.__class__ == MaxRetriesExceeded:
             logger.error(
                 f"Max retries exceeded with {self.url}. Retrying with {next_network}."
             )
         else:
-            print(f"Connection error. Trying again with {next_network}")
-        super().__init__(
-            url=next_network,
-            ss58_format=self.ss58_format,
-            type_registry=self.type_registry,
-            use_remote_preset=self.use_remote_preset,
-            chain_name=self.chain_name,
-            _mock=self._mock,
-            retry_timeout=self.retry_timeout,
-            max_retries=self.max_retries,
+            logger.error(f"Connection error. Trying again with {next_network}")
+        try:
+            await self.ws.shutdown()
+        except AttributeError:
+            pass
+        if self._forgettable_task is not None:
+            self._forgettable_task: asyncio.Task
+            self._forgettable_task.cancel()
+            try:
+                await self._forgettable_task
+            except asyncio.CancelledError:
+                pass
+        self.chain_endpoint = next_network
+        self.url = next_network
+        self.ws = Websocket(
+            next_network,
+            options={
+                "max_size": self.ws_max_size,
+                "write_limit": 2**16,
+            },
         )
-        self._original_methods = {
-            method: getattr(self, method) for method in RETRY_METHODS
-        }
-        for method in RETRY_METHODS:
-            setattr(self, method, partial(self._retry, method))
+        self._initialized = False
+        self._initializing = False
+        await self.initialize()
 
     async def _retry(self, method, *args, **kwargs):
+        method_ = self._original_methods[method]
         try:
-            method_ = self._original_methods[method]
             return await method_(*args, **kwargs)
         except (
             MaxRetriesExceeded,
             ConnectionError,
-            ConnectionRefusedError,
+            ConnectionClosed,
             EOFError,
+            socket.gaierror,
         ) as e:
             try:
-                self._reinstantiate_substrate(e)
-                await self.initialize()
-                method_ = getattr(self, method)
-                if asyncio.iscoroutinefunction(method_):
-                    return await method_(*args, **kwargs)
-                else:
-                    return method_(*args, **kwargs)
-            except StopIteration:
-                logger.error(
-                    f"Max retries exceeded with {self.url}. No more fallback chains."
-                )
-                raise MaxRetriesExceeded
-
-    async def _retry_property(self, property_):
-        try:
-            return await getattr(self, property_)
-        except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
-            try:
-                self._reinstantiate_substrate(e)
-                return await self._retry_property(property_)
-            except StopIteration:
+                await self._reinstantiate_substrate(e)
+                return await method_(*args, **kwargs)
+            except StopAsyncIteration:
                 logger.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
                 )
