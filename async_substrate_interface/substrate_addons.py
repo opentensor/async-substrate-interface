@@ -11,18 +11,13 @@ from async_substrate_interface.sync_substrate import SubstrateInterface
 
 RETRY_METHODS = [
     "_get_block_handler",
-    "apply_type_registry_presets",
     "close",
     "compose_call",
-    "connect",
     "create_scale_object",
     "create_signed_extrinsic",
     "create_storage_key",
     "decode_scale",
     "encode_scale",
-    "extension_call",
-    "filter_events",
-    "filter_extrinsics",
     "generate_signature_payload",
     "get_account_next_index",
     "get_account_nonce",
@@ -33,7 +28,6 @@ RETRY_METHODS = [
     "get_block_number",
     "get_block_runtime_info",
     "get_block_runtime_version_for",
-    "get_block_timestamp",
     "get_chain_finalised_head",
     "get_chain_head",
     "get_constant",
@@ -56,26 +50,13 @@ RETRY_METHODS = [
     "get_type_registry",
     "init_runtime",
     "initialize",
-    "is_valid_ss58_address",
-    "load_runtime",
-    "make_payload",
     "query",
     "query_map",
     "query_multi",
     "query_multiple",
-    "reload_type_registry",
-    "retrieve_extrinsic_by_hash",
     "retrieve_extrinsic_by_identifier",
     "rpc_request",
     "runtime_call",
-    "search_block_number",
-    "serialize_constant",
-    "serialize_module_call",
-    "serialize_module_error",
-    "serialize_module_event",
-    "serialize_storage_item",
-    "ss58_decode",
-    "ss58_encode",
     "submit_extrinsic",
     "subscribe_block_headers",
     "supports_rpc_method",
@@ -132,14 +113,15 @@ class RetrySyncSubstrate(SubstrateInterface):
             raise ConnectionError(
                 f"Unable to connect at any chains specified: {[url] + fallback_chains}"
             )
+        self._original_methods = {
+            method: getattr(self, method) for method in RETRY_METHODS
+        }
         for method in RETRY_METHODS:
             setattr(self, method, partial(self._retry, method))
-        for property_ in RETRY_PROPS:
-            setattr(self, property_, partial(self._retry_property, property_))
 
     def _retry(self, method, *args, **kwargs):
         try:
-            method_ = getattr(self, method)
+            method_ = self._original_methods[method]
             return method_(*args, **kwargs)
         except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
             try:
@@ -222,10 +204,11 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             retry_timeout=retry_timeout,
             max_retries=max_retries,
         )
+        self._original_methods = {
+            method: getattr(self, method) for method in RETRY_METHODS
+        }
         for method in RETRY_METHODS:
             setattr(self, method, partial(self._retry, method))
-        for property_ in RETRY_PROPS:
-            setattr(self, property_, partial(self._retry_property, property_))
 
     def _reinstantiate_substrate(self, e: Optional[Exception] = None) -> None:
         next_network = next(self.fallback_chains)
@@ -248,11 +231,8 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
 
     async def _retry(self, method, *args, **kwargs):
         try:
-            method_ = getattr(self, method)
-            if asyncio.iscoroutinefunction(method_):
-                return await method_(*args, **kwargs)
-            else:
-                return method_(*args, **kwargs)
+            method_ = self._original_methods[method]
+            return await method_(*args, **kwargs)
         except (MaxRetriesExceeded, ConnectionError, ConnectionRefusedError) as e:
             try:
                 self._reinstantiate_substrate(e)
