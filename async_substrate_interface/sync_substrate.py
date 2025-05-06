@@ -532,8 +532,10 @@ class SubstrateInterface(SubstrateMixin):
         return self
 
     def __del__(self):
-        self.ws.close()
-        print("DELETING SUBSTATE")
+        try:
+            self.ws.close()
+        except AttributeError:
+            pass
         # self.ws.protocol.fail(code=1006)  # ABNORMAL_CLOSURE
 
     def initialize(self):
