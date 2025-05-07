@@ -168,7 +168,13 @@ class RetrySyncSubstrate(SubstrateInterface):
         method_ = self._original_methods[method]
         try:
             return method_(*args, **kwargs)
-        except (MaxRetriesExceeded, ConnectionError, EOFError, ConnectionClosed) as e:
+        except (
+            MaxRetriesExceeded,
+            ConnectionError,
+            EOFError,
+            ConnectionClosed,
+            TimeoutError,
+        ) as e:
             try:
                 self._reinstantiate_substrate(e)
                 return method_(*args, **kwargs)
