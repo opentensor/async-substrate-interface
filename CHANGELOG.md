@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.0 /2025-05-07
+
+## What's Changed
+* Add missing methods by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/104
+* Max subscriptions semaphore added by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/107
+* Expose `_get_block_handler` publicly by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/108
+* safe `__del__` by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/110
+* Tensorshield/main by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/111
+* Support async key implementations by @immortalizzy in https://github.com/opentensor/async-substrate-interface/pull/94
+* Add MetadataAtVersionNotFound error by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/113
+* Fallback chains by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/100
+
+## New Contributors
+* @immortalizzy made their first contribution in https://github.com/opentensor/async-substrate-interface/pull/94
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.1.1...v1.2.0
+
 ## 1.1.1 /2025-04-26
 
 ## What's Changed
