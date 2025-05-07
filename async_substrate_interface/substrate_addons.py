@@ -129,9 +129,13 @@ class RetrySyncSubstrate(SubstrateInterface):
         self._mock = _mock
         self.retry_timeout = retry_timeout
         self.max_retries = max_retries
+        self.chain_endpoint = url
+        self.url = url
         initialized = False
         for chain_url in [url] + fallback_chains:
             try:
+                self.chain_endpoint = chain_url
+                self.url = chain_url
                 super().__init__(
                     url=chain_url,
                     ss58_format=ss58_format,
