@@ -21,8 +21,6 @@ from typing import (
 )
 
 import asyncstdlib as a
-from bittensor_wallet.keypair import Keypair
-from bittensor_wallet.utils import SS58_FORMAT
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.types import (
@@ -30,16 +28,20 @@ from scalecodec.types import (
     GenericExtrinsic,
     GenericRuntimeCallDefinition,
     ss58_encode,
+    MultiAccountId,
 )
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
+from async_substrate_interface.const import SS58_FORMAT
 from async_substrate_interface.errors import (
     SubstrateRequestException,
     ExtrinsicNotFound,
     BlockNotFound,
     MaxRetriesExceeded,
+    MetadataAtVersionNotFound,
 )
+from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
     ScaleObj,
     RequestManager,
@@ -516,7 +518,7 @@ class Websocket:
         # TODO reconnection logic
         self.ws_url = ws_url
         self.ws: Optional["ClientConnection"] = None
-        self.max_subscriptions = max_subscriptions
+        self.max_subscriptions = asyncio.Semaphore(max_subscriptions)
         self.max_connections = max_connections
         self.shutdown_timer = shutdown_timer
         self._received = {}
@@ -631,6 +633,7 @@ class Websocket:
         # async with self._lock:
         original_id = get_next_id()
         # self._open_subscriptions += 1
+        await self.max_subscriptions.acquire()
         try:
             await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
             return original_id
@@ -649,7 +652,9 @@ class Websocket:
              retrieved item
         """
         try:
-            return self._received.pop(item_id)
+            item = self._received.pop(item_id)
+            self.max_subscriptions.release()
+            return item
         except KeyError:
             await asyncio.sleep(0.001)
             return None
@@ -730,15 +735,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         Initialize the connection to the chain.
         """
-        async with self._lock:
-            self._initializing = True
-            if not self.initialized:
-                if not self._chain:
-                    chain = await self.rpc_request("system_chain", [])
-                    self._chain = chain.get("result")
-                await self.init_runtime()
-            self.initialized = True
-            self._initializing = False
+        self._initializing = True
+        if not self.initialized:
+            if not self._chain:
+                chain = await self.rpc_request("system_chain", [])
+                self._chain = chain.get("result")
+            await self.init_runtime()
+        self.initialized = True
+        self._initializing = False
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
@@ -813,10 +817,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Client error: Execution failed: Other: Exported method Metadata_metadata_at_version is not found"
                 in e.args
             ):
-                raise SubstrateRequestException(
-                    "You are attempting to call a block too old for this version of async-substrate-interface. Please"
-                    " instead use legacy py-substrate-interface for these very old blocks."
-                )
+                raise MetadataAtVersionNotFound
             else:
                 raise e
         metadata_option_hex_str = metadata_rpc_result["result"]
@@ -876,7 +877,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         scale_bytes: bytes,
         _attempt=1,
         _retries=3,
-        return_scale_obj=False,
+        return_scale_obj: bool = False,
     ) -> Union[ScaleObj, Any]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
@@ -1039,6 +1040,130 @@ class AsyncSubstrateInterface(SubstrateMixin):
             metadata=self.runtime.metadata,
         )
 
+    async def subscribe_storage(
+        self,
+        storage_keys: list[StorageKey],
+        subscription_handler: Callable[[StorageKey, Any, str], Awaitable[Any]],
+    ):
+        """
+
+        Subscribe to provided storage_keys and keep tracking until `subscription_handler` returns a value
+
+        Example of a StorageKey:
+        ```
+        StorageKey.create_from_storage_function(
+            "System", "Account", ["5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"]
+        )
+        ```
+
+        Example of a subscription handler:
+        ```
+        async def subscription_handler(storage_key, obj, subscription_id):
+            if obj is not None:
+                # the subscription will run until your subscription_handler returns something other than `None`
+                return obj
+        ```
+
+        Args:
+            storage_keys: StorageKey list of storage keys to subscribe to
+            subscription_handler: coroutine function to handle value changes of subscription
+
+        """
+        await self.init_runtime()
+
+        storage_key_map = {s.to_hex(): s for s in storage_keys}
+
+        async def result_handler(
+            message: dict, subscription_id: str
+        ) -> tuple[bool, Optional[Any]]:
+            result_found = False
+            subscription_result = None
+            if "params" in message:
+                # Process changes
+                for change_storage_key, change_data in message["params"]["result"][
+                    "changes"
+                ]:
+                    # Check for target storage key
+                    storage_key = storage_key_map[change_storage_key]
+
+                    if change_data is not None:
+                        change_scale_type = storage_key.value_scale_type
+                        result_found = True
+                    elif (
+                        storage_key.metadata_storage_function.value["modifier"]
+                        == "Default"
+                    ):
+                        # Fallback to default value of storage function if no result
+                        change_scale_type = storage_key.value_scale_type
+                        change_data = (
+                            storage_key.metadata_storage_function.value_object[
+                                "default"
+                            ].value_object
+                        )
+                    else:
+                        # No result is interpreted as an Option<...> result
+                        change_scale_type = f"Option<{storage_key.value_scale_type}>"
+                        change_data = (
+                            storage_key.metadata_storage_function.value_object[
+                                "default"
+                            ].value_object
+                        )
+
+                    # Decode SCALE result data
+                    updated_obj = await self.decode_scale(
+                        type_string=change_scale_type,
+                        scale_bytes=hex_to_bytes(change_data),
+                    )
+
+                    subscription_result = await subscription_handler(
+                        storage_key, updated_obj, subscription_id
+                    )
+
+                    if subscription_result is not None:
+                        # Handler returned end result: unsubscribe from further updates
+                        self._forgettable_task = asyncio.create_task(
+                            self.rpc_request(
+                                "state_unsubscribeStorage", [subscription_id]
+                            )
+                        )
+
+            return result_found, subscription_result
+
+        if not callable(subscription_handler):
+            raise ValueError("Provided `subscription_handler` is not callable")
+
+        return await self.rpc_request(
+            "state_subscribeStorage",
+            [[s.to_hex() for s in storage_keys]],
+            result_handler=result_handler,
+        )
+
+    async def retrieve_pending_extrinsics(self) -> list:
+        """
+        Retrieves and decodes pending extrinsics from the node's transaction pool
+
+        Returns:
+            list of extrinsics
+        """
+
+        runtime = await self.init_runtime()
+
+        result_data = await self.rpc_request("author_pendingExtrinsics", [])
+
+        extrinsics = []
+
+        for extrinsic_data in result_data["result"]:
+            extrinsic = runtime.runtime_config.create_scale_object(
+                "Extrinsic", metadata=runtime.metadata
+            )
+            extrinsic.decode(
+                ScaleBytes(extrinsic_data),
+                check_remaining=self.config.get("strict_scale_decode"),
+            )
+            extrinsics.append(extrinsic)
+
+        return extrinsics
+
     async def get_metadata_storage_functions(self, block_hash=None) -> list:
         """
         Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if block_hash is
@@ -1170,6 +1295,41 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         Returns:
             runtime call function
+        """
+        await self.init_runtime(block_hash=block_hash)
+
+        try:
+            runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
+                "methods"
+            ][method]
+            runtime_call_def["api"] = api
+            runtime_call_def["method"] = method
+            runtime_api_types = self.runtime_config.type_registry["runtime_api"][
+                api
+            ].get("types", {})
+        except KeyError:
+            raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
+
+        # Add runtime API types to registry
+        self.runtime_config.update_type_registry_types(runtime_api_types)
+
+        runtime_call_def_obj = await self.create_scale_object("RuntimeCallDefinition")
+        runtime_call_def_obj.encode(runtime_call_def)
+
+        return runtime_call_def_obj
+
+    async def get_metadata_runtime_call_function(
+        self, api: str, method: str
+    ) -> GenericRuntimeCallDefinition:
+        """
+        Get details of a runtime API call
+
+        Args:
+            api: Name of the runtime API e.g. 'TransactionPaymentApi'
+            method: Name of the method e.g. 'query_fee_details'
+
+        Returns:
+            GenericRuntimeCallDefinition
         """
         await self.init_runtime(block_hash=block_hash)
 
@@ -1393,6 +1553,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 return await decode_block(
                     response["result"]["block"], block_data_hash=block_hash
                 )
+
+    get_block_handler = _get_block_handler
 
     async def get_block(
         self,
@@ -1669,6 +1831,21 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 events.append(convert_event_data(item))
         return events
 
+    async def get_metadata(self, block_hash=None) -> MetadataV15:
+        """
+        Returns `MetadataVersioned` object for given block_hash or chaintip if block_hash is omitted
+
+
+        Args:
+            block_hash
+
+        Returns:
+            MetadataVersioned
+        """
+        runtime = await self.init_runtime(block_hash=block_hash)
+
+        return runtime.metadata_v15
+
     @a.lru_cache(maxsize=512)
     async def get_parent_block_hash(self, block_hash):
         return await self._get_parent_block_hash(block_hash)
@@ -1685,9 +1862,42 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return block_hash
         return parent_block_hash
 
+    async def get_storage_by_key(self, block_hash: str, storage_key: str) -> Any:
+        """
+        A pass-though to existing JSONRPC method `state_getStorage`/`state_getStorageAt`
+
+        Args:
+            block_hash: hash of the block
+            storage_key: storage key to query
+
+        Returns:
+            result of the query
+
+        """
+
+        if await self.supports_rpc_method("state_getStorageAt"):
+            response = await self.rpc_request(
+                "state_getStorageAt", [storage_key, block_hash]
+            )
+        else:
+            response = await self.rpc_request(
+                "state_getStorage", [storage_key, block_hash]
+            )
+
+        if "result" in response:
+            return response.get("result")
+        elif "error" in response:
+            raise SubstrateRequestException(response["error"]["message"])
+        else:
+            raise SubstrateRequestException(
+                "Unknown error occurred during retrieval of events"
+            )
+
     @a.lru_cache(maxsize=16)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
         return await self._get_block_runtime_info(block_hash)
+
+    get_block_runtime_version = get_block_runtime_info
 
     async def _get_block_runtime_info(self, block_hash: str) -> dict:
         """
@@ -2415,6 +2625,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             # Sign payload
             signature = keypair.sign(signature_payload)
+            if inspect.isawaitable(signature):
+                signature = await signature
 
         # Create extrinsic
         extrinsic = self.runtime_config.create_scale_object(
@@ -2440,6 +2652,34 @@ class AsyncSubstrateInterface(SubstrateMixin):
             value["signature_version"] = signature_version
 
         extrinsic.encode(value)
+
+        return extrinsic
+
+    async def create_unsigned_extrinsic(self, call: GenericCall) -> GenericExtrinsic:
+        """
+        Create unsigned extrinsic for given `Call`
+
+        Args:
+            call: GenericCall the call the extrinsic should contain
+
+        Returns:
+            GenericExtrinsic
+        """
+
+        runtime = await self.init_runtime()
+
+        # Create extrinsic
+        extrinsic = self.runtime_config.create_scale_object(
+            type_string="Extrinsic", metadata=runtime.metadata
+        )
+
+        extrinsic.encode(
+            {
+                "call_function": call.value["call_function"],
+                "call_module": call.value["call_module"],
+                "call_args": call.value["call_args"],
+            }
+        )
 
         return extrinsic
 
@@ -2528,13 +2768,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              ScaleType from the runtime call
         """
-        await self.init_runtime(block_hash=block_hash)
+        runtime = await self.init_runtime(block_hash=block_hash)
 
         if params is None:
             params = {}
 
         try:
-            metadata_v15_value = self.runtime.metadata_v15.value()
+            metadata_v15_value = runtime.metadata_v15.value()
 
             apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
             api_entry = apis[api]
@@ -2626,6 +2866,29 @@ class AsyncSubstrateInterface(SubstrateMixin):
             else:
                 self._nonces[account_address] += 1
         return self._nonces[account_address]
+
+    async def get_metadata_constants(self, block_hash=None) -> list[dict]:
+        """
+        Retrieves a list of all constants in metadata active at given block_hash (or chaintip if block_hash is omitted)
+
+        Args:
+            block_hash: hash of the block
+
+        Returns:
+            list of constants
+        """
+
+        runtime = await self.init_runtime(block_hash=block_hash)
+
+        constant_list = []
+
+        for module_idx, module in enumerate(self.metadata.pallets):
+            for constant in module.constants or []:
+                constant_list.append(
+                    self.serialize_constant(constant, module, runtime.runtime_version)
+                )
+
+        return constant_list
 
     async def get_metadata_constant(self, module_name, constant_name, block_hash=None):
         """
@@ -2994,6 +3257,100 @@ class AsyncSubstrateInterface(SubstrateMixin):
             ignore_decoding_errors=ignore_decoding_errors,
         )
 
+    async def create_multisig_extrinsic(
+        self,
+        call: GenericCall,
+        keypair: Keypair,
+        multisig_account: MultiAccountId,
+        max_weight: Optional[Union[dict, int]] = None,
+        era: dict = None,
+        nonce: int = None,
+        tip: int = 0,
+        tip_asset_id: int = None,
+        signature: Union[bytes, str] = None,
+    ) -> GenericExtrinsic:
+        """
+        Create a Multisig extrinsic that will be signed by one of the signatories. Checks on-chain if the threshold
+        of the multisig account is reached and try to execute the call accordingly.
+
+        Args:
+            call: GenericCall to create extrinsic for
+            keypair: Keypair of the signatory to approve given call
+            multisig_account: MultiAccountId to use of origin of the extrinsic (see `generate_multisig_account()`)
+            max_weight: Maximum allowed weight to execute the call ( Uses `get_payment_info()` by default)
+            era: Specify mortality in blocks in follow format: {'period': [amount_blocks]} If omitted the extrinsic is
+                immortal
+            nonce: nonce to include in extrinsics, if omitted the current nonce is retrieved on-chain
+            tip: The tip for the block author to gain priority during network congestion
+            tip_asset_id: Optional asset ID with which to pay the tip
+            signature: Optionally provide signature if externally signed
+
+        Returns:
+            GenericExtrinsic
+        """
+        if max_weight is None:
+            payment_info = await self.get_payment_info(call, keypair)
+            max_weight = payment_info["weight"]
+
+        # Check if call has existing approvals
+        multisig_details_ = await self.query(
+            "Multisig", "Multisigs", [multisig_account.value, call.call_hash]
+        )
+        multisig_details = getattr(multisig_details_, "value", multisig_details_)
+        if multisig_details:
+            maybe_timepoint = multisig_details["when"]
+        else:
+            maybe_timepoint = None
+
+        # Compose 'as_multi' when final, 'approve_as_multi' otherwise
+        if (
+            multisig_details.value
+            and len(multisig_details.value["approvals"]) + 1
+            == multisig_account.threshold
+        ):
+            multi_sig_call = await self.compose_call(
+                "Multisig",
+                "as_multi",
+                {
+                    "other_signatories": [
+                        s
+                        for s in multisig_account.signatories
+                        if s != f"0x{keypair.public_key.hex()}"
+                    ],
+                    "threshold": multisig_account.threshold,
+                    "maybe_timepoint": maybe_timepoint,
+                    "call": call,
+                    "store_call": False,
+                    "max_weight": max_weight,
+                },
+            )
+        else:
+            multi_sig_call = await self.compose_call(
+                "Multisig",
+                "approve_as_multi",
+                {
+                    "other_signatories": [
+                        s
+                        for s in multisig_account.signatories
+                        if s != f"0x{keypair.public_key.hex()}"
+                    ],
+                    "threshold": multisig_account.threshold,
+                    "maybe_timepoint": maybe_timepoint,
+                    "call_hash": call.call_hash,
+                    "max_weight": max_weight,
+                },
+            )
+
+        return await self.create_signed_extrinsic(
+            multi_sig_call,
+            keypair,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            signature=signature,
+        )
+
     async def submit_extrinsic(
         self,
         extrinsic: GenericExtrinsic,
@@ -3135,6 +3492,55 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     if call.name == call_function_name:
                         return call
         return None
+
+    async def get_metadata_events(self, block_hash=None) -> list[dict]:
+        """
+        Retrieves a list of all events in metadata active for given block_hash (or chaintip if block_hash is omitted)
+
+        Args:
+            block_hash
+
+        Returns:
+            list of module events
+        """
+
+        runtime = await self.init_runtime(block_hash=block_hash)
+
+        event_list = []
+
+        for event_index, (module, event) in self.metadata.event_index.items():
+            event_list.append(
+                self.serialize_module_event(
+                    module, event, runtime.runtime_version, event_index
+                )
+            )
+
+        return event_list
+
+    async def get_metadata_event(
+        self, module_name, event_name, block_hash=None
+    ) -> Optional[Any]:
+        """
+        Retrieves the details of an event for given module name, call function name and block_hash
+        (or chaintip if block_hash is omitted)
+
+        Args:
+            module_name: name of the module to call
+            event_name: name of the event
+            block_hash: hash of the block
+
+        Returns:
+            Metadata event
+
+        """
+
+        runtime = await self.init_runtime(block_hash=block_hash)
+
+        for pallet in runtime.metadata.pallets:
+            if pallet.name == module_name and pallet.events:
+                for event in pallet.events:
+                    if event.name == event_name:
+                        return event
 
     async def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""

@@ -7,12 +7,12 @@ from datetime import datetime
 from typing import Optional, Union, Any
 
 from bt_decode import PortableRegistry, encode as encode_by_type_string
-from bittensor_wallet.utils import SS58_FORMAT
 from scalecodec import ss58_encode, ss58_decode, is_valid_ss58_address
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes
 from scalecodec.type_registry import load_type_registry_preset
-from scalecodec.types import GenericCall, ScaleType
+from scalecodec.types import GenericCall, ScaleType, MultiAccountId
 
+from .const import SS58_FORMAT
 from .utils import json
 
 
@@ -919,3 +919,27 @@ class SubstrateMixin(ABC):
         if isinstance(account, bytes):
             return account  # Already encoded
         return bytes.fromhex(ss58_decode(account, SS58_FORMAT))  # SS58 string
+
+    def generate_multisig_account(
+        self, signatories: list, threshold: int
+    ) -> MultiAccountId:
+        """
+        Generate deterministic Multisig account with supplied signatories and threshold
+
+        Args:
+            signatories: List of signatories
+            threshold: Amount of approvals needed to execute
+
+        Returns:
+            MultiAccountId
+        """
+
+        multi_sig_account = MultiAccountId.create_from_account_list(
+            signatories, threshold
+        )
+
+        multi_sig_account.ss58_address = ss58_encode(
+            multi_sig_account.value.replace("0x", ""), self.ss58_format
+        )
+
+        return multi_sig_account
