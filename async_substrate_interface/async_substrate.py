@@ -673,6 +673,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        legacy_account_id_decode: bool = True,
     ):
         """
         The asyncio-compatible version of the subtensor interface commands we use in bittensor. It is important to
@@ -690,6 +691,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
             _mock: whether to use mock version of the subtensor interface
+            legacy_account_id_decode: determines whether AccountIds will be encoded as str
+                i.e. `False` => '5CPpYrrPXVWBpFVPwucyaVz8yHmgEx2gSYsqKxjkpcS6XRTC'
+                or left as a tuple of ints, i.e. `True` => `((14, 148, 49, 116, 204, 181, 15, 159, 227, 104, 234, 66,
+                22, 124, 11, 249, 247, 114, 82, 128, 38, 255, 65, 253, 173, 84, 57, 90, 168, 143, 203, 96),)`
 
         """
         self.max_retries = max_retries
@@ -726,6 +731,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self._initializing = False
         self.registry_type_map = {}
         self.type_id_to_name = {}
+        self.legacy_account_id_decode = legacy_account_id_decode
 
     async def __aenter__(self):
         await self.initialize()
@@ -901,7 +907,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
             await self._wait_for_registry(_attempt, _retries)
-            obj = decode_by_type_string(type_string, self.runtime.registry, scale_bytes)
+            obj = decode_by_type_string(
+                type_string,
+                self.runtime.registry,
+                scale_bytes,
+                self.legacy_account_id_decode,
+            )
         if return_scale_obj:
             return ScaleObj(obj)
         else:
@@ -3243,6 +3254,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     value_type,
                     key_hashers,
                     ignore_decoding_errors,
+                    self.legacy_account_id_decode,
                 )
         return AsyncQueryMapResult(
             records=result,

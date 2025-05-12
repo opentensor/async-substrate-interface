@@ -483,6 +483,7 @@ class SubstrateInterface(SubstrateMixin):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        legacy_account_id_decode: bool = True,
     ):
         """
         The sync compatible version of the subtensor interface commands we use in bittensor. Use this instance only
@@ -499,6 +500,10 @@ class SubstrateInterface(SubstrateMixin):
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
             _mock: whether to use mock version of the subtensor interface
+            legacy_account_id_decode: determines whether AccountIds will be encoded as str
+                i.e. `False` => '5CPpYrrPXVWBpFVPwucyaVz8yHmgEx2gSYsqKxjkpcS6XRTC'
+                or left as a tuple of ints, i.e. `True` => `((14, 148, 49, 116, 204, 181, 15, 159, 227, 104, 234, 66,
+                22, 124, 11, 249, 247, 114, 82, 128, 38, 255, 65, 253, 173, 84, 57, 90, 168, 143, 203, 96),)`
 
         """
         self.max_retries = max_retries
@@ -525,6 +530,7 @@ class SubstrateInterface(SubstrateMixin):
         self.ws = self.connect(init=True)
         self.registry_type_map = {}
         self.type_id_to_name = {}
+        self.legacy_account_id_decode = legacy_account_id_decode
         if not _mock:
             self.initialize()
 
@@ -668,7 +674,12 @@ class SubstrateInterface(SubstrateMixin):
             # Decode AccountId bytes to SS58 address
             return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
-            obj = decode_by_type_string(type_string, self.runtime.registry, scale_bytes)
+            obj = decode_by_type_string(
+                type_string,
+                self.runtime.registry,
+                scale_bytes,
+                self.legacy_account_id_decode,
+            )
         if return_scale_obj:
             return ScaleObj(obj)
         else:
@@ -2873,7 +2884,6 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
              QueryMapResult object
         """
-        hex_to_bytes_ = hex_to_bytes
         params = params or []
         block_hash = self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
@@ -2955,6 +2965,7 @@ class SubstrateInterface(SubstrateMixin):
                     value_type,
                     key_hashers,
                     ignore_decoding_errors,
+                    self.legacy_account_id_decode,
                 )
         return QueryMapResult(
             records=result,

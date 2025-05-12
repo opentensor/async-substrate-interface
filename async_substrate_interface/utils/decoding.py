@@ -1,8 +1,6 @@
 from typing import Union, TYPE_CHECKING
 
 from bt_decode import AxonInfo, PrometheusInfo, decode_list
-from scalecodec import ss58_encode
-from bittensor_wallet.utils import SS58_FORMAT
 
 from async_substrate_interface.utils import hex_to_bytes
 from async_substrate_interface.types import ScaleObj
@@ -59,8 +57,11 @@ def _decode_scale_list_with_runtime(
     scale_bytes_list: list[bytes],
     runtime_registry,
     return_scale_obj: bool = False,
+    legacy_account_id: bool = True,
 ):
-    obj = decode_list(type_strings, runtime_registry, scale_bytes_list)
+    obj = decode_list(
+        type_strings, runtime_registry, scale_bytes_list, legacy_account_id
+    )
     if return_scale_obj:
         return [ScaleObj(x) for x in obj]
     else:
@@ -76,6 +77,7 @@ def decode_query_map(
     value_type,
     key_hashers,
     ignore_decoding_errors,
+    legacy_account_id: bool = True,
 ):
     def concat_hash_len(key_hasher: str) -> int:
         """
@@ -112,6 +114,7 @@ def decode_query_map(
         pre_decoded_key_types + pre_decoded_value_types,
         pre_decoded_keys + pre_decoded_values,
         runtime.registry,
+        legacy_account_id,
     )
     middl_index = len(all_decoded) // 2
     decoded_keys = all_decoded[:middl_index]
