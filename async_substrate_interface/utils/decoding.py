@@ -114,7 +114,7 @@ def decode_query_map(
         pre_decoded_key_types + pre_decoded_value_types,
         pre_decoded_keys + pre_decoded_values,
         runtime.registry,
-        legacy_account_id,
+        legacy_account_id=legacy_account_id,
     )
     middl_index = len(all_decoded) // 2
     decoded_keys = all_decoded[:middl_index]

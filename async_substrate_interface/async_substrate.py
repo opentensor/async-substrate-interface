@@ -3254,7 +3254,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     value_type,
                     key_hashers,
                     ignore_decoding_errors,
-                    self.legacy_account_id_decode,
+                    legacy_account_id=self.legacy_account_id_decode,
                 )
         return AsyncQueryMapResult(
             records=result,
