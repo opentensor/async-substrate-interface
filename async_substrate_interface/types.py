@@ -649,18 +649,18 @@ class SubstrateMixin(ABC):
         # Pass 2: Resolve remaining types
         pending_ids = set(type_by_id.keys()) - set(type_id_to_name.keys())
 
-        def resolve_type_definition(type_id):
-            type_entry = type_by_id[type_id]
-            type_def = type_entry["type"]["def"]
-            type_path = type_entry["type"].get("path", [])
-            type_params = type_entry["type"].get("params", [])
+        def resolve_type_definition(type_id_):
+            type_entry_ = type_by_id[type_id_]
+            type_def_ = type_entry_["type"]["def"]
+            type_path_ = type_entry_["type"].get("path", [])
+            type_params = type_entry_["type"].get("params", [])
 
-            if type_id in type_id_to_name:
-                return type_id_to_name[type_id]
+            if type_id_ in type_id_to_name:
+                return type_id_to_name[type_id_]
 
             # Resolve complex types with paths (including generics like Option etc)
-            if type_path:
-                type_name = type_path[-1]
+            if type_path_:
+                type_name_ = type_path_[-1]
                 if type_params:
                     inner_names = []
                     for param in type_params:
@@ -668,48 +668,48 @@ class SubstrateMixin(ABC):
                         if dep_id not in type_id_to_name:
                             return None
                         inner_names.append(type_id_to_name[dep_id])
-                    return f"{type_name}<{', '.join(inner_names)}>"
-                if "variant" in type_def:
+                    return f"{type_name_}<{', '.join(inner_names)}>"
+                if "variant" in type_def_:
                     return None
-                return type_name
+                return type_name_
 
-            elif "sequence" in type_def:
-                sequence_type_id = type_def["sequence"]["type"]
+            elif "sequence" in type_def_:
+                sequence_type_id = type_def_["sequence"]["type"]
                 inner_type = type_id_to_name.get(sequence_type_id)
                 if inner_type:
-                    type_name = f"Vec<{inner_type}>"
-                    return type_name
+                    type_name_ = f"Vec<{inner_type}>"
+                    return type_name_
 
-            elif "array" in type_def:
-                array_type_id = type_def["array"]["type"]
+            elif "array" in type_def_:
+                array_type_id = type_def_["array"]["type"]
                 inner_type = type_id_to_name.get(array_type_id)
-                maybe_len = type_def["array"].get("len")
+                maybe_len = type_def_["array"].get("len")
                 if inner_type:
                     if maybe_len:
-                        type_name = f"[{inner_type}; {maybe_len}]"
+                        type_name_ = f"[{inner_type}; {maybe_len}]"
                     else:
-                        type_name = f"[{inner_type}]"
-                return type_name
+                        type_name_ = f"[{inner_type}]"
+                    return type_name_
 
-            elif "compact" in type_def:
-                compact_type_id = type_def["compact"]["type"]
+            elif "compact" in type_def_:
+                compact_type_id = type_def_["compact"]["type"]
                 inner_type = type_id_to_name.get(compact_type_id)
                 if inner_type:
-                    type_name = f"Compact<{inner_type}>"
-                    return type_name
+                    type_name_ = f"Compact<{inner_type}>"
+                    return type_name_
 
-            elif "tuple" in type_def:
-                tuple_type_ids = type_def["tuple"]
+            elif "tuple" in type_def_:
+                tuple_type_ids = type_def_["tuple"]
                 type_names = []
                 for inner_type_id in tuple_type_ids:
                     if inner_type_id not in type_id_to_name:
                         return None
                     type_names.append(type_id_to_name[inner_type_id])
-                type_name = ", ".join(type_names)
-                type_name = f"({type_name})"
-                return type_name
+                type_name_ = ", ".join(type_names)
+                type_name_ = f"({type_name_})"
+                return type_name_
 
-            elif "variant" in type_def:
+            elif "variant" in type_def_:
                 return None
 
             return None

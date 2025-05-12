@@ -29,7 +29,6 @@ def single_local_chain():
     try:
         yield process
     finally:
-        print("TRIGGERED KILL")
         subprocess.run(["docker", "kill", process.name])
         process.process.kill()
 
@@ -54,7 +53,6 @@ def test_retry_sync_substrate_max_retries(docker_containers):
         docker_containers[0].uri, fallback_chains=[docker_containers[1].uri]
     ) as substrate:
         for i in range(5):
-            print("EYE EQUALS", i)
             assert substrate.get_chain_head().startswith("0x")
             if i == 2:
                 subprocess.run(["docker", "pause", docker_containers[0].name])

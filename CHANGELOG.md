@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1 /2025-05-12
+
+## What's Changed
+* Remove testing print calls. by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/117
+* Fix name shadowing by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/118
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.2.0...v1.2.1
+
 ## 1.2.0 /2025-05-07
 
 ## What's Changed
