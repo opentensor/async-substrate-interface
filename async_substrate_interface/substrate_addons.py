@@ -117,7 +117,7 @@ class RetrySyncSubstrate(SubstrateInterface):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
-        legacy_account_id_decode: bool = True
+        legacy_account_id_decode: bool = True,
     ):
         fallback_chains = fallback_chains or []
         self.fallback_chains = (
@@ -148,7 +148,7 @@ class RetrySyncSubstrate(SubstrateInterface):
                     _mock=_mock,
                     retry_timeout=retry_timeout,
                     max_retries=max_retries,
-                    legacy_account_id_decode=self.legacy_account_id_decode
+                    legacy_account_id_decode=self.legacy_account_id_decode,
                 )
                 initialized = True
                 logger.info(f"Connected to {chain_url}")
@@ -246,6 +246,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        legacy_account_id_decode: bool = True,
     ):
         fallback_chains = fallback_chains or []
         self.fallback_chains = (
@@ -268,6 +269,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             _mock=_mock,
             retry_timeout=retry_timeout,
             max_retries=max_retries,
+            legacy_account_id_decode=legacy_account_id_decode,
         )
         self._original_methods = {
             method: getattr(self, method) for method in RETRY_METHODS
