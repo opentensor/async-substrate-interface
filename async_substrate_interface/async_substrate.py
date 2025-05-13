@@ -3653,7 +3653,7 @@ async def get_async_substrate_interface(
     max_retries: int = 5,
     retry_timeout: float = 60.0,
     _mock: bool = False,
-    legacy_account_id_decode: bool = True
+    legacy_account_id_decode: bool = True,
 ) -> "AsyncSubstrateInterface":
     """
     Factory function for creating an initialized AsyncSubstrateInterface
@@ -3668,7 +3668,7 @@ async def get_async_substrate_interface(
         max_retries,
         retry_timeout,
         _mock,
-        legacy_account_id_decode=legacy_account_id_decode
+        legacy_account_id_decode=legacy_account_id_decode,
     )
     await substrate.initialize()
     return substrate
