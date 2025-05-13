@@ -117,6 +117,7 @@ class RetrySyncSubstrate(SubstrateInterface):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        legacy_account_id_decode: bool = True
     ):
         fallback_chains = fallback_chains or []
         self.fallback_chains = (
@@ -131,6 +132,7 @@ class RetrySyncSubstrate(SubstrateInterface):
         self.max_retries = max_retries
         self.chain_endpoint = url
         self.url = url
+        self.legacy_account_id_decode = legacy_account_id_decode
         initialized = False
         for chain_url in [url] + fallback_chains:
             try:
@@ -146,6 +148,7 @@ class RetrySyncSubstrate(SubstrateInterface):
                     _mock=_mock,
                     retry_timeout=retry_timeout,
                     max_retries=max_retries,
+                    legacy_account_id_decode=self.legacy_account_id_decode
                 )
                 initialized = True
                 logger.info(f"Connected to {chain_url}")
