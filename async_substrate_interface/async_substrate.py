@@ -531,12 +531,20 @@ class Websocket:
         self._open_subscriptions = 0
         self._options = options if options else {}
         self.last_received = time.time()
+        self.last_sent = time.time()
 
     async def __aenter__(self):
         async with self._lock:
             self._in_use += 1
             await self.connect()
+            now = asyncio.get_running_loop().time()
+            self.last_received = now
+            self.last_sent = now
         return self
+
+    @staticmethod
+    async def loop_time() -> float:
+        return asyncio.get_running_loop().time()
 
     async def connect(self, force=False):
         if self._exit_task:
@@ -594,7 +602,7 @@ class Websocket:
         try:
             # TODO consider wrapping this in asyncio.wait_for and use that for the timeout logic
             response = json.loads(await self.ws.recv(decode=False))
-            self.last_received = time.time()
+            self.last_received = await self.loop_time()
             async with self._lock:
                 # note that these 'subscriptions' are all waiting sent messages which have not received
                 # responses, and thus are not the same as RPC 'subscriptions', which are unique
@@ -630,12 +638,12 @@ class Websocket:
         Returns:
             id: the internal ID of the request (incremented int)
         """
-        # async with self._lock:
         original_id = get_next_id()
         # self._open_subscriptions += 1
         await self.max_subscriptions.acquire()
         try:
             await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
+            self.last_sent = await self.loop_time()
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
             async with self._lock:
@@ -2120,7 +2128,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                 if request_manager.is_complete:
                     break
-                if time.time() - self.ws.last_received >= self.retry_timeout:
+                if (
+                    (current_time := await self.ws.loop_time()) - self.ws.last_received
+                    >= self.retry_timeout
+                    and current_time - self.ws.last_sent >= self.retry_timeout
+                ):
                     if attempt >= self.max_retries:
                         logger.warning(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
