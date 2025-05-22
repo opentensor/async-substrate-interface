@@ -9,6 +9,8 @@ import inspect
 import logging
 import ssl
 import time
+import warnings
+from unittest.mock import AsyncMock
 from hashlib import blake2b
 from typing import (
     Optional,
@@ -530,7 +532,16 @@ class Websocket:
         self._exit_task = None
         self._open_subscriptions = 0
         self._options = options if options else {}
-        self.last_received = time.time()
+        try:
+            now = asyncio.get_running_loop().time()
+        except RuntimeError:
+            warnings.warn(
+                "You are instantiating the AsyncSubstrateInterface Websocket outside of an event loop. "
+                "Verify this is intended."
+            )
+            now = asyncio.new_event_loop().time()
+        self.last_received = now
+        self.last_sent = now
 
     async def __aenter__(self):
         async with self._lock:
@@ -538,7 +549,14 @@ class Websocket:
             await self.connect()
         return self
 
+    @staticmethod
+    async def loop_time() -> float:
+        return asyncio.get_running_loop().time()
+
     async def connect(self, force=False):
+        now = await self.loop_time()
+        self.last_received = now
+        self.last_sent = now
         if self._exit_task:
             self._exit_task.cancel()
         if not self._initialized or force:
@@ -594,7 +612,7 @@ class Websocket:
         try:
             # TODO consider wrapping this in asyncio.wait_for and use that for the timeout logic
             response = json.loads(await self.ws.recv(decode=False))
-            self.last_received = time.time()
+            self.last_received = await self.loop_time()
             async with self._lock:
                 # note that these 'subscriptions' are all waiting sent messages which have not received
                 # responses, and thus are not the same as RPC 'subscriptions', which are unique
@@ -630,12 +648,12 @@ class Websocket:
         Returns:
             id: the internal ID of the request (incremented int)
         """
-        # async with self._lock:
         original_id = get_next_id()
         # self._open_subscriptions += 1
         await self.max_subscriptions.acquire()
         try:
             await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
+            self.last_sent = await self.loop_time()
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
             async with self._lock:
@@ -697,13 +715,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.chain_endpoint = url
         self.url = url
         self._chain = chain_name
-        self.ws = Websocket(
-            url,
-            options={
-                "max_size": self.ws_max_size,
-                "write_limit": 2**16,
-            },
-        )
+        if not _mock:
+            self.ws = Websocket(
+                url,
+                options={
+                    "max_size": self.ws_max_size,
+                    "write_limit": 2**16,
+                },
+            )
+        else:
+            self.ws = AsyncMock(spec=Websocket)
         self._lock = asyncio.Lock()
         self.config = {
             "use_remote_preset": use_remote_preset,
@@ -726,9 +747,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self._initializing = False
         self.registry_type_map = {}
         self.type_id_to_name = {}
+        self._mock = _mock
 
     async def __aenter__(self):
-        await self.initialize()
+        if not self._mock:
+            await self.initialize()
         return self
 
     async def initialize(self):
@@ -2120,7 +2143,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                 if request_manager.is_complete:
                     break
-                if time.time() - self.ws.last_received >= self.retry_timeout:
+                if (
+                    (current_time := await self.ws.loop_time()) - self.ws.last_received
+                    >= self.retry_timeout
+                    and current_time - self.ws.last_sent >= self.retry_timeout
+                ):
                     if attempt >= self.max_retries:
                         logger.warning(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
