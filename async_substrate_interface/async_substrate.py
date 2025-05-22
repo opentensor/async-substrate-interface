@@ -9,6 +9,7 @@ import inspect
 import logging
 import ssl
 import time
+import warnings
 from hashlib import blake2b
 from typing import (
     Optional,
@@ -530,16 +531,21 @@ class Websocket:
         self._exit_task = None
         self._open_subscriptions = 0
         self._options = options if options else {}
-        self.last_received = time.time()
-        self.last_sent = time.time()
+        try:
+            now = asyncio.get_running_loop().time()
+        except RuntimeError:
+            warnings.warn(
+                "You are instantiating the AsyncSubstrateInterface Websocket outside of an event loop. "
+                "Verify this is intended."
+            )
+            now = asyncio.new_event_loop().time()
+        self.last_received = now
+        self.last_sent = now
 
     async def __aenter__(self):
         async with self._lock:
             self._in_use += 1
             await self.connect()
-            now = asyncio.get_running_loop().time()
-            self.last_received = now
-            self.last_sent = now
         return self
 
     @staticmethod
@@ -547,6 +553,9 @@ class Websocket:
         return asyncio.get_running_loop().time()
 
     async def connect(self, force=False):
+        now = await self.loop_time()
+        self.last_received = now
+        self.last_sent = now
         if self._exit_task:
             self._exit_task.cancel()
         if not self._initialized or force:
