@@ -9,6 +9,7 @@ import inspect
 import logging
 import ssl
 import time
+from unittest.mock import AsyncMock
 from hashlib import blake2b
 from typing import (
     Optional,
@@ -697,13 +698,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.chain_endpoint = url
         self.url = url
         self._chain = chain_name
-        self.ws = Websocket(
-            url,
-            options={
-                "max_size": self.ws_max_size,
-                "write_limit": 2**16,
-            },
-        )
+        if not _mock:
+            self.ws = Websocket(
+                url,
+                options={
+                    "max_size": self.ws_max_size,
+                    "write_limit": 2**16,
+                },
+            )
+        else:
+            self.ws = AsyncMock(spec=Websocket)
         self._lock = asyncio.Lock()
         self.config = {
             "use_remote_preset": use_remote_preset,
@@ -726,9 +730,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self._initializing = False
         self.registry_type_map = {}
         self.type_id_to_name = {}
+        self._mock = _mock
 
     async def __aenter__(self):
-        await self.initialize()
+        if not self._mock:
+            await self.initialize()
         return self
 
     async def initialize(self):
