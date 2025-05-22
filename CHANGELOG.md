@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1 /2025-05-22
+
+## What's Changed
+* Add proper mock support by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/123
+* Handle Incorrect Timeouts by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/124
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.2.1...v1.2.2
+
 ## 1.2.1 /2025-05-12
 
 ## What's Changed
