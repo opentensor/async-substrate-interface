@@ -3,6 +3,7 @@ import logging
 import socket
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
+from unittest.mock import MagicMock
 
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec import (
@@ -13,7 +14,7 @@ from scalecodec import (
     MultiAccountId,
 )
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
-from websockets.sync.client import connect
+from websockets.sync.client import connect, ClientConnection
 from websockets.exceptions import ConnectionClosed
 
 from async_substrate_interface.const import SS58_FORMAT
@@ -522,14 +523,18 @@ class SubstrateInterface(SubstrateMixin):
         )
         self.metadata_version_hex = "0x0f000000"  # v15
         self.reload_type_registry()
-        self.ws = self.connect(init=True)
         self.registry_type_map = {}
         self.type_id_to_name = {}
+        self._mock = _mock
         if not _mock:
+            self.ws = self.connect(init=True)
             self.initialize()
+        else:
+            self.ws = MagicMock(spec=ClientConnection)
 
     def __enter__(self):
-        self.initialize()
+        if not self._mock:
+            self.initialize()
         return self
 
     def __del__(self):
