@@ -1,9 +1,14 @@
+import asyncio
+from collections import OrderedDict
 import functools
 import os
 import pickle
 import sqlite3
 from pathlib import Path
+from typing import Callable, Any
+
 import asyncstdlib as a
+
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
 CACHE_LOCATION = (
@@ -139,3 +144,54 @@ def async_sql_lru_cache(maxsize=None):
         return inner
 
     return decorator
+
+
+class LRUCache:
+    def __init__(self, max_size: int):
+        self.max_size = max_size
+        self.cache = OrderedDict()
+
+    def set(self, key, value):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        if len(self.cache) > self.max_size:
+            self.cache.popitem(last=False)
+
+    def get(self, key):
+        if key in self.cache:
+            # Mark as recently used
+            self.cache.move_to_end(key)
+            return self.cache[key]
+        return None
+
+
+class CachedFetcher:
+    def __init__(self, max_size: int, method: Callable):
+        self._inflight: dict[int, asyncio.Future] = {}
+        self._method = method
+        self._cache = LRUCache(max_size=max_size)
+
+    async def execute(self, single_arg: Any) -> str:
+        if item := self._cache.get(single_arg):
+            return item
+
+        if single_arg in self._inflight:
+            result = await self._inflight[single_arg]
+            return result
+
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self._inflight[single_arg] = future
+
+        try:
+            result = await self._method(single_arg)
+            self._cache.set(single_arg, result)
+            future.set_result(result)
+            return result
+        except Exception as e:
+            # Propagate errors
+            future.set_exception(e)
+            raise
+        finally:
+            self._inflight.pop(single_arg, None)

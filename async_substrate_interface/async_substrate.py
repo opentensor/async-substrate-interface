@@ -22,7 +22,6 @@ from typing import (
     TYPE_CHECKING,
 )
 
-import asyncstdlib as a
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.types import (
@@ -58,7 +57,7 @@ from async_substrate_interface.utils import (
     get_next_id,
     rng as random,
 )
-from async_substrate_interface.utils.cache import async_sql_lru_cache
+from async_substrate_interface.utils.cache import async_sql_lru_cache, CachedFetcher
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -748,6 +747,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.registry_type_map = {}
         self.type_id_to_name = {}
         self._mock = _mock
+        self._block_hash_fetcher = CachedFetcher(512, self._get_block_hash)
+        self._parent_hash_fetcher = CachedFetcher(512, self._get_parent_block_hash)
+        self._runtime_info_fetcher = CachedFetcher(16, self._get_block_runtime_info)
+        self._runtime_version_for_fetcher = CachedFetcher(
+            512, self._get_block_runtime_version_for
+        )
 
     async def __aenter__(self):
         if not self._mock:
@@ -1869,9 +1874,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return runtime.metadata_v15
 
-    @a.lru_cache(maxsize=512)
     async def get_parent_block_hash(self, block_hash):
-        return await self._get_parent_block_hash(block_hash)
+        return await self._parent_hash_fetcher.execute(block_hash)
 
     async def _get_parent_block_hash(self, block_hash):
         block_header = await self.rpc_request("chain_getHeader", [block_hash])
@@ -1916,9 +1920,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Unknown error occurred during retrieval of events"
             )
 
-    @a.lru_cache(maxsize=16)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
-        return await self._get_block_runtime_info(block_hash)
+        return await self._runtime_info_fetcher.execute(block_hash)
 
     get_block_runtime_version = get_block_runtime_info
 
@@ -1929,9 +1932,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         response = await self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @a.lru_cache(maxsize=512)
     async def get_block_runtime_version_for(self, block_hash: str):
-        return await self._get_block_runtime_version_for(block_hash)
+        return await self._runtime_version_for_fetcher.execute(block_hash)
 
     async def _get_block_runtime_version_for(self, block_hash: str):
         """
@@ -2240,9 +2242,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @a.lru_cache(maxsize=512)
     async def get_block_hash(self, block_id: int) -> str:
-        return await self._get_block_hash(block_id)
+        return await self._block_hash_fetcher.execute(block_id)
 
     async def _get_block_hash(self, block_id: int) -> str:
         return (await self.rpc_request("chain_getBlockHash", [block_id]))["result"]
