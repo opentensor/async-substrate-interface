@@ -539,7 +539,7 @@ class Websocket:
                 "You are instantiating the AsyncSubstrateInterface Websocket outside of an event loop. "
                 "Verify this is intended."
             )
-            now = asyncio.new_event_loop().time()
+            now = 0.0
         self.last_received = now
         self.last_sent = now
 
