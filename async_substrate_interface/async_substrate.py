@@ -673,7 +673,7 @@ class Websocket:
             self.max_subscriptions.release()
             return item
         except KeyError:
-            await asyncio.sleep(0.001)
+            await asyncio.sleep(0.1)
             return None
 
 
@@ -2151,14 +2151,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     and current_time - self.ws.last_sent >= self.retry_timeout
                 ):
                     if attempt >= self.max_retries:
-                        logger.warning(
+                        logger.error(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
                         )
                         raise MaxRetriesExceeded("Max retries reached.")
                     else:
                         self.ws.last_received = time.time()
                         await self.ws.connect(force=True)
-                        logger.error(
+                        logger.warning(
                             f"Timed out waiting for RPC requests. "
                             f"Retrying attempt {attempt + 1} of {self.max_retries}"
                         )
