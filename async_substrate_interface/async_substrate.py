@@ -541,6 +541,7 @@ class Websocket:
             now = 0.0
         self.last_received = now
         self.last_sent = now
+        self._in_use_ids = set()
 
     async def __aenter__(self):
         self._in_use += 1
@@ -648,6 +649,9 @@ class Websocket:
             id: the internal ID of the request (incremented int)
         """
         original_id = get_next_id()
+        while original_id in self._in_use_ids:
+            original_id = get_next_id()
+        self._in_use_ids.add(original_id)
         # self._open_subscriptions += 1
         await self.max_subscriptions.acquire()
         try:
@@ -670,6 +674,7 @@ class Websocket:
         """
         try:
             item = self._received.pop(item_id)
+            self._in_use_ids.remove(item_id)
             self.max_subscriptions.release()
             return item
         except KeyError:
