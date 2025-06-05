@@ -544,9 +544,8 @@ class Websocket:
         self.last_sent = now
 
     async def __aenter__(self):
-        async with self._lock:
-            self._in_use += 1
-            await self.connect()
+        self._in_use += 1
+        await self.connect()
         return self
 
     @staticmethod
@@ -559,18 +558,19 @@ class Websocket:
         self.last_sent = now
         if self._exit_task:
             self._exit_task.cancel()
-        if not self._initialized or force:
-            self._initialized = True
-            try:
-                self._receiving_task.cancel()
-                await self._receiving_task
-                await self.ws.close()
-            except (AttributeError, asyncio.CancelledError):
-                pass
-            self.ws = await asyncio.wait_for(
-                connect(self.ws_url, **self._options), timeout=10
-            )
-            self._receiving_task = asyncio.create_task(self._start_receiving())
+        async with self._lock:
+            if not self._initialized or force:
+                try:
+                    self._receiving_task.cancel()
+                    await self._receiving_task
+                    await self.ws.close()
+                except (AttributeError, asyncio.CancelledError):
+                    pass
+                self.ws = await asyncio.wait_for(
+                    connect(self.ws_url, **self._options), timeout=10
+                )
+                self._receiving_task = asyncio.create_task(self._start_receiving())
+                self._initialized = True
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         async with self._lock:  # TODO is this actually what I want to happen?
