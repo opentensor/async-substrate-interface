@@ -619,6 +619,7 @@ class Websocket:
                 self._open_subscriptions -= 1
             if "id" in response:
                 self._received[response["id"]] = response
+                self._in_use_ids.remove(response["id"])
             elif "params" in response:
                 self._received[response["params"]["subscription"]] = response
             else:
@@ -674,7 +675,6 @@ class Websocket:
         """
         try:
             item = self._received.pop(item_id)
-            self._in_use_ids.remove(item_id)
             self.max_subscriptions.release()
             return item
         except KeyError:
