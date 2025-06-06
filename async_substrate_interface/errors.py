@@ -22,6 +22,16 @@ class MetadataAtVersionNotFound(SubstrateRequestException):
         super().__init__(message)
 
 
+class StateDiscardedError(SubstrateRequestException):
+    def __init__(self, block_hash: str):
+        self.block_hash = block_hash
+        message = (
+            f"State discarded for {block_hash}. This indicates the block is too old, and you should instead "
+            f"make this request using an archive node."
+        )
+        super().__init__(message)
+
+
 class StorageFunctionNotFound(ValueError):
     pass
 
