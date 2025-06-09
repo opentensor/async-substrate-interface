@@ -23,11 +23,7 @@ async def test_invalid_url_raises_exception():
 
 @pytest.mark.asyncio
 async def test_runtime_call(monkeypatch):
-    monkeypatch.setattr(
-        "async_substrate_interface.async_substrate.Websocket", unittest.mock.Mock()
-    )
-
-    substrate = AsyncSubstrateInterface("ws://localhost")
+    substrate = AsyncSubstrateInterface("ws://localhost", _mock=True)
     substrate._metadata = unittest.mock.Mock()
     substrate.metadata_v15 = unittest.mock.Mock(
         **{

@@ -732,6 +732,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
         else:
             self.ws = AsyncMock(spec=Websocket)
+
         self._lock = asyncio.Lock()
         self.config = {
             "use_remote_preset": use_remote_preset,
