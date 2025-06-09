@@ -28,6 +28,7 @@ async def test_cached_fetcher_fetches_and_caches():
     assert result3 == "result_key2"
     assert mock_method.await_count == 2
 
+
 @pytest.mark.asyncio
 async def test_cached_fetcher_handles_inflight_requests():
     """Tests that CachedFetcher waits for in-flight results instead of re-fetching."""
@@ -53,9 +54,11 @@ async def test_cached_fetcher_handles_inflight_requests():
     result1, result2 = await asyncio.gather(task1, task2)
     assert result1 == result2 == "slow_result_key1"
 
+
 @pytest.mark.asyncio
 async def test_cached_fetcher_propagates_errors():
     """Tests that CachedFetcher correctly propagates errors."""
+
     async def error_method(x):
         raise ValueError("Boom!")
 
@@ -63,6 +66,7 @@ async def test_cached_fetcher_propagates_errors():
 
     with pytest.raises(ValueError, match="Boom!"):
         await fetcher.execute("key1")
+
 
 @pytest.mark.asyncio
 async def test_cached_fetcher_eviction():
