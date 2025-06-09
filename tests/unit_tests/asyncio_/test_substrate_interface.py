@@ -1,11 +1,30 @@
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
-from async_substrate_interface.sync_substrate import SubstrateInterface
+import pytest
+from websockets.exceptions import InvalidURI
+
+from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 from async_substrate_interface.types import ScaleObj
 
 
-def test_runtime_call(monkeypatch):
-    substrate = SubstrateInterface("ws://localhost", _mock=True)
+@pytest.mark.asyncio
+async def test_invalid_url_raises_exception():
+    """Test that invalid URI raises an InvalidURI exception."""
+    async_substrate = AsyncSubstrateInterface("non_existent_entry_point")
+    with pytest.raises(InvalidURI):
+        await async_substrate.initialize()
+
+    with pytest.raises(InvalidURI):
+        async with AsyncSubstrateInterface(
+            "non_existent_entry_point"
+        ) as async_substrate:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_runtime_call(monkeypatch):
+    substrate = AsyncSubstrateInterface("ws://localhost", _mock=True)
+
     fake_runtime = MagicMock()
     fake_metadata_v15 = MagicMock()
     fake_metadata_v15.value.return_value = {
@@ -34,26 +53,26 @@ def test_runtime_call(monkeypatch):
         },
     }
     fake_runtime.metadata_v15 = fake_metadata_v15
-    substrate.init_runtime = MagicMock(return_value=fake_runtime)
+    substrate.init_runtime = AsyncMock(return_value=fake_runtime)
 
     # Patch encode_scale (should not be called in this test since no inputs)
-    substrate.encode_scale = MagicMock()
+    substrate.encode_scale = AsyncMock()
 
     # Patch decode_scale to produce a dummy value
-    substrate.decode_scale = MagicMock(return_value="decoded_result")
+    substrate.decode_scale = AsyncMock(return_value="decoded_result")
 
     # Patch RPC request with correct behavior
-    substrate.rpc_request = MagicMock(
+    substrate.rpc_request = AsyncMock(
         side_effect=lambda method, params: {
             "result": "0x00" if method == "state_call" else {"parentHash": "0xDEADBEEF"}
         }
     )
 
     # Patch get_block_runtime_info
-    substrate.get_block_runtime_info = MagicMock(return_value={"specVersion": "1"})
+    substrate.get_block_runtime_info = AsyncMock(return_value={"specVersion": "1"})
 
     # Run the call
-    result = substrate.runtime_call(
+    result = await substrate.runtime_call(
         "SubstrateApi",
         "SubstrateMethod",
     )
