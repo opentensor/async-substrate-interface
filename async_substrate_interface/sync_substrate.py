@@ -2504,13 +2504,13 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
              ScaleType from the runtime call
         """
-        self.init_runtime(block_hash=block_hash)
+        runtime = self.init_runtime(block_hash=block_hash)
 
         if params is None:
             params = {}
 
         try:
-            metadata_v15_value = self.runtime.metadata_v15.value()
+            metadata_v15_value = runtime.metadata_v15.value()
 
             apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
             api_entry = apis[api]
