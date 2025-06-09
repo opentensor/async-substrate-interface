@@ -1,34 +1,81 @@
-name: Run Unit Tests
+name: Run Tests
 
 on:
   push:
-    branches:
-      - main
-      - staging
+    branches: [main, staging]
   pull_request:
-    branches:
-      - main
-      - staging
+    branches: [main, staging]
+  workflow_dispatch:
 
 jobs:
-  run-tests:
+  find-tests:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
+      - name: Check-out repository
+        uses: actions/checkout@v4
+
+      - name: Find test files
+        id: get-tests
+        run: |
+          test_files=$(find tests -name "test*.py" | jq -R -s -c 'split("\n") | map(select(. != ""))')
+          echo "::set-output name=test-files::$test_files"
+
+  pull-docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
+
+      - name: Pull Docker Image
+        run: docker pull ghcr.io/opentensor/subtensor-localnet:devnet-ready
+
+      - name: Save Docker Image to Cache
+        run: docker save -o subtensor-localnet.tar ghcr.io/opentensor/subtensor-localnet:devnet-ready
+
+      - name: Upload Docker Image as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: subtensor-localnet
+          path: subtensor-localnet.tar
+
+  run-unit-tests:
+    name: ${{ matrix.test-file }} / Python ${{ matrix.python-version }}
+    needs:
+      - find-tests
+      - pull-docker-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 32
+      matrix:
+        test-file: ${{ fromJson(needs.find-tests.outputs.test-files) }}
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Check-out repository
         uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
-          python-version: 3.13
+          python-version: ${{ matrix.python-version }}
 
-      - name: install dependencies
+      - name: Install dependencies
         run: |
           uv venv .venv
           source .venv/bin/activate
           uv pip install .[dev]
 
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: subtensor-localnet
+
+      - name: Load Docker Image
+        run: docker load -i subtensor-localnet.tar
+
       - name: Run pytest
         run: |
           source .venv/bin/activate
-          pytest tests
+          uv run pytest ${{ matrix.test-file }} -v -s
