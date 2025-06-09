@@ -13,7 +13,7 @@ from typing import Optional
 from websockets.exceptions import ConnectionClosed
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface, Websocket
-from async_substrate_interface.errors import MaxRetriesExceeded
+from async_substrate_interface.errors import MaxRetriesExceeded, StateDiscardedError
 from async_substrate_interface.sync_substrate import SubstrateInterface
 
 logger = logging.getLogger("async_substrate_interface")
@@ -117,12 +117,16 @@ class RetrySyncSubstrate(SubstrateInterface):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        archive_nodes: Optional[list[str]] = None,
     ):
         fallback_chains = fallback_chains or []
         self.fallback_chains = (
             iter(fallback_chains)
             if not retry_forever
             else cycle(fallback_chains + [url])
+        )
+        self.archive_nodes = (
+            iter(archive_nodes) if not retry_forever else cycle(archive_nodes)
         )
         self.use_remote_preset = use_remote_preset
         self.chain_name = chain_name
@@ -174,9 +178,12 @@ class RetrySyncSubstrate(SubstrateInterface):
             EOFError,
             ConnectionClosed,
             TimeoutError,
+            socket.gaierror,
+            StateDiscardedError,
         ) as e:
+            use_archive = isinstance(e, StateDiscardedError)
             try:
-                self._reinstantiate_substrate(e)
+                self._reinstantiate_substrate(e, use_archive=use_archive)
                 return method_(*args, **kwargs)
             except StopIteration:
                 logger.error(
@@ -184,10 +191,19 @@ class RetrySyncSubstrate(SubstrateInterface):
                 )
                 raise MaxRetriesExceeded
 
-    def _reinstantiate_substrate(self, e: Optional[Exception] = None) -> None:
-        next_network = next(self.fallback_chains)
+    def _reinstantiate_substrate(
+        self, e: Optional[Exception] = None, use_archive: bool = False
+    ) -> None:
+        if use_archive:
+            bh = getattr(e, "block_hash", "Unknown Block Hash")
+            logger.info(
+                f"Attempt made to {bh} failed for state discarded. Attempting to switch to archive node."
+            )
+            next_network = next(self.archive_nodes)
+        else:
+            next_network = next(self.fallback_chains)
         self.ws.close()
-        if e.__class__ == MaxRetriesExceeded:
+        if isinstance(e, MaxRetriesExceeded):
             logger.error(
                 f"Max retries exceeded with {self.url}. Retrying with {next_network}."
             )
@@ -243,12 +259,16 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        archive_nodes: Optional[list[str]] = None,
     ):
         fallback_chains = fallback_chains or []
         self.fallback_chains = (
             iter(fallback_chains)
             if not retry_forever
             else cycle(fallback_chains + [url])
+        )
+        self.archive_nodes = (
+            iter(archive_nodes) if not retry_forever else cycle(archive_nodes)
         )
         self.use_remote_preset = use_remote_preset
         self.chain_name = chain_name
@@ -272,9 +292,18 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         for method in RETRY_METHODS:
             setattr(self, method, partial(self._retry, method))
 
-    async def _reinstantiate_substrate(self, e: Optional[Exception] = None) -> None:
-        next_network = next(self.fallback_chains)
-        if e.__class__ == MaxRetriesExceeded:
+    async def _reinstantiate_substrate(
+        self, e: Optional[Exception] = None, use_archive: bool = False
+    ) -> None:
+        if use_archive:
+            bh = getattr(e, "block_hash", "Unknown Block Hash")
+            logger.info(
+                f"Attempt made to {bh} failed for state discarded. Attempting to switch to archive node."
+            )
+            next_network = next(self.archive_nodes)
+        else:
+            next_network = next(self.fallback_chains)
+        if isinstance(e, MaxRetriesExceeded):
             logger.error(
                 f"Max retries exceeded with {self.url}. Retrying with {next_network}."
             )
@@ -314,9 +343,11 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             ConnectionClosed,
             EOFError,
             socket.gaierror,
+            StateDiscardedError,
         ) as e:
+            use_archive = isinstance(e, StateDiscardedError)
             try:
-                await self._reinstantiate_substrate(e)
+                await self._reinstantiate_substrate(e, use_archive=use_archive)
                 return await method_(*args, **kwargs)
             except StopAsyncIteration:
                 logger.error(

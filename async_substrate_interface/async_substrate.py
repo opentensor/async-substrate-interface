@@ -41,6 +41,7 @@ from async_substrate_interface.errors import (
     BlockNotFound,
     MaxRetriesExceeded,
     MetadataAtVersionNotFound,
+    StateDiscardedError,
 )
 from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
@@ -2148,6 +2149,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                 storage_item,
                                 result_handler,
                             )
+
                             request_manager.add_response(
                                 item_id, decoded_response, complete
                             )
@@ -2234,9 +2236,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         ]
         result = await self._make_rpc_request(payloads, result_handler=result_handler)
         if "error" in result[payload_id][0]:
-            if (
-                "Failed to get runtime version"
-                in result[payload_id][0]["error"]["message"]
+            if "Failed to get runtime version" in (
+                err_msg := result[payload_id][0]["error"]["message"]
             ):
                 logger.warning(
                     "Failed to get runtime. Re-fetching from chain, and retrying."
@@ -2245,7 +2246,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 return await self.rpc_request(
                     method, params, result_handler, block_hash, reuse_block_hash
                 )
-            raise SubstrateRequestException(result[payload_id][0]["error"]["message"])
+            elif (
+                "Client error: Api called for an unknown Block: State already discarded"
+                in err_msg
+            ):
+                bh = err_msg.split("State already discarded for ")[1].strip()
+                raise StateDiscardedError(bh)
+            else:
+                raise SubstrateRequestException(err_msg)
         if "result" in result[payload_id][0]:
             return result[payload_id][0]
         else:
