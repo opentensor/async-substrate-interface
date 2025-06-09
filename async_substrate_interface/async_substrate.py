@@ -538,6 +538,9 @@ class Websocket:
                 "You are instantiating the AsyncSubstrateInterface Websocket outside of an event loop. "
                 "Verify this is intended."
             )
+            # default value for in case there's no running asyncio loop
+            # this really doesn't matter in most cases, as it's only used for comparison on the first call to
+            # see how long it's been since the last call
             now = 0.0
         self.last_received = now
         self.last_sent = now
