@@ -2,6 +2,14 @@
 
 ## 1.2.1 /2025-05-22
 
+* Add GH test runner by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/129
+* Edge Case Fixes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/127
+* Add archive node to retry substrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/128
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.2.2...v1.3.0
+
+## 1.2.1 /2025-05-22
+
 ## What's Changed
 * Add proper mock support by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/123
 * Handle Incorrect Timeouts by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/124
