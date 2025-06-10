@@ -24,6 +24,7 @@ from async_substrate_interface.errors import (
     BlockNotFound,
     MaxRetriesExceeded,
     MetadataAtVersionNotFound,
+    StateDiscardedError,
 )
 from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
@@ -1944,9 +1945,8 @@ class SubstrateInterface(SubstrateMixin):
         ]
         result = self._make_rpc_request(payloads, result_handler=result_handler)
         if "error" in result[payload_id][0]:
-            if (
-                "Failed to get runtime version"
-                in result[payload_id][0]["error"]["message"]
+            if "Failed to get runtime version" in (
+                err_msg := result[payload_id][0]["error"]["message"]
             ):
                 logger.warning(
                     "Failed to get runtime. Re-fetching from chain, and retrying."
@@ -1955,7 +1955,14 @@ class SubstrateInterface(SubstrateMixin):
                 return self.rpc_request(
                     method, params, result_handler, block_hash, reuse_block_hash
                 )
-            raise SubstrateRequestException(result[payload_id][0]["error"]["message"])
+            elif (
+                "Client error: Api called for an unknown Block: State already discarded"
+                in err_msg
+            ):
+                bh = err_msg.split("State already discarded for ")[1].strip()
+                raise StateDiscardedError(bh)
+            else:
+                raise SubstrateRequestException(err_msg)
         if "result" in result[payload_id][0]:
             return result[payload_id][0]
         else:
@@ -2497,13 +2504,13 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
              ScaleType from the runtime call
         """
-        self.init_runtime(block_hash=block_hash)
+        runtime = self.init_runtime(block_hash=block_hash)
 
         if params is None:
             params = {}
 
         try:
-            metadata_v15_value = self.runtime.metadata_v15.value()
+            metadata_v15_value = runtime.metadata_v15.value()
 
             apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
             api_entry = apis[api]

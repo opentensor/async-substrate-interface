@@ -22,7 +22,6 @@ from typing import (
     TYPE_CHECKING,
 )
 
-import asyncstdlib as a
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.types import (
@@ -42,6 +41,7 @@ from async_substrate_interface.errors import (
     BlockNotFound,
     MaxRetriesExceeded,
     MetadataAtVersionNotFound,
+    StateDiscardedError,
 )
 from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
@@ -58,7 +58,7 @@ from async_substrate_interface.utils import (
     get_next_id,
     rng as random,
 )
-from async_substrate_interface.utils.cache import async_sql_lru_cache
+from async_substrate_interface.utils.cache import async_sql_lru_cache, CachedFetcher
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -539,14 +539,17 @@ class Websocket:
                 "You are instantiating the AsyncSubstrateInterface Websocket outside of an event loop. "
                 "Verify this is intended."
             )
-            now = asyncio.new_event_loop().time()
+            # default value for in case there's no running asyncio loop
+            # this really doesn't matter in most cases, as it's only used for comparison on the first call to
+            # see how long it's been since the last call
+            now = 0.0
         self.last_received = now
         self.last_sent = now
+        self._in_use_ids = set()
 
     async def __aenter__(self):
-        async with self._lock:
-            self._in_use += 1
-            await self.connect()
+        self._in_use += 1
+        await self.connect()
         return self
 
     @staticmethod
@@ -559,18 +562,19 @@ class Websocket:
         self.last_sent = now
         if self._exit_task:
             self._exit_task.cancel()
-        if not self._initialized or force:
-            self._initialized = True
-            try:
-                self._receiving_task.cancel()
-                await self._receiving_task
-                await self.ws.close()
-            except (AttributeError, asyncio.CancelledError):
-                pass
-            self.ws = await asyncio.wait_for(
-                connect(self.ws_url, **self._options), timeout=10
-            )
-            self._receiving_task = asyncio.create_task(self._start_receiving())
+        async with self._lock:
+            if not self._initialized or force:
+                try:
+                    self._receiving_task.cancel()
+                    await self._receiving_task
+                    await self.ws.close()
+                except (AttributeError, asyncio.CancelledError):
+                    pass
+                self.ws = await asyncio.wait_for(
+                    connect(self.ws_url, **self._options), timeout=10
+                )
+                self._receiving_task = asyncio.create_task(self._start_receiving())
+                self._initialized = True
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         async with self._lock:  # TODO is this actually what I want to happen?
@@ -619,6 +623,7 @@ class Websocket:
                 self._open_subscriptions -= 1
             if "id" in response:
                 self._received[response["id"]] = response
+                self._in_use_ids.remove(response["id"])
             elif "params" in response:
                 self._received[response["params"]["subscription"]] = response
             else:
@@ -649,6 +654,9 @@ class Websocket:
             id: the internal ID of the request (incremented int)
         """
         original_id = get_next_id()
+        while original_id in self._in_use_ids:
+            original_id = get_next_id()
+        self._in_use_ids.add(original_id)
         # self._open_subscriptions += 1
         await self.max_subscriptions.acquire()
         try:
@@ -674,7 +682,7 @@ class Websocket:
             self.max_subscriptions.release()
             return item
         except KeyError:
-            await asyncio.sleep(0.001)
+            await asyncio.sleep(0.1)
             return None
 
 
@@ -725,6 +733,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
         else:
             self.ws = AsyncMock(spec=Websocket)
+
         self._lock = asyncio.Lock()
         self.config = {
             "use_remote_preset": use_remote_preset,
@@ -748,6 +757,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.registry_type_map = {}
         self.type_id_to_name = {}
         self._mock = _mock
+        self._block_hash_fetcher = CachedFetcher(512, self._get_block_hash)
+        self._parent_hash_fetcher = CachedFetcher(512, self._get_parent_block_hash)
+        self._runtime_info_fetcher = CachedFetcher(16, self._get_block_runtime_info)
+        self._runtime_version_for_fetcher = CachedFetcher(
+            512, self._get_block_runtime_version_for
+        )
 
     async def __aenter__(self):
         if not self._mock:
@@ -1869,9 +1884,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return runtime.metadata_v15
 
-    @a.lru_cache(maxsize=512)
     async def get_parent_block_hash(self, block_hash):
-        return await self._get_parent_block_hash(block_hash)
+        return await self._parent_hash_fetcher.execute(block_hash)
 
     async def _get_parent_block_hash(self, block_hash):
         block_header = await self.rpc_request("chain_getHeader", [block_hash])
@@ -1916,9 +1930,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Unknown error occurred during retrieval of events"
             )
 
-    @a.lru_cache(maxsize=16)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
-        return await self._get_block_runtime_info(block_hash)
+        return await self._runtime_info_fetcher.execute(block_hash)
 
     get_block_runtime_version = get_block_runtime_info
 
@@ -1929,9 +1942,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         response = await self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @a.lru_cache(maxsize=512)
     async def get_block_runtime_version_for(self, block_hash: str):
-        return await self._get_block_runtime_version_for(block_hash)
+        return await self._runtime_version_for_fetcher.execute(block_hash)
 
     async def _get_block_runtime_version_for(self, block_hash: str):
         """
@@ -2137,6 +2149,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                 storage_item,
                                 result_handler,
                             )
+
                             request_manager.add_response(
                                 item_id, decoded_response, complete
                             )
@@ -2149,14 +2162,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     and current_time - self.ws.last_sent >= self.retry_timeout
                 ):
                     if attempt >= self.max_retries:
-                        logger.warning(
+                        logger.error(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
                         )
                         raise MaxRetriesExceeded("Max retries reached.")
                     else:
                         self.ws.last_received = time.time()
                         await self.ws.connect(force=True)
-                        logger.error(
+                        logger.warning(
                             f"Timed out waiting for RPC requests. "
                             f"Retrying attempt {attempt + 1} of {self.max_retries}"
                         )
@@ -2223,9 +2236,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         ]
         result = await self._make_rpc_request(payloads, result_handler=result_handler)
         if "error" in result[payload_id][0]:
-            if (
-                "Failed to get runtime version"
-                in result[payload_id][0]["error"]["message"]
+            if "Failed to get runtime version" in (
+                err_msg := result[payload_id][0]["error"]["message"]
             ):
                 logger.warning(
                     "Failed to get runtime. Re-fetching from chain, and retrying."
@@ -2234,15 +2246,21 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 return await self.rpc_request(
                     method, params, result_handler, block_hash, reuse_block_hash
                 )
-            raise SubstrateRequestException(result[payload_id][0]["error"]["message"])
+            elif (
+                "Client error: Api called for an unknown Block: State already discarded"
+                in err_msg
+            ):
+                bh = err_msg.split("State already discarded for ")[1].strip()
+                raise StateDiscardedError(bh)
+            else:
+                raise SubstrateRequestException(err_msg)
         if "result" in result[payload_id][0]:
             return result[payload_id][0]
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @a.lru_cache(maxsize=512)
     async def get_block_hash(self, block_id: int) -> str:
-        return await self._get_block_hash(block_id)
+        return await self._block_hash_fetcher.execute(block_id)
 
     async def _get_block_hash(self, block_id: int) -> str:
         return (await self.rpc_request("chain_getBlockHash", [block_id]))["result"]
