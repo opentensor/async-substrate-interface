@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.1 /2025-05-22
+## 1.3.0 /2025-06-10
 
 * Add GH test runner by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/129
 * Edge Case Fixes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/127
@@ -8,7 +8,7 @@
 
 **Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.2.2...v1.3.0
 
-## 1.2.1 /2025-05-22
+## 1.2.2 /2025-05-22
 
 ## What's Changed
 * Add proper mock support by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/123
