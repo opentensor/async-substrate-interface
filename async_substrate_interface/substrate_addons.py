@@ -120,6 +120,7 @@ class RetrySyncSubstrate(SubstrateInterface):
         archive_nodes: Optional[list[str]] = None,
     ):
         fallback_chains = fallback_chains or []
+        archive_nodes = archive_nodes or []
         self.fallback_chains = (
             iter(fallback_chains)
             if not retry_forever
@@ -262,6 +263,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         archive_nodes: Optional[list[str]] = None,
     ):
         fallback_chains = fallback_chains or []
+        archive_nodes = archive_nodes or []
         self.fallback_chains = (
             iter(fallback_chains)
             if not retry_forever
