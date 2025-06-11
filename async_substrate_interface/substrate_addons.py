@@ -355,7 +355,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             try:
                 await self._reinstantiate_substrate(e, use_archive=use_archive)
                 return await method_(*args, **kwargs)
-            except StopAsyncIteration:
+            except StopIteration:
                 logger.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
                 )
