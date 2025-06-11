@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1 /2025-06-11
+* Fixes default vals for archive_nodes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/134
+* Adds ability to log raw websockets for debugging. by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/133
+
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.3.0...v1.3.1
+
 ## 1.3.0 /2025-06-10
 
 * Add GH test runner by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/129

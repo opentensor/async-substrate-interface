@@ -32,7 +32,7 @@ from scalecodec.types import (
     MultiAccountId,
 )
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from async_substrate_interface.const import SS58_FORMAT
 from async_substrate_interface.errors import (
@@ -75,6 +75,7 @@ if TYPE_CHECKING:
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
 logger = logging.getLogger("async_substrate_interface")
+raw_websocket_logger = logging.getLogger("raw_websocket")
 
 
 class AsyncExtrinsicReceipt:
@@ -505,6 +506,7 @@ class Websocket:
         max_connections=100,
         shutdown_timer=5,
         options: Optional[dict] = None,
+        _log_raw_websockets: bool = False,
     ):
         """
         Websocket manager object. Allows for the use of a single websocket connection by multiple
@@ -532,6 +534,10 @@ class Websocket:
         self._exit_task = None
         self._open_subscriptions = 0
         self._options = options if options else {}
+        self._log_raw_websockets = _log_raw_websockets
+        self._is_connecting = False
+        self._is_closing = False
+
         try:
             now = asyncio.get_running_loop().time()
         except RuntimeError:
@@ -556,38 +562,63 @@ class Websocket:
     async def loop_time() -> float:
         return asyncio.get_running_loop().time()
 
+    async def _cancel(self):
+        try:
+            self._receiving_task.cancel()
+            await self._receiving_task
+            await self.ws.close()
+        except (
+            AttributeError,
+            asyncio.CancelledError,
+            WebSocketException,
+        ):
+            pass
+        except Exception as e:
+            logger.warning(
+                f"{e} encountered while trying to close websocket connection."
+            )
+
     async def connect(self, force=False):
-        now = await self.loop_time()
-        self.last_received = now
-        self.last_sent = now
-        if self._exit_task:
-            self._exit_task.cancel()
-        async with self._lock:
-            if not self._initialized or force:
-                try:
-                    self._receiving_task.cancel()
-                    await self._receiving_task
-                    await self.ws.close()
-                except (AttributeError, asyncio.CancelledError):
-                    pass
-                self.ws = await asyncio.wait_for(
-                    connect(self.ws_url, **self._options), timeout=10
-                )
-                self._receiving_task = asyncio.create_task(self._start_receiving())
-                self._initialized = True
+        self._is_connecting = True
+        try:
+            now = await self.loop_time()
+            self.last_received = now
+            self.last_sent = now
+            if self._exit_task:
+                self._exit_task.cancel()
+            if not self._is_closing:
+                if not self._initialized or force:
+                    try:
+                        await asyncio.wait_for(self._cancel(), timeout=10.0)
+                    except asyncio.TimeoutError:
+                        pass
+
+                    self.ws = await asyncio.wait_for(
+                        connect(self.ws_url, **self._options), timeout=10.0
+                    )
+                    self._receiving_task = asyncio.get_running_loop().create_task(
+                        self._start_receiving()
+                    )
+                    self._initialized = True
+        finally:
+            self._is_connecting = False
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        async with self._lock:  # TODO is this actually what I want to happen?
-            self._in_use -= 1
-            if self._exit_task is not None:
-                self._exit_task.cancel()
-                try:
-                    await self._exit_task
-                except asyncio.CancelledError:
-                    pass
-            if self._in_use == 0 and self.ws is not None:
-                self._open_subscriptions = 0
-                self._exit_task = asyncio.create_task(self._exit_with_timer())
+        self._is_closing = True
+        try:
+            if not self._is_connecting:
+                self._in_use -= 1
+                if self._exit_task is not None:
+                    self._exit_task.cancel()
+                    try:
+                        await self._exit_task
+                    except asyncio.CancelledError:
+                        pass
+                if self._in_use == 0 and self.ws is not None:
+                    self._open_subscriptions = 0
+                    self._exit_task = asyncio.create_task(self._exit_with_timer())
+        finally:
+            self._is_closing = False
 
     async def _exit_with_timer(self):
         """
@@ -601,26 +632,24 @@ class Websocket:
             pass
 
     async def shutdown(self):
-        async with self._lock:
-            try:
-                self._receiving_task.cancel()
-                await self._receiving_task
-                await self.ws.close()
-            except (AttributeError, asyncio.CancelledError):
-                pass
-            self.ws = None
-            self._initialized = False
-            self._receiving_task = None
+        self._is_closing = True
+        try:
+            await asyncio.wait_for(self._cancel(), timeout=10.0)
+        except asyncio.TimeoutError:
+            pass
+        self.ws = None
+        self._initialized = False
+        self._receiving_task = None
+        self._is_closing = False
 
     async def _recv(self) -> None:
         try:
             # TODO consider wrapping this in asyncio.wait_for and use that for the timeout logic
-            response = json.loads(await self.ws.recv(decode=False))
+            recd = await self.ws.recv(decode=False)
+            if self._log_raw_websockets:
+                raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd.decode()}")
+            response = json.loads(recd)
             self.last_received = await self.loop_time()
-            async with self._lock:
-                # note that these 'subscriptions' are all waiting sent messages which have not received
-                # responses, and thus are not the same as RPC 'subscriptions', which are unique
-                self._open_subscriptions -= 1
             if "id" in response:
                 self._received[response["id"]] = response
                 self._in_use_ids.remove(response["id"])
@@ -640,8 +669,7 @@ class Websocket:
         except asyncio.CancelledError:
             pass
         except ConnectionClosed:
-            async with self._lock:
-                await self.connect(force=True)
+            await self.connect(force=True)
 
     async def send(self, payload: dict) -> int:
         """
@@ -660,12 +688,14 @@ class Websocket:
         # self._open_subscriptions += 1
         await self.max_subscriptions.acquire()
         try:
-            await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
+            to_send = {**payload, **{"id": original_id}}
+            if self._log_raw_websockets:
+                raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
+            await self.ws.send(json.dumps(to_send))
             self.last_sent = await self.loop_time()
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
-            async with self._lock:
-                await self.connect(force=True)
+            await self.connect(force=True)
 
     async def retrieve(self, item_id: int) -> Optional[dict]:
         """
@@ -699,6 +729,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        _log_raw_websockets: bool = False,
+        ws_shutdown_timer: float = 5.0,
     ):
         """
         The asyncio-compatible version of the subtensor interface commands we use in bittensor. It is important to
@@ -716,6 +748,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
             _mock: whether to use mock version of the subtensor interface
+            _log_raw_websockets: whether to log raw websocket requests during RPC requests
+            ws_shutdown_timer: how long after the last connection your websocket should close
 
         """
         self.max_retries = max_retries
@@ -723,13 +757,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.chain_endpoint = url
         self.url = url
         self._chain = chain_name
+        self._log_raw_websockets = _log_raw_websockets
         if not _mock:
             self.ws = Websocket(
                 url,
+                _log_raw_websockets=_log_raw_websockets,
                 options={
                     "max_size": self.ws_max_size,
                     "write_limit": 2**16,
                 },
+                shutdown_timer=ws_shutdown_timer,
             )
         else:
             self.ws = AsyncMock(spec=Websocket)

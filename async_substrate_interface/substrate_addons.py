@@ -117,9 +117,11 @@ class RetrySyncSubstrate(SubstrateInterface):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        _log_raw_websockets: bool = False,
         archive_nodes: Optional[list[str]] = None,
     ):
         fallback_chains = fallback_chains or []
+        archive_nodes = archive_nodes or []
         self.fallback_chains = (
             iter(fallback_chains)
             if not retry_forever
@@ -150,6 +152,7 @@ class RetrySyncSubstrate(SubstrateInterface):
                     _mock=_mock,
                     retry_timeout=retry_timeout,
                     max_retries=max_retries,
+                    _log_raw_websockets=_log_raw_websockets,
                 )
                 initialized = True
                 logger.info(f"Connected to {chain_url}")
@@ -259,9 +262,12 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        _log_raw_websockets: bool = False,
         archive_nodes: Optional[list[str]] = None,
+        ws_shutdown_timer: float = 5.0,
     ):
         fallback_chains = fallback_chains or []
+        archive_nodes = archive_nodes or []
         self.fallback_chains = (
             iter(fallback_chains)
             if not retry_forever
@@ -285,6 +291,8 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             _mock=_mock,
             retry_timeout=retry_timeout,
             max_retries=max_retries,
+            _log_raw_websockets=_log_raw_websockets,
+            ws_shutdown_timer=ws_shutdown_timer,
         )
         self._original_methods = {
             method: getattr(self, method) for method in RETRY_METHODS
@@ -349,7 +357,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             try:
                 await self._reinstantiate_substrate(e, use_archive=use_archive)
                 return await method_(*args, **kwargs)
-            except StopAsyncIteration:
+            except StopIteration:
                 logger.error(
                     f"Max retries exceeded with {self.url}. No more fallback chains."
                 )

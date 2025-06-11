@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -91,3 +92,22 @@ async def test_runtime_call(monkeypatch):
     substrate.rpc_request.assert_any_call(
         "state_call", ["SubstrateApi_SubstrateMethod", "", None]
     )
+
+
+@pytest.mark.asyncio
+async def test_websocket_shutdown_timer():
+    # using default ws shutdown timer of 5.0 seconds
+    async with AsyncSubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
+        await substrate.get_chain_head()
+        await asyncio.sleep(6)
+        assert (
+            substrate.ws._initialized is False
+        )  # connection should have closed automatically
+
+    # using custom ws shutdown timer of 10.0 seconds
+    async with AsyncSubstrateInterface(
+        "wss://lite.sub.latent.to:443", ws_shutdown_timer=10.0
+    ) as substrate:
+        await substrate.get_chain_head()
+        await asyncio.sleep(6)  # same sleep time as before
+        assert substrate.ws._initialized is True  # connection should still be open
