@@ -53,6 +53,7 @@ from async_substrate_interface.type_registry import _TYPE_REGISTRY
 ResultHandler = Callable[[dict, Any], tuple[dict, bool]]
 
 logger = logging.getLogger("async_substrate_interface")
+raw_websocket_logger = logging.getLogger("raw_websocket")
 
 
 class ExtrinsicReceipt:
@@ -485,6 +486,7 @@ class SubstrateInterface(SubstrateMixin):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        _log_raw_websockets: bool = False,
     ):
         """
         The sync compatible version of the subtensor interface commands we use in bittensor. Use this instance only
@@ -501,6 +503,7 @@ class SubstrateInterface(SubstrateMixin):
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
             _mock: whether to use mock version of the subtensor interface
+            _log_raw_websockets: whether to log raw websocket requests during RPC requests
 
         """
         self.max_retries = max_retries
@@ -527,6 +530,7 @@ class SubstrateInterface(SubstrateMixin):
         self.registry_type_map = {}
         self.type_id_to_name = {}
         self._mock = _mock
+        self.log_raw_websockets = _log_raw_websockets
         if not _mock:
             self.ws = self.connect(init=True)
             self.initialize()
@@ -1831,12 +1835,18 @@ class SubstrateInterface(SubstrateMixin):
         ws = self.connect(init=False if attempt == 1 else True)
         for payload in payloads:
             item_id = get_next_id()
-            ws.send(json.dumps({**payload["payload"], **{"id": item_id}}))
+            to_send = {**payload["payload"], **{"id": item_id}}
+            if self.log_raw_websockets:
+                raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
+            ws.send(json.dumps(to_send))
             request_manager.add_request(item_id, payload["id"])
 
         while True:
             try:
-                response = json.loads(ws.recv(timeout=self.retry_timeout, decode=False))
+                recd = ws.recv(timeout=self.retry_timeout, decode=False)
+                if self.log_raw_websockets:
+                    raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd.decode()}")
+                response = json.loads(recd)
             except (TimeoutError, ConnectionClosed):
                 if attempt >= self.max_retries:
                     logger.warning(

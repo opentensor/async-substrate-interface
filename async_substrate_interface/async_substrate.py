@@ -75,6 +75,7 @@ if TYPE_CHECKING:
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
 logger = logging.getLogger("async_substrate_interface")
+raw_websocket_logger = logging.getLogger("raw_websocket")
 
 
 class AsyncExtrinsicReceipt:
@@ -505,6 +506,7 @@ class Websocket:
         max_connections=100,
         shutdown_timer=5,
         options: Optional[dict] = None,
+        _log_raw_websockets: bool = False,
     ):
         """
         Websocket manager object. Allows for the use of a single websocket connection by multiple
@@ -532,6 +534,8 @@ class Websocket:
         self._exit_task = None
         self._open_subscriptions = 0
         self._options = options if options else {}
+        self._log_raw_websockets = _log_raw_websockets
+
         try:
             now = asyncio.get_running_loop().time()
         except RuntimeError:
@@ -615,7 +619,10 @@ class Websocket:
     async def _recv(self) -> None:
         try:
             # TODO consider wrapping this in asyncio.wait_for and use that for the timeout logic
-            response = json.loads(await self.ws.recv(decode=False))
+            recd = await self.ws.recv(decode=False)
+            if self._log_raw_websockets:
+                raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd.decode()}")
+            response = json.loads(recd)
             self.last_received = await self.loop_time()
             async with self._lock:
                 # note that these 'subscriptions' are all waiting sent messages which have not received
@@ -660,7 +667,10 @@ class Websocket:
         # self._open_subscriptions += 1
         await self.max_subscriptions.acquire()
         try:
-            await self.ws.send(json.dumps({**payload, **{"id": original_id}}))
+            to_send = {**payload, **{"id": original_id}}
+            if self._log_raw_websockets:
+                raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
+            await self.ws.send(json.dumps(to_send))
             self.last_sent = await self.loop_time()
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
@@ -699,6 +709,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
+        _log_raw_websockets: bool = False,
     ):
         """
         The asyncio-compatible version of the subtensor interface commands we use in bittensor. It is important to
@@ -716,6 +727,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             max_retries: number of times to retry RPC requests before giving up
             retry_timeout: how to long wait since the last ping to retry the RPC request
             _mock: whether to use mock version of the subtensor interface
+            _log_raw_websockets: whether to log raw websocket requests during RPC requests
 
         """
         self.max_retries = max_retries
@@ -723,9 +735,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.chain_endpoint = url
         self.url = url
         self._chain = chain_name
+        self._log_raw_websockets = _log_raw_websockets
         if not _mock:
             self.ws = Websocket(
                 url,
+                _log_raw_websockets=_log_raw_websockets,
                 options={
                     "max_size": self.ws_max_size,
                     "write_limit": 2**16,
