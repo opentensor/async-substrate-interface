@@ -264,6 +264,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         _mock: bool = False,
         _log_raw_websockets: bool = False,
         archive_nodes: Optional[list[str]] = None,
+        ws_shutdown_timer: float = 5.0,
     ):
         fallback_chains = fallback_chains or []
         archive_nodes = archive_nodes or []
@@ -291,6 +292,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             retry_timeout=retry_timeout,
             max_retries=max_retries,
             _log_raw_websockets=_log_raw_websockets,
+            ws_shutdown_timer=ws_shutdown_timer,
         )
         self._original_methods = {
             method: getattr(self, method) for method in RETRY_METHODS
