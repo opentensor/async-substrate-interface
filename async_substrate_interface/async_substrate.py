@@ -622,7 +622,7 @@ class Websocket:
             recd = await self.ws.recv(decode=False)
             if self._log_raw_websockets:
                 raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd.decode()}")
-            response = json.loads()
+            response = json.loads(recd)
             self.last_received = await self.loop_time()
             async with self._lock:
                 # note that these 'subscriptions' are all waiting sent messages which have not received
