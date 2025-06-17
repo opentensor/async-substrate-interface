@@ -1051,7 +1051,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             metadata, maybe_m15 = await asyncio.gather(
                 self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
                 self._load_registry_at_block(block_hash=runtime_block_hash),
-                return_exceptions=True
+                return_exceptions=True,
             )
             try:
                 (metadata_v15, registry) = maybe_m15
