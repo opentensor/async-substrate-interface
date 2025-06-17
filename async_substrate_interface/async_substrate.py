@@ -1048,10 +1048,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             runtime_info = await self.get_block_runtime_info(runtime_block_hash)
 
-            metadata, (metadata_v15, registry) = await asyncio.gather(
+            metadata, maybe_m15 = await asyncio.gather(
                 self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
                 self._load_registry_at_block(block_hash=runtime_block_hash),
+                return_exceptions=True
             )
+            try:
+                (metadata_v15, registry) = maybe_m15
+            except TypeError:
+                (metadata_v15, registry) = None, None
             if metadata is None:
                 # does this ever happen?
                 raise SubstrateRequestException(
