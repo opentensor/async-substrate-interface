@@ -1,8 +1,6 @@
 from typing import Union, TYPE_CHECKING
 
 from bt_decode import AxonInfo, PrometheusInfo, decode_list
-from scalecodec import ss58_encode
-from bittensor_wallet.utils import SS58_FORMAT
 
 from async_substrate_interface.utils import hex_to_bytes
 from async_substrate_interface.types import ScaleObj
