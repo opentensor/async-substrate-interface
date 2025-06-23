@@ -195,3 +195,35 @@ class CachedFetcher:
             raise
         finally:
             self._inflight.pop(single_arg, None)
+
+    async def execute_multiple_args(self, *args: Any) -> Any:
+        """
+        Only cache on the first arg
+        Args:
+            *args:
+
+        Returns:
+
+        """
+        single_arg = args[0]
+        if item := self._cache.get(single_arg):
+            return item
+
+        if single_arg in self._inflight:
+            result = await self._inflight[single_arg]
+            return result
+
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self._inflight[single_arg] = future
+        try:
+            result = await self._method(*args)
+            self._cache.set(single_arg, result)
+            future.set_result(result)
+            return result
+        except Exception as e:
+            # Propagate errors
+            future.set_exception(e)
+            raise
+        finally:
+            self._inflight.pop(single_arg, None)

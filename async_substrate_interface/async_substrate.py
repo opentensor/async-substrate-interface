@@ -800,6 +800,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self._runtime_version_for_fetcher = CachedFetcher(
             512, self._get_block_runtime_version_for
         )
+        self._runtime_for_version_fetcher = CachedFetcher(
+            16, self._get_runtime_for_version
+        )
 
     async def __aenter__(self):
         if not self._mock:
@@ -1044,40 +1047,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if not runtime:
             self.last_block_hash = block_hash
 
-            runtime_block_hash = await self.get_parent_block_hash(block_hash)
-
-            runtime_info = await self.get_block_runtime_info(runtime_block_hash)
-
-            metadata, maybe_m15 = await asyncio.gather(
-                self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
-                self._load_registry_at_block(block_hash=runtime_block_hash),
-                return_exceptions=True,
-            )
-            try:
-                (metadata_v15, registry) = maybe_m15
-            except TypeError:
-                (metadata_v15, registry) = None, None
-            if metadata is None:
-                # does this ever happen?
-                raise SubstrateRequestException(
-                    f"No metadata for block '{runtime_block_hash}'"
-                )
-            logger.debug(
-                f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
-            )
-
-            runtime = Runtime(
-                chain=self.chain,
-                runtime_config=self.runtime_config,
-                metadata=metadata,
-                type_registry=self.type_registry,
-                metadata_v15=metadata_v15,
-                runtime_info=runtime_info,
-                registry=registry,
-            )
-            self.runtime_cache.add_item(
-                runtime_version=runtime_version, runtime=runtime
-            )
+            runtime = await self.get_runtime_for_version(runtime_version, block_hash)
 
         self.load_runtime(runtime)
 
@@ -1089,6 +1059,48 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             if ss58_prefix_constant:
                 self.ss58_format = ss58_prefix_constant
+        return runtime
+
+    async def get_runtime_for_version(
+        self, runtime_version: int, block_hash: Optional[str] = None
+    ) -> Runtime:
+        return await self._runtime_for_version_fetcher.execute_multiple_args(
+            runtime_version, block_hash
+        )
+
+    async def _get_runtime_for_version(
+        self, runtime_version: int, block_hash: Optional[str] = None
+    ) -> Runtime:
+        runtime_block_hash = await self.get_parent_block_hash(block_hash)
+        runtime_info, metadata, maybe_m15 = await asyncio.gather(
+            self.get_block_runtime_info(runtime_block_hash),
+            self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
+            self._load_registry_at_block(block_hash=runtime_block_hash),
+            return_exceptions=True,
+        )
+        try:
+            (metadata_v15, registry) = maybe_m15
+        except TypeError:
+            (metadata_v15, registry) = None, None
+        if metadata is None:
+            # does this ever happen?
+            raise SubstrateRequestException(
+                f"No metadata for block '{runtime_block_hash}'"
+            )
+        logger.debug(
+            f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
+        )
+
+        runtime = Runtime(
+            chain=self.chain,
+            runtime_config=self.runtime_config,
+            metadata=metadata,
+            type_registry=self.type_registry,
+            metadata_v15=metadata_v15,
+            runtime_info=runtime_info,
+            registry=registry,
+        )
+        self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
         return runtime
 
     async def create_storage_key(
