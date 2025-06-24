@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from collections import OrderedDict
 import functools
 import logging
@@ -6,8 +7,7 @@ import os
 import pickle
 import sqlite3
 from pathlib import Path
-from typing import Callable, Any, Awaitable, Hashable
-
+from typing import Callable, Any, Awaitable, Hashable, Optional
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
 CACHE_LOCATION = (
@@ -208,22 +208,33 @@ class CachedFetcher:
         self,
         max_size: int,
         method: Callable[..., Awaitable[Any]],
-        cache_key_index: int = 0,
+        cache_key_index: Optional[int] = 0,
     ):
         """
         Args:
             max_size: max size of the cache (in items)
             method: the function to cache
-            cache_key_index: if the method takes multiple args, only one will be used as the cache key. This is the
-                index of that cache key in the args list (default is the first arg)
+            cache_key_index: if the method takes multiple args, this is the index of that cache key in the args list
+                (default is the first arg). By setting this to `None`, it will use all args as the cache key.
         """
         self._inflight: dict[Hashable, asyncio.Future] = {}
         self._method = method
         self._cache = LRUCache(max_size=max_size)
         self._cache_key_index = cache_key_index
 
-    async def __call__(self, *args: Any) -> Any:
-        key = args[self._cache_key_index]
+    def make_cache_key(self, args: tuple, kwargs: dict) -> Hashable:
+        bound = inspect.signature(self._method).bind(*args, **kwargs)
+        bound.apply_defaults()
+
+        if self._cache_key_index is not None:
+            key_name = list(bound.arguments)[self._cache_key_index]
+            return bound.arguments[key_name]
+
+        return (tuple(bound.arguments.items()),)
+
+    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        key = self.make_cache_key(args, kwargs)
+
         if item := self._cache.get(key):
             return item
 
@@ -235,7 +246,7 @@ class CachedFetcher:
         self._inflight[key] = future
 
         try:
-            result = await self._method(*args)
+            result = await self._method(*args, **kwargs)
             self._cache.set(key, result)
             future.set_result(result)
             return result
