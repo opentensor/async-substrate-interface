@@ -60,7 +60,6 @@ from async_substrate_interface.utils import (
 )
 from async_substrate_interface.utils.cache import (
     async_sql_lru_cache,
-    CachedFetcher,
     cached_fetcher,
 )
 from async_substrate_interface.utils.decoding import (
