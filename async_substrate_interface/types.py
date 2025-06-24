@@ -91,6 +91,20 @@ class Runtime:
         self.runtime_version = runtime_info.get("specVersion")
         self.transaction_version = runtime_info.get("transactionVersion")
 
+    @property
+    def implements_scaleinfo(self) -> Optional[bool]:
+        """
+        Returns True if current runtime implements a `PortableRegistry` (`MetadataV14` and higher)
+
+        Returns
+        -------
+        bool
+        """
+        if self.metadata:
+            return self.metadata.portable_registry is not None
+        else:
+            return None
+
     def __str__(self):
         return f"Runtime: {self.chain} | {self.config}"
 

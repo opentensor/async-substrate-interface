@@ -857,8 +857,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def get_storage_item(
         self, module: str, storage_function: str, block_hash: str = None
     ):
-        await self.init_runtime(block_hash=block_hash)
-        metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
+        runtime = await self.init_runtime(block_hash=block_hash)
+        metadata_pallet = runtime.metadata.get_metadata_pallet(module)
         storage_item = metadata_pallet.get_storage_function(storage_function)
         return storage_item
 
@@ -950,6 +950,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         _attempt=1,
         _retries=3,
         return_scale_obj: bool = False,
+        runtime: Optional[Runtime] = None,
     ) -> Union[ScaleObj, Any]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
@@ -962,6 +963,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             _attempt: the number of attempts to pull the registry before timing out
             _retries: the number of retries to pull the registry before timing out
             return_scale_obj: Whether to return the decoded value wrapped in a SCALE-object-like wrapper, or raw.
+            runtime: Optional Runtime object whose registry to use for decoding. If not specified, the currently-loaded
+                `self.runtime` will be used.
 
         Returns:
             Decoded object
@@ -972,8 +975,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
             # Decode AccountId bytes to SS58 address
             return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
-            await self._wait_for_registry(_attempt, _retries)
-            obj = decode_by_type_string(type_string, self.runtime.registry, scale_bytes)
+            if not runtime:
+                await self._wait_for_registry(_attempt, _retries)
+                runtime_registry = self.runtime.registry
+            else:
+                runtime_registry = runtime.registry
+            obj = decode_by_type_string(type_string, runtime_registry, scale_bytes)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
@@ -1119,14 +1126,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             StorageKey
         """
-        await self.init_runtime(block_hash=block_hash)
+        runtime = await self.init_runtime(block_hash=block_hash)
 
         return StorageKey.create_from_storage_function(
             pallet,
             storage_function,
             params,
-            runtime_config=self.runtime_config,
-            metadata=self.runtime.metadata,
+            runtime_config=runtime.runtime_config,
+            metadata=runtime.metadata,
         )
 
     async def subscribe_storage(
@@ -1158,7 +1165,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             subscription_handler: coroutine function to handle value changes of subscription
 
         """
-        await self.init_runtime()
+        runtime = await self.init_runtime()
 
         storage_key_map = {s.to_hex(): s for s in storage_keys}
 
@@ -1202,6 +1209,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     updated_obj = await self.decode_scale(
                         type_string=change_scale_type,
                         scale_bytes=hex_to_bytes(change_data),
+                        runtime=runtime,
                     )
 
                     subscription_result = await subscription_handler(
@@ -1253,36 +1261,44 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return extrinsics
 
-    async def get_metadata_storage_functions(self, block_hash=None) -> list:
+    async def get_metadata_storage_functions(
+        self, block_hash=None, runtime: Optional[Runtime] = None
+    ) -> list:
         """
         Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if block_hash is
         omitted)
 
         Args:
             block_hash: hash of the blockchain block whose runtime to use
+            runtime: Optional `Runtime` whose metadata to use
 
         Returns:
             list of storage functions
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
 
         storage_list = []
 
-        for module_idx, module in enumerate(self.metadata.pallets):
+        for module_idx, module in enumerate(runtime.metadata.pallets):
             if module.storage:
                 for storage in module.storage:
                     storage_list.append(
                         self.serialize_storage_item(
                             storage_item=storage,
                             module=module,
-                            spec_version_id=self.runtime.runtime_version,
+                            spec_version_id=runtime.runtime_version,
                         )
                     )
 
         return storage_list
 
     async def get_metadata_storage_function(
-        self, module_name, storage_name, block_hash=None
+        self,
+        module_name,
+        storage_name,
+        block_hash=None,
+        runtime: Optional[Runtime] = None,
     ):
         """
         Retrieves the details of a storage function for given module name, call function name and block_hash
@@ -1291,47 +1307,57 @@ class AsyncSubstrateInterface(SubstrateMixin):
             module_name
             storage_name
             block_hash
+            runtime: Optional `Runtime` whose metadata to use
 
         Returns:
             Metadata storage function
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
 
-        pallet = self.metadata.get_metadata_pallet(module_name)
+        pallet = runtime.metadata.get_metadata_pallet(module_name)
 
         if pallet:
             return pallet.get_storage_function(storage_name)
 
     async def get_metadata_errors(
-        self, block_hash=None
+        self, block_hash=None, runtime: Optional[Runtime] = None
     ) -> list[dict[str, Optional[str]]]:
         """
         Retrieves a list of all errors in metadata active at given block_hash (or chaintip if block_hash is omitted)
 
         Args:
             block_hash: hash of the blockchain block whose metadata to use
+            runtime: Optional `Runtime` whose metadata to use
 
         Returns:
             list of errors in the metadata
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
 
         error_list = []
 
-        for module_idx, module in enumerate(self.runtime.metadata.pallets):
+        for module_idx, module in enumerate(runtime.metadata.pallets):
             if module.errors:
                 for error in module.errors:
                     error_list.append(
                         self.serialize_module_error(
                             module=module,
                             error=error,
-                            spec_version=self.runtime.runtime_version,
+                            spec_version=runtime.runtime_version,
                         )
                     )
 
         return error_list
 
-    async def get_metadata_error(self, module_name, error_name, block_hash=None):
+    async def get_metadata_error(
+        self,
+        module_name,
+        error_name,
+        block_hash=None,
+        runtime: Optional[Runtime] = None,
+    ):
         """
         Retrieves the details of an error for given module name, call function name and block_hash
 
@@ -1339,21 +1365,23 @@ class AsyncSubstrateInterface(SubstrateMixin):
         module_name: module name for the error lookup
         error_name: error name for the error lookup
         block_hash: hash of the blockchain block whose metadata to use
+        runtime: Optional `Runtime` whose metadata to use
 
         Returns:
             error
 
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
 
-        for module_idx, module in enumerate(self.runtime.metadata.pallets):
+        for module_idx, module in enumerate(runtime.metadata.pallets):
             if module.name == module_name and module.errors:
                 for error in module.errors:
                     if error_name == error.name:
                         return error
 
     async def get_metadata_runtime_call_functions(
-        self, block_hash: str = None
+        self, block_hash: str = None, runtime: Optional[Runtime] = None
     ) -> list[GenericRuntimeCallDefinition]:
         """
         Get a list of available runtime API calls
@@ -1361,19 +1389,26 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of runtime call functions
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
         call_functions = []
 
-        for api, methods in self.runtime_config.type_registry["runtime_api"].items():
+        for api, methods in runtime.runtime_config.type_registry["runtime_api"].items():
             for method in methods["methods"].keys():
                 call_functions.append(
-                    await self.get_metadata_runtime_call_function(api, method)
+                    await self.get_metadata_runtime_call_function(
+                        api, method, runtime=runtime
+                    )
                 )
 
         return call_functions
 
     async def get_metadata_runtime_call_function(
-        self, api: str, method: str, block_hash: str = None
+        self,
+        api: str,
+        method: str,
+        block_hash: str = None,
+        runtime: Optional[Runtime] = None,
     ) -> GenericRuntimeCallDefinition:
         """
         Get details of a runtime API call
@@ -1381,19 +1416,23 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Args:
             api: Name of the runtime API e.g. 'TransactionPaymentApi'
             method: Name of the method e.g. 'query_fee_details'
+            block_hash: Hash of the block to query, unused if specifying `runtime`
+            runtime: Optional `Runtime` whose call functions to retrieve. If not specified, will fall back to the
+                runtime at the block hash specified. If that is not specified, will fall back to the current block.
 
         Returns:
             runtime call function
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
 
         try:
-            runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
+            runtime_call_def = runtime.runtime_config.type_registry["runtime_api"][api][
                 "methods"
             ][method]
             runtime_call_def["api"] = api
             runtime_call_def["method"] = method
-            runtime_api_types = self.runtime_config.type_registry["runtime_api"][
+            runtime_api_types = runtime.runtime_config.type_registry["runtime_api"][
                 api
             ].get("types", {})
         except KeyError:
@@ -1402,7 +1441,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         # Add runtime API types to registry
         self.runtime_config.update_type_registry_types(runtime_api_types)
 
-        runtime_call_def_obj = await self.create_scale_object("RuntimeCallDefinition")
+        runtime_call_def_obj = await self.create_scale_object(
+            "RuntimeCallDefinition", runtime=runtime
+        )
         runtime_call_def_obj.encode(runtime_call_def)
 
         return runtime_call_def_obj
@@ -1452,7 +1493,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         subscription_handler: Optional[Callable[[dict], Awaitable[Any]]] = None,
     ):
         try:
-            await self.init_runtime(block_hash=block_hash)
+            runtime = await self.init_runtime(block_hash=block_hash)
         except BlockNotFound:
             return None
 
@@ -1467,7 +1508,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         block_data["header"]["number"], 16
                     )
 
-                extrinsic_cls = self.runtime_config.get_decoder_class("Extrinsic")
+                extrinsic_cls = runtime.runtime_config.get_decoder_class("Extrinsic")
 
                 if "extrinsics" in block_data:
                     for idx, extrinsic_data in enumerate(block_data["extrinsics"]):
@@ -1489,7 +1530,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     if isinstance(log_data, str):
                         # Convert digest log from hex (backwards compatibility)
                         try:
-                            log_digest_cls = self.runtime_config.get_decoder_class(
+                            log_digest_cls = runtime.runtime_config.get_decoder_class(
                                 "sp_runtime::generic::digest::DigestItem"
                             )
 
@@ -1506,17 +1547,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             block_data["header"]["digest"]["logs"][idx] = log_digest
 
                             if include_author and "PreRuntime" in log_digest.value:
-                                if self.implements_scaleinfo:
+                                if runtime.implements_scaleinfo:
                                     engine = bytes(log_digest[1][0])
                                     # Retrieve validator set
                                     parent_hash = block_data["header"]["parentHash"]
                                     validator_set = await self.query(
-                                        "Session", "Validators", block_hash=parent_hash
+                                        "Session",
+                                        "Validators",
+                                        block_hash=parent_hash,
+                                        runtime=runtime,
                                     )
 
                                     if engine == b"BABE":
                                         babe_predigest = (
-                                            self.runtime_config.create_scale_object(
+                                            runtime.runtime_config.create_scale_object(
                                                 type_string="RawBabePreDigest",
                                                 data=ScaleBytes(
                                                     bytes(log_digest[1][1])
@@ -1539,7 +1583,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                                     elif engine == b"aura":
                                         aura_predigest = (
-                                            self.runtime_config.create_scale_object(
+                                            runtime.runtime_config.create_scale_object(
                                                 type_string="RawAuraPreDigest",
                                                 data=ScaleBytes(
                                                     bytes(log_digest[1][1])
@@ -1568,6 +1612,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                             "Session",
                                             "Validators",
                                             block_hash=block_hash,
+                                            runtime=runtime,
                                         )
                                         rank_validator = log_digest.value["PreRuntime"][
                                             "data"
@@ -1626,19 +1671,24 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     )
                 ],
                 result_handler=result_handler,
+                runtime=runtime,
             )
 
             return result["_get_block_handler"][-1]
 
         else:
             if header_only:
-                response = await self.rpc_request("chain_getHeader", [block_hash])
+                response = await self.rpc_request(
+                    "chain_getHeader", [block_hash], runtime=runtime
+                )
                 return await decode_block(
                     {"header": response["result"]}, block_data_hash=block_hash
                 )
 
             else:
-                response = await self.rpc_request("chain_getBlock", [block_hash])
+                response = await self.rpc_request(
+                    "chain_getBlock", [block_hash], runtime=runtime
+                )
                 return await decode_block(
                     response["result"]["block"], block_data_hash=block_hash
                 )
@@ -2061,13 +2111,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
         storage_function: str,
         module: str,
         raw_storage_key: Optional[bytes] = None,
+        runtime: Optional[Runtime] = None,
     ) -> Preprocessed:
         """
         Creates a Preprocessed data object for passing to `_make_rpc_request`
         """
         params = query_for if query_for else []
         # Search storage call in metadata
-        metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
+        if not runtime:
+            runtime = self.runtime
+        metadata_pallet = runtime.metadata.get_metadata_pallet(module)
 
         if not metadata_pallet:
             raise SubstrateRequestException(f'Pallet "{module}" not found')
@@ -2094,16 +2147,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 pallet=module,
                 storage_function=storage_function,
                 value_scale_type=value_scale_type,
-                metadata=self.metadata,
-                runtime_config=self.runtime_config,
+                metadata=runtime.metadata,
+                runtime_config=runtime.runtime_config,
             )
         else:
             storage_key = StorageKey.create_from_storage_function(
                 module,
                 storage_item.value["name"],
                 params,
-                runtime_config=self.runtime_config,
-                metadata=self.runtime.metadata,
+                runtime_config=runtime.runtime_config,
+                metadata=runtime.metadata,
             )
         method = "state_getStorageAt"
         return Preprocessed(
@@ -2121,6 +2174,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         value_scale_type: Optional[str] = None,
         storage_item: Optional[ScaleType] = None,
         result_handler: Optional[ResultHandler] = None,
+        runtime: Optional[Runtime] = None,
     ) -> tuple[Any, bool]:
         """
         Processes the RPC call response by decoding it, returning it as is, or setting a handler for subscriptions,
@@ -2132,6 +2186,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             value_scale_type: Scale Type string used for decoding ScaleBytes results
             storage_item: The ScaleType object used for decoding ScaleBytes results
             result_handler: the result handler coroutine used for handling longer-running subscriptions
+            runtime: Optional Runtime to use for decoding. If not specified, the currently-loaded `self.runtime` is used
 
         Returns:
              (decoded response, completion)
@@ -2153,7 +2208,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 q = bytes(query_value)
             else:
                 q = query_value
-            result = await self.decode_scale(value_scale_type, q)
+            result = await self.decode_scale(value_scale_type, q, runtime=runtime)
         if asyncio.iscoroutinefunction(result_handler):
             # For multipart responses as a result of subscriptions.
             message, bool_result = await result_handler(result, subscription_id)
@@ -2167,6 +2222,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         storage_item: Optional[ScaleType] = None,
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
+        runtime: Optional[Runtime] = None,
     ) -> RequestManager.RequestResults:
         request_manager = RequestManager(payloads)
 
@@ -2210,6 +2266,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                 value_scale_type,
                                 storage_item,
                                 result_handler,
+                                runtime=runtime,
                             )
 
                             request_manager.add_response(
@@ -2269,6 +2326,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         result_handler: Optional[ResultHandler] = None,
         block_hash: Optional[str] = None,
         reuse_block_hash: bool = False,
+        runtime: Optional[Runtime] = None,
     ) -> Any:
         """
         Makes an RPC request to the subtensor. Use this only if `self.query` and `self.query_multiple` and
@@ -2282,6 +2340,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 hash in the params, and not reusing the block hash
             reuse_block_hash: whether to reuse the block hash in the params — only mark as True
                 if not supplying the block hash in the params, or via the `block_hash` parameter
+            runtime: Optional runtime to be used for decoding results of the request. If not specified, the
+                currently-loaded `self.runtime` is used.
 
         Returns:
             the response from the RPC request
@@ -2395,6 +2455,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         module: str,
         block_hash: Optional[str] = None,
         reuse_block_hash: bool = False,
+        runtime: Optional[Runtime] = None,
     ) -> dict[str, ScaleType]:
         """
         Queries the subtensor. Only use this when making multiple queries, else use ``self.query``
@@ -2405,10 +2466,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
         preprocessed: tuple[Preprocessed] = await asyncio.gather(
             *[
-                self._preprocess([x], block_hash, storage_function, module)
+                self._preprocess(
+                    [x], block_hash, storage_function, module, runtime=runtime
+                )
                 for x in params
             ]
         )
@@ -2421,14 +2485,17 @@ class AsyncSubstrateInterface(SubstrateMixin):
         storage_item = preprocessed[0].storage_item
 
         responses = await self._make_rpc_request(
-            all_info, value_scale_type, storage_item
+            all_info, value_scale_type, storage_item, runtime=runtime
         )
         return {
             param: responses[p.queryable][0] for (param, p) in zip(params, preprocessed)
         }
 
     async def query_multi(
-        self, storage_keys: list[StorageKey], block_hash: Optional[str] = None
+        self,
+        storage_keys: list[StorageKey],
+        block_hash: Optional[str] = None,
+        runtime: Optional[Runtime] = None,
     ) -> list:
         """
         Query multiple storage keys in one request.
@@ -2451,15 +2518,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Args:
             storage_keys: list of StorageKey objects
             block_hash: hash of the block to query against
+            runtime: Optional `Runtime` to be used for decoding. If not specified, the currently-loaded `self.runtime`
+                is used.
 
         Returns:
             list of `(storage_key, scale_obj)` tuples
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
 
         # Retrieve corresponding value
         response = await self.rpc_request(
-            "state_queryStorageAt", [[s.to_hex() for s in storage_keys], block_hash]
+            "state_queryStorageAt",
+            [[s.to_hex() for s in storage_keys], block_hash],
+            runtime=runtime,
         )
 
         if "error" in response:
@@ -2481,7 +2553,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     (
                         storage_key,
                         await self.decode_scale(
-                            storage_key.value_scale_type, change_data
+                            storage_key.value_scale_type, change_data, runtime=runtime
                         ),
                     ),
                 )
@@ -2493,6 +2565,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         type_string: str,
         data: Optional[ScaleBytes] = None,
         block_hash: Optional[str] = None,
+        runtime: Optional[Runtime] = None,
         **kwargs,
     ) -> "ScaleType":
         """
@@ -2503,16 +2576,19 @@ class AsyncSubstrateInterface(SubstrateMixin):
             type_string: Name of SCALE type to create
             data: ScaleBytes: ScaleBytes to decode
             block_hash: block hash for moment of decoding, when omitted the chain tip will be used
+            runtime: Optional `Runtime` to use for the creation of the scale object. If not specified, the
+                currently-loaded `self.runtime` will be used.
             kwargs: keyword args for the Scale Type constructor
 
         Returns:
              The created Scale Type object
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
         if "metadata" not in kwargs:
-            kwargs["metadata"] = self.runtime.metadata
+            kwargs["metadata"] = runtime.metadata
 
-        return self.runtime.runtime_config.create_scale_object(
+        return runtime.runtime_config.create_scale_object(
             type_string, data=data, **kwargs
         )
 
@@ -3204,6 +3280,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         raw_storage_key: Optional[bytes] = None,
         subscription_handler=None,
         reuse_block_hash: bool = False,
+        runtime: Optional[Runtime] = None,
     ) -> Optional[Union["ScaleObj", Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
@@ -3212,9 +3289,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
         preprocessed: Preprocessed = await self._preprocess(
-            params, block_hash, storage_function, module, raw_storage_key
+            params,
+            block_hash,
+            storage_function,
+            module,
+            raw_storage_key,
+            runtime=runtime,
         )
         payload = [
             self.make_payload(
@@ -3229,6 +3312,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             value_scale_type,
             storage_item,
             result_handler=subscription_handler,
+            runtime=runtime,
         )
         result = responses[preprocessed.queryable][0]
         if isinstance(result, (list, tuple, int, float)):
