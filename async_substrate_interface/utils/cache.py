@@ -148,6 +148,10 @@ def async_sql_lru_cache(maxsize=None):
 
 
 class LRUCache:
+    """
+    Basic Least-Recently-Used Cache, with simple methods `set` and `get`
+    """
+
     def __init__(self, max_size: int):
         self.max_size = max_size
         self.cache = OrderedDict()
@@ -168,12 +172,51 @@ class LRUCache:
 
 
 class CachedFetcher:
+    """
+    Async caching class that allows the standard async LRU cache system, but also allows for concurrent
+    asyncio calls (with the same args) to use the same result of a single call.
+
+    This should only be used for asyncio calls where the result is immutable.
+
+    Concept and usage:
+        ```
+        async def fetch(self, block_hash: str) -> str:
+            return await some_resource(block_hash)
+
+        a1, a2, b = await asyncio.gather(fetch("a"), fetch("a"), fetch("b"))
+        ```
+
+        Here, you are making three requests, but you really only need to make two I/O requests
+        (one for "a", one for "b"), and while you wouldn't typically make a request like this directly, it's very
+        common in using this library to inadvertently make these requests y gathering multiple resources that depend
+        on the calls like this under the hood.
+
+        By using
+
+        ```
+        @cached_fetcher(max_size=512)
+        async def fetch(self, block_hash: str) -> str:
+            return await some_resource(block_hash)
+
+        a1, a2, b = await asyncio.gather(fetch("a"), fetch("a"), fetch("b"))
+        ```
+
+        You are only making two I/O calls, and a2 will simply use the result of a1 when it lands.
+    """
+
     def __init__(
         self,
         max_size: int,
         method: Callable[..., Awaitable[Any]],
         cache_key_index: int = 0,
     ):
+        """
+        Args:
+            max_size: max size of the cache (in items)
+            method: the function to cache
+            cache_key_index: if the method takes multiple args, only one will be used as the cache key. This is the
+                index of that cache key in the args list (default is the first arg)
+        """
         self._inflight: dict[Hashable, asyncio.Future] = {}
         self._method = method
         self._cache = LRUCache(max_size=max_size)
@@ -203,7 +246,11 @@ class CachedFetcher:
             self._inflight.pop(key, None)
 
 
-class CachedFetcherMethod:
+class _CachedFetcherMethod:
+    """
+    Helper class for using CachedFetcher with method caches (rather than functions)
+    """
+
     def __init__(self, method, max_size: int, cache_key_index: int):
         self.method = method
         self.max_size = max_size
@@ -226,7 +273,9 @@ class CachedFetcherMethod:
 
 
 def cached_fetcher(max_size: int, cache_key_index: int = 0):
+    """Wrapper for CachedFetcher. See example in CachedFetcher docstring."""
+
     def wrapper(method):
-        return CachedFetcherMethod(method, max_size, cache_key_index)
+        return _CachedFetcherMethod(method, max_size, cache_key_index)
 
     return wrapper
