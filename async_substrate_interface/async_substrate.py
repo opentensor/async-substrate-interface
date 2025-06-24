@@ -1064,7 +1064,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
-        return await self._runtime_for_version_fetcher.execute_multiple_args(
+        return await self._runtime_for_version_fetcher.execute(
             runtime_version, block_hash
         )
 

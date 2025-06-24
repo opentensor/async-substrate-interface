@@ -5,7 +5,7 @@ import os
 import pickle
 import sqlite3
 from pathlib import Path
-from typing import Callable, Any
+from typing import Callable, Any, Awaitable, Hashable
 
 import asyncstdlib as a
 
@@ -167,63 +167,35 @@ class LRUCache:
 
 
 class CachedFetcher:
-    def __init__(self, max_size: int, method: Callable):
-        self._inflight: dict[int, asyncio.Future] = {}
+    def __init__(self, max_size: int, method: Callable[..., Awaitable[Any]], cache_key_index: int = 0):
+        self._inflight: dict[Hashable, asyncio.Future] = {}
         self._method = method
         self._cache = LRUCache(max_size=max_size)
+        self._cache_key_index = cache_key_index
 
-    async def execute(self, single_arg: Any) -> str:
-        if item := self._cache.get(single_arg):
+    async def execute(self, *args: Any) -> Any:
+        key = args[self._cache_key_index]
+        if item := self._cache.get(key):
             return item
 
-        if single_arg in self._inflight:
-            result = await self._inflight[single_arg]
-            return result
+        if key in self._inflight:
+            return await self._inflight[key]
 
         loop = asyncio.get_running_loop()
         future = loop.create_future()
-        self._inflight[single_arg] = future
+        self._inflight[key] = future
 
-        try:
-            result = await self._method(single_arg)
-            self._cache.set(single_arg, result)
-            future.set_result(result)
-            return result
-        except Exception as e:
-            # Propagate errors
-            future.set_exception(e)
-            raise
-        finally:
-            self._inflight.pop(single_arg, None)
-
-    async def execute_multiple_args(self, *args: Any) -> Any:
-        """
-        Only cache on the first arg
-        Args:
-            *args:
-
-        Returns:
-
-        """
-        single_arg = args[0]
-        if item := self._cache.get(single_arg):
-            return item
-
-        if single_arg in self._inflight:
-            result = await self._inflight[single_arg]
-            return result
-
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-        self._inflight[single_arg] = future
         try:
             result = await self._method(*args)
-            self._cache.set(single_arg, result)
+            self._cache.set(key, result)
             future.set_result(result)
             return result
         except Exception as e:
-            # Propagate errors
             future.set_exception(e)
             raise
         finally:
-            self._inflight.pop(single_arg, None)
+            _ = self._inflight.pop(key, None)
+            try:
+                await _
+            except RuntimeError:
+                pass
