@@ -8,7 +8,6 @@ keywords = ["substrate", "development", "bittensor"]
 
 dependencies = [
   "wheel",
-  "asyncstdlib~=3.13.0",
   "bt-decode==v0.6.0",
   "scalecodec~=1.2.11",
   "websockets>=14.1",

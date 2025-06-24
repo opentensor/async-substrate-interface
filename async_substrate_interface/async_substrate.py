@@ -58,7 +58,10 @@ from async_substrate_interface.utils import (
     get_next_id,
     rng as random,
 )
-from async_substrate_interface.utils.cache import async_sql_lru_cache, CachedFetcher
+from async_substrate_interface.utils.cache import (
+    async_sql_lru_cache,
+    cached_fetcher,
+)
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
@@ -794,12 +797,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.registry_type_map = {}
         self.type_id_to_name = {}
         self._mock = _mock
-        self._block_hash_fetcher = CachedFetcher(512, self._get_block_hash)
-        self._parent_hash_fetcher = CachedFetcher(512, self._get_parent_block_hash)
-        self._runtime_info_fetcher = CachedFetcher(16, self._get_block_runtime_info)
-        self._runtime_version_for_fetcher = CachedFetcher(
-            512, self._get_block_runtime_version_for
-        )
 
     async def __aenter__(self):
         if not self._mock:
@@ -1044,35 +1041,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if not runtime:
             self.last_block_hash = block_hash
 
-            runtime_block_hash = await self.get_parent_block_hash(block_hash)
-
-            runtime_info = await self.get_block_runtime_info(runtime_block_hash)
-
-            metadata, (metadata_v15, registry) = await asyncio.gather(
-                self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
-                self._load_registry_at_block(block_hash=runtime_block_hash),
-            )
-            if metadata is None:
-                # does this ever happen?
-                raise SubstrateRequestException(
-                    f"No metadata for block '{runtime_block_hash}'"
-                )
-            logger.debug(
-                f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
-            )
-
-            runtime = Runtime(
-                chain=self.chain,
-                runtime_config=self.runtime_config,
-                metadata=metadata,
-                type_registry=self.type_registry,
-                metadata_v15=metadata_v15,
-                runtime_info=runtime_info,
-                registry=registry,
-            )
-            self.runtime_cache.add_item(
-                runtime_version=runtime_version, runtime=runtime
-            )
+            runtime = await self.get_runtime_for_version(runtime_version, block_hash)
 
         self.load_runtime(runtime)
 
@@ -1084,6 +1053,51 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             if ss58_prefix_constant:
                 self.ss58_format = ss58_prefix_constant
+        return runtime
+
+    @cached_fetcher(max_size=16, cache_key_index=0)
+    async def get_runtime_for_version(
+        self, runtime_version: int, block_hash: Optional[str] = None
+    ) -> Runtime:
+        """
+        Retrieves the `Runtime` for a given runtime version at a given block hash.
+        Args:
+            runtime_version: version of the runtime (from `get_block_runtime_version_for`)
+            block_hash: hash of the block to query
+
+        Returns:
+            Runtime object for the given runtime version
+        """
+        return await self._get_runtime_for_version(runtime_version, block_hash)
+
+    async def _get_runtime_for_version(
+        self, runtime_version: int, block_hash: Optional[str] = None
+    ) -> Runtime:
+        runtime_block_hash = await self.get_parent_block_hash(block_hash)
+        runtime_info, metadata, (metadata_v15, registry) = await asyncio.gather(
+            self.get_block_runtime_info(runtime_block_hash),
+            self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
+            self._load_registry_at_block(block_hash=runtime_block_hash),
+        )
+        if metadata is None:
+            # does this ever happen?
+            raise SubstrateRequestException(
+                f"No metadata for block '{runtime_block_hash}'"
+            )
+        logger.debug(
+            f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
+        )
+
+        runtime = Runtime(
+            chain=self.chain,
+            runtime_config=self.runtime_config,
+            metadata=metadata,
+            type_registry=self.type_registry,
+            metadata_v15=metadata_v15,
+            runtime_info=runtime_info,
+            registry=registry,
+        )
+        self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
         return runtime
 
     async def create_storage_key(
@@ -1921,10 +1935,19 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return runtime.metadata_v15
 
-    async def get_parent_block_hash(self, block_hash):
-        return await self._parent_hash_fetcher.execute(block_hash)
+    @cached_fetcher(max_size=512)
+    async def get_parent_block_hash(self, block_hash) -> str:
+        """
+        Retrieves the block hash of the parent of the given block hash
+        Args:
+            block_hash: hash of the block to query
 
-    async def _get_parent_block_hash(self, block_hash):
+        Returns:
+            Hash of the parent block hash, or the original block hash (if it has not parent)
+        """
+        return await self._get_parent_block_hash(block_hash)
+
+    async def _get_parent_block_hash(self, block_hash) -> str:
         block_header = await self.rpc_request("chain_getHeader", [block_hash])
 
         if block_header["result"] is None:
@@ -1967,25 +1990,27 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Unknown error occurred during retrieval of events"
             )
 
+    @cached_fetcher(max_size=16)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
-        return await self._runtime_info_fetcher.execute(block_hash)
+        """
+        Retrieve the runtime info of given block_hash
+        """
+        return await self._get_block_runtime_info(block_hash)
 
     get_block_runtime_version = get_block_runtime_info
 
     async def _get_block_runtime_info(self, block_hash: str) -> dict:
-        """
-        Retrieve the runtime info of given block_hash
-        """
         response = await self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
+    @cached_fetcher(max_size=512)
     async def get_block_runtime_version_for(self, block_hash: str):
-        return await self._runtime_version_for_fetcher.execute(block_hash)
-
-    async def _get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
         """
+        return await self._get_block_runtime_version_for(block_hash)
+
+    async def _get_block_runtime_version_for(self, block_hash: str):
         parent_block_hash = await self.get_parent_block_hash(block_hash)
         runtime_info = await self.get_block_runtime_info(parent_block_hash)
         if runtime_info is None:
@@ -2296,8 +2321,17 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
+    @cached_fetcher(max_size=512)
     async def get_block_hash(self, block_id: int) -> str:
-        return await self._block_hash_fetcher.execute(block_id)
+        """
+        Retrieves the hash of the specified block number
+        Args:
+            block_id: block number
+
+        Returns:
+            Hash of the block
+        """
+        return await self._get_block_hash(block_id)
 
     async def _get_block_hash(self, block_id: int) -> str:
         return (await self.rpc_request("chain_getBlockHash", [block_id]))["result"]
