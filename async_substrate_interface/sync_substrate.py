@@ -755,7 +755,8 @@ class SubstrateInterface(SubstrateMixin):
             self.runtime = runtime
             return runtime
         else:
-            return self.get_runtime_for_version(runtime_version, block_hash)
+            self.runtime = self.get_runtime_for_version(runtime_version, block_hash)
+            return self.runtime
 
     def get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
@@ -2524,13 +2525,13 @@ class SubstrateInterface(SubstrateMixin):
         for idx, param in enumerate(runtime_call_def["inputs"]):
             param_type_string = f"scale_info::{param['ty']}"
             if isinstance(params, list):
-                param_data += self.encode_scale(param_type_string, params[idx])
+                param_data += self.encode_scale(param_type_string, params[idx], runtime=runtime)
             else:
                 if param["name"] not in params:
                     raise ValueError(f"Runtime Call param '{param['name']}' is missing")
 
                 param_data += self.encode_scale(
-                    param_type_string, params[param["name"]]
+                    param_type_string, params[param["name"]], runtime=runtime
                 )
 
         # RPC request
