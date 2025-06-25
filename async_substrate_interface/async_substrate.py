@@ -2376,10 +2376,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if call_params is None:
             call_params = {}
 
-        await self.init_runtime(block_hash=block_hash)
+        runtime = await self.init_runtime(block_hash=block_hash)
 
-        call = self.runtime_config.create_scale_object(
-            type_string="Call", metadata=self.runtime.metadata
+        call = runtime.runtime_config.create_scale_object(
+            type_string="Call", metadata=runtime.metadata
         )
 
         call.encode(
