@@ -2547,6 +2547,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
     ) -> ScaleBytes:
         # Retrieve genesis hash
         genesis_hash = await self.get_block_hash(0)
+        runtime = await self.init_runtime(block_hash=None)
 
         if not era:
             era = "00"
@@ -2556,7 +2557,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             block_hash = genesis_hash
         else:
             # Determine mortality of extrinsic
-            era_obj = self.runtime_config.create_scale_object("Era")
+            era_obj = runtime.runtime_config.create_scale_object("Era")
 
             if isinstance(era, dict) and "current" not in era and "phase" not in era:
                 raise ValueError(
@@ -2569,17 +2570,17 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
 
         # Create signature payload
-        signature_payload = self.runtime_config.create_scale_object(
+        signature_payload = runtime.runtime_config.create_scale_object(
             "ExtrinsicPayloadValue"
         )
 
         # Process signed extensions in metadata
-        if "signed_extensions" in self.runtime.metadata[1][1]["extrinsic"]:
+        if "signed_extensions" in runtime.metadata[1][1]["extrinsic"]:
             # Base signature payload
             signature_payload.type_mapping = [["call", "CallBytes"]]
 
             # Add signed extensions to payload
-            signed_extensions = self.runtime.metadata.get_signed_extensions()
+            signed_extensions = runtime.metadata.get_signed_extensions()
 
             if "CheckMortality" in signed_extensions:
                 signature_payload.type_mapping.append(
@@ -2668,10 +2669,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
             "era": era,
             "nonce": nonce,
             "tip": tip,
-            "spec_version": self.runtime.runtime_version,
+            "spec_version": runtime.runtime_version,
             "genesis_hash": genesis_hash,
             "block_hash": block_hash,
-            "transaction_version": self.runtime.transaction_version,
+            "transaction_version": runtime.transaction_version,
             "asset_id": {"tip": tip, "asset_id": tip_asset_id},
             "metadata_hash": None,
             "mode": "Disabled",
@@ -2713,16 +2714,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
              The signed Extrinsic
         """
         # only support creating extrinsics for current block
-        await self.init_runtime(block_id=await self.get_block_number())
+        runtime = await self.init_runtime()
 
         # Check requirements
         if not isinstance(call, GenericCall):
             raise TypeError("'call' must be of type Call")
 
         # Check if extrinsic version is supported
-        if self.runtime.metadata[1][1]["extrinsic"]["version"] != 4:  # type: ignore
+        if runtime.metadata[1][1]["extrinsic"]["version"] != 4:  # type: ignore
             raise NotImplementedError(
-                f"Extrinsic version {self.runtime.metadata[1][1]['extrinsic']['version']} not supported"  # type: ignore
+                f"Extrinsic version {runtime.metadata[1][1]['extrinsic']['version']} not supported"  # type: ignore
             )
 
         # Retrieve nonce
@@ -2766,7 +2767,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         # Create extrinsic
         extrinsic = self.runtime_config.create_scale_object(
-            type_string="Extrinsic", metadata=self.runtime.metadata
+            type_string="Extrinsic", metadata=runtime.metadata
         )
 
         value = {
@@ -2783,8 +2784,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         }
 
         # Check if ExtrinsicSignature is MultiSignature, otherwise omit signature_version
-        signature_cls = self.runtime_config.get_decoder_class("ExtrinsicSignature")
-        if issubclass(signature_cls, self.runtime_config.get_decoder_class("Enum")):
+        signature_cls = runtime.runtime_config.get_decoder_class("ExtrinsicSignature")
+        if issubclass(signature_cls, runtime.runtime_config.get_decoder_class("Enum")):
             value["signature_version"] = signature_version
 
         extrinsic.encode(value)
@@ -3029,7 +3030,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         constant_list = []
 
-        for module_idx, module in enumerate(self.metadata.pallets):
+        for module_idx, module in enumerate(runtime.metadata.pallets):
             for constant in module.constants or []:
                 constant_list.append(
                     self.serialize_constant(constant, module, runtime.runtime_version)
@@ -3158,14 +3159,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             dict mapping the type strings to the type decompositions
         """
-        await self.init_runtime(block_hash=block_hash)
+        runtime = await self.init_runtime(block_hash=block_hash)
 
-        if not self.implements_scaleinfo:
+        if not runtime.implements_scaleinfo:
             raise NotImplementedError("MetadataV14 or higher runtimes is required")
 
         type_registry = {}
 
-        for scale_info_type in self.metadata.portable_registry["types"]:
+        for scale_info_type in runtime.metadata.portable_registry["types"]:
             if (
                 "path" in scale_info_type.value["type"]
                 and len(scale_info_type.value["type"]["path"]) > 0
@@ -3207,21 +3208,21 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             List of metadata modules
         """
-        await self.init_runtime(block_hash=block_hash)
+        runtime = await self.init_runtime(block_hash=block_hash)
 
         return [
             {
                 "metadata_index": idx,
                 "module_id": module.get_identifier(),
                 "name": module.name,
-                "spec_version": self.runtime.runtime_version,
+                "spec_version": runtime.runtime_version,
                 "count_call_functions": len(module.calls or []),
                 "count_storage_functions": len(module.storage or []),
                 "count_events": len(module.events or []),
                 "count_constants": len(module.constants or []),
                 "count_errors": len(module.errors or []),
             }
-            for idx, module in enumerate(self.metadata.pallets)
+            for idx, module in enumerate(runtime.metadata.pallets)
         ]
 
     async def get_metadata_module(self, name, block_hash=None) -> ScaleType:
@@ -3235,9 +3236,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             MetadataModule
         """
-        await self.init_runtime(block_hash=block_hash)
+        runtime = await self.init_runtime(block_hash=block_hash)
 
-        return self.metadata.get_metadata_pallet(name)
+        return runtime.metadata.get_metadata_pallet(name)
 
     async def query(
         self,
@@ -3655,9 +3656,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of call functions
         """
-        await self.init_runtime(block_hash=block_hash)
+        runtime = await self.init_runtime(block_hash=block_hash)
 
-        for pallet in self.runtime.metadata.pallets:
+        for pallet in runtime.metadata.pallets:
             if pallet.name == module_name and pallet.calls:
                 for call in pallet.calls:
                     if call.name == call_function_name:
@@ -3679,7 +3680,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         event_list = []
 
-        for event_index, (module, event) in self.metadata.event_index.items():
+        for event_index, (module, event) in runtime.metadata.event_index.items():
             event_list.append(
                 self.serialize_module_event(
                     module, event, runtime.runtime_version, event_index
