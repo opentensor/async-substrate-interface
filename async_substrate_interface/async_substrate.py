@@ -23,7 +23,7 @@ from typing import (
 )
 
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
-from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
+from scalecodec.base import ScaleBytes, ScaleType
 from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
@@ -787,15 +787,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.type_registry = type_registry
         self.type_registry_preset = type_registry_preset
         self.runtime_cache = RuntimeCache()
-        self.runtime_config = RuntimeConfigurationObject(
-            ss58_format=self.ss58_format, implements_scale_info=True
-        )
         self._nonces = {}
         self.metadata_version_hex = "0x0f000000"  # v15
-        self.reload_type_registry()
         self._initializing = False
-        self.registry_type_map = {}
-        self.type_id_to_name = {}
         self._mock = _mock
 
     async def __aenter__(self):
@@ -896,52 +890,31 @@ class AsyncSubstrateInterface(SubstrateMixin):
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
         metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
         registry = PortableRegistry.from_metadata_v15(metadata)
-        self._load_registry_type_map(registry)
         return metadata, registry
 
-    async def _wait_for_registry(self, _attempt: int = 1, _retries: int = 3) -> None:
-        async def _waiter():
-            while self.runtime.registry is None:
-                await asyncio.sleep(0.1)
-            return
-
-        try:
-            if not self.runtime.registry:
-                await asyncio.wait_for(_waiter(), timeout=10)
-        except TimeoutError:
-            # indicates that registry was never loaded
-            if not self._initializing:
-                raise AttributeError(
-                    "Registry was never loaded. This did not occur during initialization, which usually indicates "
-                    "you must first initialize the AsyncSubstrateInterface object, either with "
-                    "`await AsyncSubstrateInterface.initialize()` or running with `async with`"
-                )
-            elif _attempt < _retries:
-                await self._load_registry_at_block(None)
-                return await self._wait_for_registry(_attempt + 1, _retries)
-            else:
-                raise AttributeError(
-                    "Registry was never loaded. This occurred during initialization, which usually indicates a "
-                    "connection or node error."
-                )
-
     async def encode_scale(
-        self, type_string, value: Any, _attempt: int = 1, _retries: int = 3
+        self,
+        type_string,
+        value: Any,
+        block_hash: Optional[str] = None,
+        runtime: Optional[Runtime] = None,
     ) -> bytes:
         """
-        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string
+        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string. If neither `block_hash`
+        nor `runtime` are supplied, the runtime of the current block will be used.
 
         Args:
             type_string: the type string of the SCALE object for decoding
             value: value to encode
-            _attempt: the current number of attempts to load the registry needed to encode the value
-            _retries: the maximum number of attempts to load the registry needed to encode the value
+            block_hash: hash of the block where the desired runtime is located. Ignored if supplying `runtime`
+            runtime: the runtime to use for the scale encoding. If supplied, `block_hash` is ignored
 
         Returns:
             encoded bytes
         """
-        await self._wait_for_registry(_attempt, _retries)
-        return self._encode_scale(type_string, value)
+        if runtime is None:
+            runtime = await self.init_runtime(block_hash=block_hash)
+        return self._encode_scale(type_string, value, runtime=runtime)
 
     async def decode_scale(
         self,
@@ -987,25 +960,26 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return obj
 
     def load_runtime(self, runtime):
-        self.runtime = runtime
-
         # Update type registry
-        self.reload_type_registry(use_remote_preset=False, auto_discover=True)
+        runtime.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
-        self.runtime_config.set_active_spec_version_id(runtime.runtime_version)
-        if self.implements_scaleinfo:
-            logger.debug("Add PortableRegistry from metadata to type registry")
-            self.runtime_config.add_portable_registry(runtime.metadata)
+        runtime.runtime_config.set_active_spec_version_id(runtime.runtime_version)
+        runtime.runtime_config.set_active_spec_version_id(runtime.runtime_version)
+        if runtime.implements_scaleinfo:
+            logger.debug("Adding PortableRegistry from metadata to type registry")
+            runtime.runtime_config.add_portable_registry(runtime.metadata)
         # Set runtime compatibility flags
         try:
-            _ = self.runtime_config.create_scale_object("sp_weights::weight_v2::Weight")
-            self.config["is_weight_v2"] = True
-            self.runtime_config.update_type_registry_types(
+            _ = runtime.runtime_config.create_scale_object(
+                "sp_weights::weight_v2::Weight"
+            )
+            runtime.config["is_weight_v2"] = True
+            runtime.runtime_config.update_type_registry_types(
                 {"Weight": "sp_weights::weight_v2::Weight"}
             )
         except NotImplementedError:
-            self.config["is_weight_v2"] = False
-            self.runtime_config.update_type_registry_types({"Weight": "WeightV1"})
+            runtime.config["is_weight_v2"] = False
+            runtime.runtime_config.update_type_registry_types({"Weight": "WeightV1"})
 
     async def init_runtime(
         self, block_hash: Optional[str] = None, block_id: Optional[int] = None
@@ -1288,6 +1262,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             storage_item=storage,
                             module=module,
                             spec_version_id=runtime.runtime_version,
+                            runtime=runtime,
                         )
                     )
 
@@ -1407,21 +1382,21 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self,
         api: str,
         method: str,
-        block_hash: str = None,
+        block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
     ) -> GenericRuntimeCallDefinition:
         """
-        Get details of a runtime API call
+        Get details of a runtime API call. If not supplying `block_hash` or `runtime`, the runtime of the current block
+        will be used.
 
         Args:
             api: Name of the runtime API e.g. 'TransactionPaymentApi'
             method: Name of the method e.g. 'query_fee_details'
-            block_hash: Hash of the block to query, unused if specifying `runtime`
-            runtime: Optional `Runtime` whose call functions to retrieve. If not specified, will fall back to the
-                runtime at the block hash specified. If that is not specified, will fall back to the current block.
+            block_hash: Hash of the block whose runtime to use, if not specifying `runtime`
+            runtime: The `Runtime` object whose metadata to use.
 
         Returns:
-            runtime call function
+            GenericRuntimeCallDefinition
         """
         if not runtime:
             runtime = await self.init_runtime(block_hash=block_hash)
@@ -1439,46 +1414,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
 
         # Add runtime API types to registry
-        self.runtime_config.update_type_registry_types(runtime_api_types)
+        runtime.runtime_config.update_type_registry_types(runtime_api_types)
 
         runtime_call_def_obj = await self.create_scale_object(
             "RuntimeCallDefinition", runtime=runtime
         )
-        runtime_call_def_obj.encode(runtime_call_def)
-
-        return runtime_call_def_obj
-
-    async def get_metadata_runtime_call_function(
-        self, api: str, method: str
-    ) -> GenericRuntimeCallDefinition:
-        """
-        Get details of a runtime API call
-
-        Args:
-            api: Name of the runtime API e.g. 'TransactionPaymentApi'
-            method: Name of the method e.g. 'query_fee_details'
-
-        Returns:
-            GenericRuntimeCallDefinition
-        """
-        await self.init_runtime(block_hash=block_hash)
-
-        try:
-            runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
-                "methods"
-            ][method]
-            runtime_call_def["api"] = api
-            runtime_call_def["method"] = method
-            runtime_api_types = self.runtime_config.type_registry["runtime_api"][
-                api
-            ].get("types", {})
-        except KeyError:
-            raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
-
-        # Add runtime API types to registry
-        self.runtime_config.update_type_registry_types(runtime_api_types)
-
-        runtime_call_def_obj = await self.create_scale_object("RuntimeCallDefinition")
         runtime_call_def_obj.encode(runtime_call_def)
 
         return runtime_call_def_obj
@@ -2897,6 +2837,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         method: str,
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
+        runtime: Optional[Runtime] = None,
     ) -> ScaleType:
         logger.debug(
             f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
@@ -2927,10 +2868,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         # RPC request
         result_data = await self.rpc_request(
-            "state_call", [f"{api}_{method}", param_data.hex(), block_hash]
+            "state_call",
+            [f"{api}_{method}", param_data.hex(), block_hash],
+            runtime=runtime,
         )
         result_vec_u8_bytes = hex_to_bytes(result_data["result"])
-        result_bytes = await self.decode_scale("Vec<u8>", result_vec_u8_bytes)
+        result_bytes = await self.decode_scale(
+            "Vec<u8>", result_vec_u8_bytes, runtime=runtime
+        )
 
         # Decode result
         # Get correct type
@@ -2976,7 +2921,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
 
         if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
-            result = await self._do_runtime_call_old(api, method, params, block_hash)
+            result = await self._do_runtime_call_old(
+                api, method, params, block_hash, runtime=runtime
+            )
 
             return result
 
