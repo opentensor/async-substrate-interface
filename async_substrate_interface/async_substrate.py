@@ -967,7 +967,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         runtime.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
         runtime.runtime_config.set_active_spec_version_id(runtime.runtime_version)
-        runtime.runtime_config.set_active_spec_version_id(runtime.runtime_version)
         if runtime.implements_scaleinfo:
             logger.debug("Adding PortableRegistry from metadata to type registry")
             runtime.runtime_config.add_portable_registry(runtime.metadata)
@@ -1032,7 +1031,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if self.ss58_format is None:
             # Check and apply runtime constants
             ss58_prefix_constant = await self.get_constant(
-                "System", "SS58Prefix", block_hash=block_hash
+                "System", "SS58Prefix", block_hash=block_hash, runtime=runtime
             )
 
             if ss58_prefix_constant:
@@ -1458,8 +1457,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         try:
                             extrinsic_decoder = extrinsic_cls(
                                 data=ScaleBytes(extrinsic_data),
-                                metadata=self.runtime.metadata,
-                                runtime_config=self.runtime_config,
+                                metadata=runtime.metadata,
+                                runtime_config=runtime.runtime_config,
                             )
                             extrinsic_decoder.decode(check_remaining=True)
                             block_data["extrinsics"][idx] = extrinsic_decoder
@@ -2299,7 +2298,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 params + [block_hash] if block_hash else params,
             )
         ]
-        result = await self._make_rpc_request(payloads, result_handler=result_handler)
+        result = await self._make_rpc_request(
+            payloads, result_handler=result_handler, runtime=runtime
+        )
         if "error" in result[payload_id][0]:
             if "Failed to get runtime version" in (
                 err_msg := result[payload_id][0]["error"]["message"]
@@ -2307,9 +2308,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 logger.warning(
                     "Failed to get runtime. Re-fetching from chain, and retrying."
                 )
-                await self.init_runtime(block_hash=block_hash)
+                runtime = await self.init_runtime(block_hash=block_hash)
                 return await self.rpc_request(
-                    method, params, result_handler, block_hash, reuse_block_hash
+                    method,
+                    params,
+                    result_handler,
+                    block_hash,
+                    reuse_block_hash,
+                    runtime=runtime,
                 )
             elif (
                 "Client error: Api called for an unknown Block: State already discarded"
@@ -3036,7 +3042,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return constant_list
 
-    async def get_metadata_constant(self, module_name, constant_name, block_hash=None):
+    async def get_metadata_constant(
+        self,
+        module_name,
+        constant_name,
+        block_hash=None,
+        runtime: Optional[Runtime] = None,
+    ):
         """
         Retrieves the details of a constant for given module name, call function name and block_hash
         (or chaintip if block_hash is omitted)
@@ -3045,13 +3057,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
             module_name: name of the module you are querying
             constant_name: name of the constant you are querying
             block_hash: hash of the block at which to make the runtime API call
+            runtime: Runtime whose metadata you are querying.
 
         Returns:
             MetadataModuleConstants
         """
-        await self.init_runtime(block_hash=block_hash)
+        if not runtime:
+            runtime = await self.init_runtime(block_hash=block_hash)
 
-        for module in self.runtime.metadata.pallets:
+        for module in runtime.metadata.pallets:
             if module_name == module.name and module.constants:
                 for constant in module.constants:
                     if constant_name == constant.value["name"]:
@@ -3063,6 +3077,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         constant_name: str,
         block_hash: Optional[str] = None,
         reuse_block_hash: bool = False,
+        runtime: Optional[Runtime] = None,
     ) -> Optional[ScaleObj]:
         """
         Returns the decoded `ScaleType` object of the constant for given module name, call function name and block_hash
@@ -3073,18 +3088,22 @@ class AsyncSubstrateInterface(SubstrateMixin):
             constant_name: Name of the constant to query
             block_hash: Hash of the block at which to make the runtime API call
             reuse_block_hash: Reuse last-used block hash if set to true
+            runtime: Runtime to use for querying the constant
 
         Returns:
              ScaleType from the runtime call
         """
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         constant = await self.get_metadata_constant(
-            module_name, constant_name, block_hash=block_hash
+            module_name, constant_name, block_hash=block_hash, runtime=runtime
         )
         if constant:
             # Decode to ScaleType
             return await self.decode_scale(
-                constant.type, bytes(constant.constant_value), return_scale_obj=True
+                constant.type,
+                bytes(constant.constant_value),
+                return_scale_obj=True,
+                runtime=runtime,
             )
         else:
             return None

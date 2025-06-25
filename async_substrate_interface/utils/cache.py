@@ -228,7 +228,7 @@ class CachedFetcher:
 
         if self._cache_key_index is not None:
             key_name = list(bound.arguments)[self._cache_key_index]
-            return bound.arguments[key_name][self._cache_key_index]
+            return bound.arguments[key_name]
 
         return (tuple(bound.arguments.items()),)
 

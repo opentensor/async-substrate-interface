@@ -506,6 +506,7 @@ class SubstrateInterface(SubstrateMixin):
             _log_raw_websockets: whether to log raw websocket requests during RPC requests
 
         """
+        super().__init__(type_registry, type_registry_preset, use_remote_preset)
         self.max_retries = max_retries
         self.retry_timeout = retry_timeout
         self.chain_endpoint = url
@@ -526,9 +527,6 @@ class SubstrateInterface(SubstrateMixin):
             ss58_format=self.ss58_format, implements_scale_info=True
         )
         self.metadata_version_hex = "0x0f000000"  # v15
-        self.reload_type_registry()
-        self.registry_type_map = {}
-        self.type_id_to_name = {}
         self._mock = _mock
         self.log_raw_websockets = _log_raw_websockets
         if not _mock:
