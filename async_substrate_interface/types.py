@@ -1,3 +1,4 @@
+import copy
 import logging
 from abc import ABC
 from collections import defaultdict
@@ -91,11 +92,11 @@ class Runtime:
         self.registry = registry
         self.runtime_version = runtime_info.get("specVersion")
         self.transaction_version = runtime_info.get("transactionVersion")
-        self._load_runtime()
+        self.load_runtime()
         if registry is not None:
-            self._load_registry_type_map()
+            self.load_registry_type_map()
 
-    def _load_runtime(self):
+    def load_runtime(self):
         # Update type registry
         self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
@@ -208,7 +209,7 @@ class Runtime:
             # Load type registries in runtime configuration
             self.runtime_config.update_type_registry(self.type_registry)
 
-    def _load_registry_type_map(self):
+    def load_registry_type_map(self):
         registry_type_map = {}
         type_id_to_name = {}
         types = json.loads(self.registry.registry)["types"]
@@ -512,9 +513,11 @@ class SubstrateMixin(ABC):
         type_registry: Optional[dict] = None,
         type_registry_preset: Optional[str] = None,
         use_remote_preset: bool = False,
+        ss58_format: Optional[int] = None,
     ):
         # We load a very basic RuntimeConfigurationObject that is only used for the initial metadata decoding
-        self.runtime_config = RuntimeConfigurationObject()
+        self.runtime_config = RuntimeConfigurationObject(ss58_format=ss58_format)
+        self.ss58_format = ss58_format
         self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
         if type_registry_preset is not None:
             type_registry_preset_dict = load_type_registry_preset(
@@ -536,6 +539,19 @@ class SubstrateMixin(ABC):
         if type_registry:
             # Load type registries in runtime configuration
             self.runtime_config.update_type_registry(type_registry)
+
+    def _runtime_config_copy(self, implements_scale_info: bool = False):
+        runtime_config = RuntimeConfigurationObject(
+            ss58_format=self.ss58_format, implements_scale_info=implements_scale_info
+        )
+        runtime_config.active_spec_version_id = (
+            self.runtime_config.active_spec_version_id
+        )
+        runtime_config.chain_id = self.runtime_config.chain_id
+        # TODO. This works, but deepcopy does not. Indicating this gets updated somewhere else.
+        runtime_config.type_registry = self.runtime_config.type_registry
+        assert runtime_config.type_registry == self.runtime_config.type_registry
+        return runtime_config
 
     @property
     def chain(self):

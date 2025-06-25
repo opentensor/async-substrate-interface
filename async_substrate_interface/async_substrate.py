@@ -755,7 +755,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             ws_shutdown_timer: how long after the last connection your websocket should close
 
         """
-        super().__init__(type_registry, type_registry_preset, use_remote_preset)
+        super().__init__(
+            type_registry, type_registry_preset, use_remote_preset, ss58_format
+        )
         self.max_retries = max_retries
         self.retry_timeout = retry_timeout
         self.chain_endpoint = url
@@ -784,7 +786,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         }
         self.initialized = False
         self._forgettable_task = None
-        self.ss58_format = ss58_format
         self.type_registry = type_registry
         self.type_registry_preset = type_registry_preset
         self.runtime_cache = RuntimeCache()
@@ -1057,10 +1058,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         logger.debug(
             f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
         )
-
+        implements_scale_info = metadata.portable_registry is not None
         runtime = Runtime(
             chain=self.chain,
-            runtime_config=self.runtime_config,
+            runtime_config=self._runtime_config_copy(
+                implements_scale_info=implements_scale_info
+            ),
             metadata=metadata,
             type_registry=self.type_registry,
             metadata_v15=metadata_v15,

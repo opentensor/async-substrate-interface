@@ -506,7 +506,9 @@ class SubstrateInterface(SubstrateMixin):
             _log_raw_websockets: whether to log raw websocket requests during RPC requests
 
         """
-        super().__init__(type_registry, type_registry_preset, use_remote_preset)
+        super().__init__(
+            type_registry, type_registry_preset, use_remote_preset, ss58_format
+        )
         self.max_retries = max_retries
         self.retry_timeout = retry_timeout
         self.chain_endpoint = url
@@ -519,7 +521,6 @@ class SubstrateInterface(SubstrateMixin):
             "strict_scale_decode": True,
         }
         self.initialized = False
-        self.ss58_format = ss58_format
         self.type_registry = type_registry
         self.type_registry_preset = type_registry_preset
         self.runtime_cache = RuntimeCache()
@@ -731,7 +732,9 @@ class SubstrateInterface(SubstrateMixin):
         if block_id is not None:
             if runtime := self.runtime_cache.retrieve(block=block_id):
                 self.runtime = runtime
-                return runtime
+                self.runtime.load_runtime()
+                self.runtime.load_registry_type_map()
+                return self.runtime
             block_hash = self.get_block_hash(block_id)
 
         if not block_hash:
@@ -740,7 +743,9 @@ class SubstrateInterface(SubstrateMixin):
             self.last_block_hash = block_hash
             if runtime := self.runtime_cache.retrieve(block_hash=block_hash):
                 self.runtime = runtime
-                return runtime
+                self.runtime.load_runtime()
+                self.runtime.load_registry_type_map()
+                return self.runtime
 
         runtime_version = self.get_block_runtime_version_for(block_hash)
         if runtime_version is None:
@@ -753,9 +758,13 @@ class SubstrateInterface(SubstrateMixin):
 
         if runtime := self.runtime_cache.retrieve(runtime_version=runtime_version):
             self.runtime = runtime
+            self.runtime.load_runtime()
+            self.runtime.load_registry_type_map()
             return runtime
         else:
             self.runtime = self.get_runtime_for_version(runtime_version, block_hash)
+            self.runtime.load_runtime()
+            self.runtime.load_registry_type_map()
             return self.runtime
 
     def get_runtime_for_version(
@@ -2525,7 +2534,9 @@ class SubstrateInterface(SubstrateMixin):
         for idx, param in enumerate(runtime_call_def["inputs"]):
             param_type_string = f"scale_info::{param['ty']}"
             if isinstance(params, list):
-                param_data += self.encode_scale(param_type_string, params[idx], runtime=runtime)
+                param_data += self.encode_scale(
+                    param_type_string, params[idx], runtime=runtime
+                )
             else:
                 if param["name"] not in params:
                     raise ValueError(f"Runtime Call param '{param['name']}' is missing")
