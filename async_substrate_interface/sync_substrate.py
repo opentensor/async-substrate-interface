@@ -13,7 +13,7 @@ from scalecodec import (
     ss58_encode,
     MultiAccountId,
 )
-from scalecodec.base import RuntimeConfigurationObject, ScaleBytes, ScaleType
+from scalecodec.base import ScaleBytes, ScaleType
 from websockets.sync.client import connect, ClientConnection
 from websockets.exceptions import ConnectionClosed
 
@@ -553,6 +553,13 @@ class SubstrateInterface(SubstrateMixin):
                 chain = self.rpc_request("system_chain", [])
                 self._chain = chain.get("result")
             self.init_runtime()
+            if self.ss58_format is None:
+                # Check and apply runtime constants
+                ss58_prefix_constant = self.get_constant(
+                    "System", "SS58Prefix", block_hash=self.last_block_hash
+                )
+                if ss58_prefix_constant:
+                    self.ss58_format = ss58_prefix_constant
         self.initialized = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -721,11 +728,19 @@ class SubstrateInterface(SubstrateMixin):
         if block_id and block_hash:
             raise ValueError("Cannot provide block_hash and block_id at the same time")
 
-        if block_id:
+        if block_id is not None:
+            if runtime := self.runtime_cache.retrieve(block=block_id):
+                self.runtime = runtime
+                return runtime
             block_hash = self.get_block_hash(block_id)
 
         if not block_hash:
             block_hash = self.get_chain_head()
+        else:
+            self.last_block_hash = block_hash
+            if runtime := self.runtime_cache.retrieve(block_hash=block_hash):
+                self.runtime = runtime
+                return runtime
 
         runtime_version = self.get_block_runtime_version_for(block_hash)
         if runtime_version is None:
@@ -736,56 +751,62 @@ class SubstrateInterface(SubstrateMixin):
         if self.runtime and runtime_version == self.runtime.runtime_version:
             return self.runtime
 
-        runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
-        if not runtime:
-            self.last_block_hash = block_hash
+        if runtime := self.runtime_cache.retrieve(runtime_version=runtime_version):
+            self.runtime = runtime
+            return runtime
+        else:
+            return self.get_runtime_for_version(runtime_version, block_hash)
 
-            runtime_block_hash = self.get_parent_block_hash(block_hash)
+    def get_runtime_for_version(
+        self, runtime_version: int, block_hash: Optional[str] = None
+    ) -> Runtime:
+        """
+        Retrieves the `Runtime` for a given runtime version at a given block hash.
+        Args:
+            runtime_version: version of the runtime (from `get_block_runtime_version_for`)
+            block_hash: hash of the block to query
 
-            runtime_info = self.get_block_runtime_info(runtime_block_hash)
+        Returns:
+            Runtime object for the given runtime version
+        """
+        if not block_hash:
+            block_hash = self.get_chain_head()
+        runtime_block_hash = self.get_parent_block_hash(block_hash)
+        block_number = self.get_block_number(block_hash)
+        runtime_info = self.get_block_runtime_info(runtime_block_hash)
 
-            metadata = self.get_block_metadata(
-                block_hash=runtime_block_hash, decode=True
+        metadata = self.get_block_metadata(block_hash=runtime_block_hash, decode=True)
+        if metadata is None:
+            # does this ever happen?
+            raise SubstrateRequestException(
+                f"No metadata for block '{runtime_block_hash}'"
             )
-            if metadata is None:
-                # does this ever happen?
-                raise SubstrateRequestException(
-                    f"No metadata for block '{runtime_block_hash}'"
-                )
-            logger.debug(
-                "Retrieved metadata for {} from Substrate node".format(runtime_version)
-            )
+        logger.debug(
+            "Retrieved metadata for {} from Substrate node".format(runtime_version)
+        )
 
-            metadata_v15, registry = self._load_registry_at_block(
-                block_hash=runtime_block_hash
-            )
-            logger.debug(
-                f"Retrieved metadata v15 for {runtime_version} from Substrate node"
-            )
+        metadata_v15, registry = self._load_registry_at_block(
+            block_hash=runtime_block_hash
+        )
+        logger.debug(
+            f"Retrieved metadata v15 for {runtime_version} from Substrate node"
+        )
 
-            runtime = Runtime(
-                chain=self.chain,
-                runtime_config=self.runtime_config,
-                metadata=metadata,
-                type_registry=self.type_registry,
-                metadata_v15=metadata_v15,
-                runtime_info=runtime_info,
-                registry=registry,
-            )
-            self.runtime_cache.add_item(
-                runtime_version=runtime_version, runtime=runtime
-            )
-
-        self.load_runtime(runtime)
-
-        if self.ss58_format is None:
-            # Check and apply runtime constants
-            ss58_prefix_constant = self.get_constant(
-                "System", "SS58Prefix", block_hash=block_hash
-            )
-
-            if ss58_prefix_constant:
-                self.ss58_format = ss58_prefix_constant
+        runtime = Runtime(
+            chain=self.chain,
+            runtime_config=self.runtime_config,
+            metadata=metadata,
+            type_registry=self.type_registry,
+            metadata_v15=metadata_v15,
+            runtime_info=runtime_info,
+            registry=registry,
+        )
+        self.runtime_cache.add_item(
+            block=block_number,
+            block_hash=block_hash,
+            runtime_version=runtime_version,
+            runtime=runtime,
+        )
         return runtime
 
     def create_storage_key(
@@ -1061,46 +1082,12 @@ class SubstrateInterface(SubstrateMixin):
         Args:
             api: Name of the runtime API e.g. 'TransactionPaymentApi'
             method: Name of the method e.g. 'query_fee_details'
+            block_hash: block hash whose metadata to query
 
         Returns:
             runtime call function
         """
         self.init_runtime(block_hash=block_hash)
-
-        try:
-            runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
-                "methods"
-            ][method]
-            runtime_call_def["api"] = api
-            runtime_call_def["method"] = method
-            runtime_api_types = self.runtime_config.type_registry["runtime_api"][
-                api
-            ].get("types", {})
-        except KeyError:
-            raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
-
-        # Add runtime API types to registry
-        self.runtime_config.update_type_registry_types(runtime_api_types)
-
-        runtime_call_def_obj = self.create_scale_object("RuntimeCallDefinition")
-        runtime_call_def_obj.encode(runtime_call_def)
-
-        return runtime_call_def_obj
-
-    def get_metadata_runtime_call_function(
-        self, api: str, method: str
-    ) -> GenericRuntimeCallDefinition:
-        """
-        Get details of a runtime API call
-
-        Args:
-            api: Name of the runtime API e.g. 'TransactionPaymentApi'
-            method: Name of the method e.g. 'query_fee_details'
-
-        Returns:
-            GenericRuntimeCallDefinition
-        """
-        self.init_runtime()
 
         try:
             runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
@@ -2887,7 +2874,6 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
              QueryMapResult object
         """
-        hex_to_bytes_ = hex_to_bytes
         params = params or []
         block_hash = self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:

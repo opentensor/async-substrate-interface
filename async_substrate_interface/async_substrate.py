@@ -1033,9 +1033,17 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def _get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
-        runtime_block_hash, block_number = await asyncio.gather(
-            self.get_parent_block_hash(block_hash), self.get_block_number(block_hash)
-        )
+        if not block_hash:
+            block_hash, runtime_block_hash, block_number = await asyncio.gather(
+                self.get_chain_head(),
+                self.get_parent_block_hash(block_hash),
+                self.get_block_number(block_hash),
+            )
+        else:
+            runtime_block_hash, block_number = await asyncio.gather(
+                self.get_parent_block_hash(block_hash),
+                self.get_block_number(block_hash),
+            )
         runtime_info, metadata, (metadata_v15, registry) = await asyncio.gather(
             self.get_block_runtime_info(runtime_block_hash),
             self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
