@@ -523,9 +523,6 @@ class SubstrateInterface(SubstrateMixin):
         self.type_registry = type_registry
         self.type_registry_preset = type_registry_preset
         self.runtime_cache = RuntimeCache()
-        self.runtime_config = RuntimeConfigurationObject(
-            ss58_format=self.ss58_format, implements_scale_info=True
-        )
         self.metadata_version_hex = "0x0f000000"  # v15
         self._mock = _mock
         self.log_raw_websockets = _log_raw_websockets
@@ -650,7 +647,6 @@ class SubstrateInterface(SubstrateMixin):
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
         metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
         registry = PortableRegistry.from_metadata_v15(metadata)
-        self._load_registry_type_map(registry)
         return metadata, registry
 
     def decode_scale(
@@ -686,7 +682,7 @@ class SubstrateInterface(SubstrateMixin):
         self.runtime = runtime
 
         # Update type registry
-        self.reload_type_registry(use_remote_preset=False, auto_discover=True)
+        self.runtime.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
         self.runtime_config.set_active_spec_version_id(runtime.runtime_version)
         if self.implements_scaleinfo:
@@ -695,12 +691,12 @@ class SubstrateInterface(SubstrateMixin):
         # Set runtime compatibility flags
         try:
             _ = self.runtime_config.create_scale_object("sp_weights::weight_v2::Weight")
-            self.config["is_weight_v2"] = True
+            self.runtime.config["is_weight_v2"] = True
             self.runtime_config.update_type_registry_types(
                 {"Weight": "sp_weights::weight_v2::Weight"}
             )
         except NotImplementedError:
-            self.config["is_weight_v2"] = False
+            self.runtime.config["is_weight_v2"] = False
             self.runtime_config.update_type_registry_types({"Weight": "WeightV1"})
 
     def init_runtime(
@@ -764,9 +760,7 @@ class SubstrateInterface(SubstrateMixin):
                 block_hash=runtime_block_hash
             )
             logger.debug(
-                "Retrieved metadata v15 for {} from Substrate node".format(
-                    runtime_version
-                )
+                f"Retrieved metadata v15 for {runtime_version} from Substrate node"
             )
 
             runtime = Runtime(

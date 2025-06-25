@@ -807,7 +807,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if not self._chain:
                 chain = await self.rpc_request("system_chain", [])
                 self._chain = chain.get("result")
-            await self.init_runtime()
+            runtime = await self.init_runtime()
+            if self.ss58_format is None:
+                # Check and apply runtime constants
+                ss58_prefix_constant = await self.get_constant(
+                    "System", "SS58Prefix", runtime=runtime
+                )
+
+                if ss58_prefix_constant:
+                    self.ss58_format = ss58_prefix_constant
         self.initialized = True
         self._initializing = False
 
@@ -962,27 +970,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             return obj
 
-    def load_runtime(self, runtime):
-        # Update type registry
-        runtime.reload_type_registry(use_remote_preset=False, auto_discover=True)
-
-        runtime.runtime_config.set_active_spec_version_id(runtime.runtime_version)
-        if runtime.implements_scaleinfo:
-            logger.debug("Adding PortableRegistry from metadata to type registry")
-            runtime.runtime_config.add_portable_registry(runtime.metadata)
-        # Set runtime compatibility flags
-        try:
-            _ = runtime.runtime_config.create_scale_object(
-                "sp_weights::weight_v2::Weight"
-            )
-            runtime.config["is_weight_v2"] = True
-            runtime.runtime_config.update_type_registry_types(
-                {"Weight": "sp_weights::weight_v2::Weight"}
-            )
-        except NotImplementedError:
-            runtime.config["is_weight_v2"] = False
-            runtime.runtime_config.update_type_registry_types({"Weight": "WeightV1"})
-
     async def init_runtime(
         self, block_hash: Optional[str] = None, block_id: Optional[int] = None
     ) -> Runtime:
@@ -1006,10 +993,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
             raise ValueError("Cannot provide block_hash and block_id at the same time")
 
         if block_id is not None:
+            if runtime := self.runtime_cache.retrieve(block=block_id):
+                return runtime
             block_hash = await self.get_block_hash(block_id)
 
         if not block_hash:
             block_hash = await self.get_chain_head()
+        else:
+            self.last_block_hash = block_hash
+            if runtime := self.runtime_cache.retrieve(block_hash=block_hash):
+                return runtime
 
         runtime_version = await self.get_block_runtime_version_for(block_hash)
         if runtime_version is None:
@@ -1017,26 +1010,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 f"No runtime information for block '{block_hash}'"
             )
 
-        if self.runtime and runtime_version == self.runtime.runtime_version:
-            return self.runtime
-
-        runtime = self.runtime_cache.retrieve(runtime_version=runtime_version)
-        if not runtime:
-            self.last_block_hash = block_hash
-
-            runtime = await self.get_runtime_for_version(runtime_version, block_hash)
-
-        self.load_runtime(runtime)
-
-        if self.ss58_format is None:
-            # Check and apply runtime constants
-            ss58_prefix_constant = await self.get_constant(
-                "System", "SS58Prefix", block_hash=block_hash, runtime=runtime
-            )
-
-            if ss58_prefix_constant:
-                self.ss58_format = ss58_prefix_constant
-        return runtime
+        if runtime := self.runtime_cache.retrieve(runtime_version=runtime_version):
+            return runtime
+        else:
+            return await self.get_runtime_for_version(runtime_version, block_hash)
 
     @cached_fetcher(max_size=16, cache_key_index=0)
     async def get_runtime_for_version(
@@ -1056,7 +1033,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def _get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
-        runtime_block_hash = await self.get_parent_block_hash(block_hash)
+        runtime_block_hash, block_number = await asyncio.gather(
+            self.get_parent_block_hash(block_hash), self.get_block_number(block_hash)
+        )
         runtime_info, metadata, (metadata_v15, registry) = await asyncio.gather(
             self.get_block_runtime_info(runtime_block_hash),
             self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
@@ -1080,7 +1059,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
             runtime_info=runtime_info,
             registry=registry,
         )
-        self.runtime_cache.add_item(runtime_version=runtime_version, runtime=runtime)
+        self.runtime_cache.add_item(
+            block=block_number,
+            block_hash=block_hash,
+            runtime_version=runtime_version,
+            runtime=runtime,
+        )
         return runtime
 
     async def create_storage_key(

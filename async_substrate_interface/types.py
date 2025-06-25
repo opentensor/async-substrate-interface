@@ -91,8 +91,28 @@ class Runtime:
         self.registry = registry
         self.runtime_version = runtime_info.get("specVersion")
         self.transaction_version = runtime_info.get("transactionVersion")
+        self._load_runtime()
         if registry is not None:
-            self._load_registry_type_map(registry)
+            self._load_registry_type_map()
+
+    def _load_runtime(self):
+        # Update type registry
+        self.reload_type_registry(use_remote_preset=False, auto_discover=True)
+
+        self.runtime_config.set_active_spec_version_id(self.runtime_version)
+        if self.implements_scaleinfo:
+            logger.debug("Adding PortableRegistry from metadata to type registry")
+            self.runtime_config.add_portable_registry(self.metadata)
+        # Set runtime compatibility flags
+        try:
+            _ = self.runtime_config.create_scale_object("sp_weights::weight_v2::Weight")
+            self.config["is_weight_v2"] = True
+            self.runtime_config.update_type_registry_types(
+                {"Weight": "sp_weights::weight_v2::Weight"}
+            )
+        except NotImplementedError:
+            self.config["is_weight_v2"] = False
+            self.runtime_config.update_type_registry_types({"Weight": "WeightV1"})
 
     @property
     def implements_scaleinfo(self) -> Optional[bool]:
@@ -188,10 +208,10 @@ class Runtime:
             # Load type registries in runtime configuration
             self.runtime_config.update_type_registry(self.type_registry)
 
-    def _load_registry_type_map(self, registry):
+    def _load_registry_type_map(self):
         registry_type_map = {}
         type_id_to_name = {}
-        types = json.loads(registry.registry)["types"]
+        types = json.loads(self.registry.registry)["types"]
         type_by_id = {entry["id"]: entry for entry in types}
 
         # Pass 1: Gather simple types
