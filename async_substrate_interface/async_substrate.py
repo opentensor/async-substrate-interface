@@ -755,6 +755,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             ws_shutdown_timer: how long after the last connection your websocket should close
 
         """
+        super().__init__(type_registry, type_registry_preset, use_remote_preset)
         self.max_retries = max_retries
         self.retry_timeout = retry_timeout
         self.chain_endpoint = url
@@ -923,6 +924,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         _attempt=1,
         _retries=3,
         return_scale_obj: bool = False,
+        block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
     ) -> Union[ScaleObj, Any]:
         """
@@ -936,8 +938,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             _attempt: the number of attempts to pull the registry before timing out
             _retries: the number of retries to pull the registry before timing out
             return_scale_obj: Whether to return the decoded value wrapped in a SCALE-object-like wrapper, or raw.
-            runtime: Optional Runtime object whose registry to use for decoding. If not specified, the currently-loaded
-                `self.runtime` will be used.
+            block_hash: Hash of the block where the desired runtime is located. Ignored if supplying `runtime`
+            runtime: Optional Runtime object whose registry to use for decoding. If not specified, runtime will be
+                loaded based on the block hash specified (or latest block if no block_hash is specified)
 
         Returns:
             Decoded object
@@ -949,8 +952,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
             if not runtime:
-                await self._wait_for_registry(_attempt, _retries)
-                runtime_registry = self.runtime.registry
+                runtime = await self.init_runtime(block_hash=block_hash)
+                runtime_registry = runtime.registry
             else:
                 runtime_registry = runtime.registry
             obj = decode_by_type_string(type_string, runtime_registry, scale_bytes)
@@ -2949,13 +2952,17 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         # RPC request
         result_data = await self.rpc_request(
-            "state_call", [f"{api}_{method}", param_data.hex(), block_hash]
+            "state_call",
+            [f"{api}_{method}", param_data.hex(), block_hash],
+            runtime=runtime,
         )
         output_type_string = f"scale_info::{runtime_call_def['output']}"
 
         # Decode result
         result_bytes = hex_to_bytes(result_data["result"])
-        result_obj = ScaleObj(await self.decode_scale(output_type_string, result_bytes))
+        result_obj = ScaleObj(
+            await self.decode_scale(output_type_string, result_bytes, runtime=runtime)
+        )
 
         return result_obj
 
@@ -3317,7 +3324,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             self.last_block_hash = block_hash
         runtime = await self.init_runtime(block_hash=block_hash)
 
-        metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
+        metadata_pallet = runtime.metadata.get_metadata_pallet(module)
         if not metadata_pallet:
             raise ValueError(f'Pallet "{module}" not found')
         storage_item = metadata_pallet.get_storage_function(storage_function)
@@ -3344,8 +3351,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             module,
             storage_item.value["name"],
             params,
-            runtime_config=self.runtime_config,
-            metadata=self.runtime.metadata,
+            runtime_config=runtime.runtime_config,
+            metadata=runtime.metadata,
         )
         prefix = storage_key.to_hex()
 
@@ -3360,6 +3367,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         response = await self.rpc_request(
             method="state_getKeysPaged",
             params=[prefix, page_size, start_key, block_hash],
+            runtime=runtime,
         )
 
         if "error" in response:
@@ -3375,7 +3383,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
             # Retrieve corresponding value
             response = await self.rpc_request(
-                method="state_queryStorageAt", params=[result_keys, block_hash]
+                method="state_queryStorageAt",
+                params=[result_keys, block_hash],
+                runtime=runtime,
             )
 
             if "error" in response:

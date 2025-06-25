@@ -485,7 +485,37 @@ class SubstrateMixin(ABC):
     type_registry: Optional[dict]
     ss58_format: Optional[int]
     ws_max_size = 2**32
-    runtime: Runtime = None
+    runtime: Runtime = None  # TODO remove
+
+    def __init__(
+        self,
+        type_registry: Optional[dict] = None,
+        type_registry_preset: Optional[str] = None,
+        use_remote_preset: bool = False,
+    ):
+        # We load a very basic RuntimeConfigurationObject that is only used for the initial metadata decoding
+        self.runtime_config = RuntimeConfigurationObject()
+        self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
+        if type_registry_preset is not None:
+            type_registry_preset_dict = load_type_registry_preset(
+                name=type_registry_preset, use_remote_preset=use_remote_preset
+            )
+            if not type_registry_preset_dict:
+                raise ValueError(
+                    f"Type registry preset '{type_registry_preset}' not found"
+                )
+        else:
+            type_registry_preset_dict = None
+
+        if type_registry_preset_dict:
+            self.runtime_config.update_type_registry(
+                load_type_registry_preset("legacy", use_remote_preset=use_remote_preset)
+            )
+            if type_registry_preset != "legacy":
+                self.runtime_config.update_type_registry(type_registry_preset_dict)
+        if type_registry:
+            # Load type registries in runtime configuration
+            self.runtime_config.update_type_registry(type_registry)
 
     @property
     def chain(self):
