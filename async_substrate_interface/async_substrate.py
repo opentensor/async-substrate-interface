@@ -824,6 +824,23 @@ class AsyncSubstrateInterface(SubstrateMixin):
         pass
 
     @property
+    def metadata(self):
+        warnings.warn(
+            "Calling AsyncSubstrateInterface.metadata is deprecated, as metadata is runtime-dependent, and it"
+            "can be unclear which for runtime you seek the metadata. You should instead use the specific runtime's "
+            "metadata. For now, the most recently used runtime will be given.",
+            category=DeprecationWarning,
+        )
+        runtime = self.runtime_cache.last_used
+        if not runtime or runtime.metadata is None:
+            raise AttributeError(
+                "Metadata not found. This generally indicates that the AsyncSubstrateInterface object "
+                "is not properly async initialized."
+            )
+        else:
+            return runtime.metadata
+
+    @property
     async def properties(self):
         if self._properties is None:
             self._properties = (await self.rpc_request("system_properties", [])).get(

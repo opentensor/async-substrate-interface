@@ -23,11 +23,13 @@ class RuntimeCache:
     blocks: dict[int, "Runtime"]
     block_hashes: dict[str, "Runtime"]
     versions: dict[int, "Runtime"]
+    last_used: Optional["Runtime"]
 
     def __init__(self):
         self.blocks = {}
         self.block_hashes = {}
         self.versions = {}
+        self.last_used = None
 
     def add_item(
         self,
@@ -36,6 +38,7 @@ class RuntimeCache:
         block_hash: Optional[str] = None,
         runtime_version: Optional[int] = None,
     ):
+        self.last_used = runtime
         if block is not None:
             self.blocks[block] = runtime
         if block_hash is not None:
@@ -49,14 +52,16 @@ class RuntimeCache:
         block_hash: Optional[str] = None,
         runtime_version: Optional[int] = None,
     ) -> Optional["Runtime"]:
+        runtime = None
         if block is not None:
-            return self.blocks.get(block)
+            runtime = self.blocks.get(block)
         elif block_hash is not None:
-            return self.block_hashes.get(block_hash)
+            runtime = self.block_hashes.get(block_hash)
         elif runtime_version is not None:
-            return self.versions.get(runtime_version)
-        else:
-            return None
+            runtime = self.versions.get(runtime_version)
+        if runtime is not None:
+            self.last_used = runtime
+        return runtime
 
 
 class Runtime:
@@ -559,16 +564,6 @@ class SubstrateMixin(ABC):
         Returns the substrate chain currently associated with object
         """
         return self._chain
-
-    @property
-    def metadata(self):
-        if not self.runtime or self.runtime.metadata is None:
-            raise AttributeError(
-                "Metadata not found. This generally indicates that the AsyncSubstrateInterface object "
-                "is not properly async initialized."
-            )
-        else:
-            return self.runtime.metadata
 
     @property
     def implements_scaleinfo(self) -> Optional[bool]:

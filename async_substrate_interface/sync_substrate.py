@@ -567,6 +567,16 @@ class SubstrateInterface(SubstrateMixin):
         self.ws.close()
 
     @property
+    def metadata(self):
+        if not self.runtime or self.runtime.metadata is None:
+            raise AttributeError(
+                "Metadata not found. This generally indicates that the AsyncSubstrateInterface object "
+                "is not properly async initialized."
+            )
+        else:
+            return self.runtime.metadata
+
+    @property
     def properties(self):
         if self._properties is None:
             self._properties = self.rpc_request("system_properties", []).get("result")
