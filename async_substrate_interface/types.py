@@ -565,20 +565,6 @@ class SubstrateMixin(ABC):
         """
         return self._chain
 
-    @property
-    def implements_scaleinfo(self) -> Optional[bool]:
-        """
-        Returns True if current runtime implementation a `PortableRegistry` (`MetadataV14` and higher)
-
-        Returns
-        -------
-        bool
-        """
-        if self.runtime and self.runtime.metadata:
-            return self.runtime.metadata.portable_registry is not None
-        else:
-            return None
-
     def ss58_encode(
         self, public_key: Union[str, bytes], ss58_format: int = None
     ) -> str:
@@ -912,9 +898,7 @@ class SubstrateMixin(ABC):
                 else:
                     value = value.value  # Unwrap the value of the type
 
-            result = bytes(
-                encode_by_type_string(type_string, self.runtime.registry, value)
-            )
+            result = bytes(encode_by_type_string(type_string, runtime.registry, value))
         return result
 
     @staticmethod

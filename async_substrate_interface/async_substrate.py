@@ -841,6 +841,21 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return runtime.metadata
 
     @property
+    def implements_scaleinfo(self) -> Optional[bool]:
+        """
+        Returns True if current runtime implementation a `PortableRegistry` (`MetadataV14` and higher)
+
+        Returns
+        -------
+        bool
+        """
+        runtime = self.runtime_cache.last_used
+        if runtime is not None:
+            return runtime.implements_scaleinfo
+        else:
+            return None
+
+    @property
     async def properties(self):
         if self._properties is None:
             self._properties = (await self.rpc_request("system_properties", [])).get(
