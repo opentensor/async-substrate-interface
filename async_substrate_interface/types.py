@@ -1,4 +1,3 @@
-import copy
 import logging
 from abc import ABC
 from collections import defaultdict
@@ -20,6 +19,19 @@ logger = logging.getLogger("async_substrate_interface")
 
 
 class RuntimeCache:
+    """
+    Cache that holds all the Runtime objects used by AsyncSubstrateInterface and SubstrateInterface. See the docstring
+    for Runtime for more information about Runtime objects specifically.
+
+    For SubstrateInterface (sync), this serves purely as a quick way of retrieving a previously loaded Runtime. For
+    AsyncSubstrateInterface, this is very important, as, while it does the same as for SubstrateInterface, it also
+    serves as an easy way for a user to fetch a Runtime whose registry or metadata they wish to utilize in some way.
+
+    The `last_used` attribute is always updated with the most recently inserted or retrieved Runtime object. If you're
+    querying numerous blocks at once with different runtimes, and you wish to use the metadata or registry directly, it
+    is important you are utilizing the correct version.
+    """
+
     blocks: dict[int, "Runtime"]
     block_hashes: dict[str, "Runtime"]
     versions: dict[int, "Runtime"]
@@ -37,7 +49,10 @@ class RuntimeCache:
         block: Optional[int] = None,
         block_hash: Optional[str] = None,
         runtime_version: Optional[int] = None,
-    ):
+    ) -> None:
+        """
+        Adds a Runtime object to the cache mapped to its version, block number, and/or block hash.
+        """
         self.last_used = runtime
         if block is not None:
             self.blocks[block] = runtime
@@ -52,20 +67,35 @@ class RuntimeCache:
         block_hash: Optional[str] = None,
         runtime_version: Optional[int] = None,
     ) -> Optional["Runtime"]:
-        runtime = None
+        """
+        Retrieves a Runtime object from the cache, using the key of its block number, block hash, or runtime version.
+        Retrieval happens in this order. If no Runtime is found mapped to any of your supplied keys, returns `None`.
+        """
         if block is not None:
             runtime = self.blocks.get(block)
-        elif block_hash is not None:
+            if runtime is not None:
+                self.last_used = runtime
+                return runtime
+        if block_hash is not None:
             runtime = self.block_hashes.get(block_hash)
-        elif runtime_version is not None:
+            if runtime is not None:
+                self.last_used = runtime
+                return runtime
+        if runtime_version is not None:
             runtime = self.versions.get(runtime_version)
-        if runtime is not None:
-            self.last_used = runtime
-        return runtime
+            if runtime is not None:
+                self.last_used = runtime
+                return runtime
+        return None
 
 
 class Runtime:
-    runtime_version = None
+    """
+    The Runtime object holds the necessary metadata and registry information required to do necessary scale encoding and
+    decoding. Currently only Metadata V15 is supported for decoding, though we plan to release legacy decoding options.
+    """
+
+    runtime_version: Optional[int] = None
     transaction_version = None
     cache_region = None
     metadata = None
@@ -79,7 +109,7 @@ class Runtime:
 
     def __init__(
         self,
-        chain,
+        chain: str,
         runtime_config: RuntimeConfigurationObject,
         metadata,
         type_registry,
@@ -102,6 +132,9 @@ class Runtime:
             self.load_registry_type_map()
 
     def load_runtime(self):
+        """
+        Initial loading of the runtime's type registry information.
+        """
         # Update type registry
         self.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
@@ -124,10 +157,6 @@ class Runtime:
     def implements_scaleinfo(self) -> Optional[bool]:
         """
         Returns True if current runtime implements a `PortableRegistry` (`MetadataV14` and higher)
-
-        Returns
-        -------
-        bool
         """
         if self.metadata:
             return self.metadata.portable_registry is not None
@@ -214,7 +243,10 @@ class Runtime:
             # Load type registries in runtime configuration
             self.runtime_config.update_type_registry(self.type_registry)
 
-    def load_registry_type_map(self):
+    def load_registry_type_map(self) -> None:
+        """
+        Loads the runtime's type mapping according to registry
+        """
         registry_type_map = {}
         type_id_to_name = {}
         types = json.loads(self.registry.registry)["types"]

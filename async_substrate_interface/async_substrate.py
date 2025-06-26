@@ -843,11 +843,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
     @property
     def implements_scaleinfo(self) -> Optional[bool]:
         """
-        Returns True if current runtime implementation a `PortableRegistry` (`MetadataV14` and higher)
-
-        Returns
-        -------
-        bool
+        Returns True if most-recently-used runtime implements a `PortableRegistry` (`MetadataV14` and higher). Returns
+        `None` if no runtime has been loaded.
         """
         runtime = self.runtime_cache.last_used
         if runtime is not None:
