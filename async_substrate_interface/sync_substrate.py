@@ -17,7 +17,6 @@ from scalecodec.base import ScaleBytes, ScaleType
 from websockets.sync.client import connect, ClientConnection
 from websockets.exceptions import ConnectionClosed
 
-from async_substrate_interface.const import SS58_FORMAT
 from async_substrate_interface.errors import (
     ExtrinsicNotFound,
     SubstrateRequestException,
@@ -688,7 +687,7 @@ class SubstrateInterface(SubstrateMixin):
         """
         if type_string == "scale_info::0":  # Is an AccountId
             # Decode AccountId bytes to SS58 address
-            return ss58_encode(scale_bytes, SS58_FORMAT)
+            return ss58_encode(scale_bytes, self.ss58_format)
         else:
             if self.runtime.metadata_v15 is not None:
                 obj = decode_by_type_string(
@@ -1583,11 +1582,16 @@ class SubstrateInterface(SubstrateMixin):
             attributes = attributes_data
             if isinstance(attributes, dict):
                 for key, value in attributes.items():
+                    if key == "who":
+                        who = ss58_encode(bytes(value[0]), self.ss58_format)
+                        attributes["who"] = who
                     if isinstance(value, dict):
                         # Convert nested single-key dictionaries to their keys as strings
-                        sub_key = next(iter(value.keys()))
-                        if value[sub_key] == ():
-                            attributes[key] = sub_key
+                        for sub_key, sub_value in value.items():
+                            if isinstance(sub_value, dict):
+                                for sub_sub_key, sub_sub_value in sub_value.items():
+                                    if sub_sub_value == ():
+                                        attributes[key][sub_key] = sub_sub_key
 
             # Create the converted dictionary
             converted = {
