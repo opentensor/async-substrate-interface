@@ -40,7 +40,6 @@ from async_substrate_interface.errors import (
     ExtrinsicNotFound,
     BlockNotFound,
     MaxRetriesExceeded,
-    MetadataAtVersionNotFound,
     StateDiscardedError,
 )
 from async_substrate_interface.protocols import Keypair
@@ -923,10 +922,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Client error: Execution failed: Other: Exported method Metadata_metadata_at_version is not found"
                 in e.args
             ):
-                logger.warning(
-                    "Exported method Metadata_metadata_at_version is not found. This indicates the block is quite old, "
-                    "decoding for this block will use legacy Python decoding."
-                )
                 return None, None
             else:
                 raise e
@@ -1091,9 +1086,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
             raise SubstrateRequestException(
                 f"No metadata for block '{runtime_block_hash}'"
             )
-        logger.debug(
-            f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
-        )
+        if metadata_v15 is not None:
+            logger.debug(
+                f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
+            )
+        else:
+            logger.debug(
+                f"Exported method Metadata_metadata_at_version is not found for {runtime_version}. This indicates the "
+                f"block is quite old, decoding for this block will use legacy Python decoding."
+            )
         implements_scale_info = metadata.portable_registry is not None
         runtime = Runtime(
             chain=self.chain,
@@ -2921,7 +2922,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         result_vec_u8_bytes = hex_to_bytes(result_data["result"])
         result_bytes = await self.decode_scale(
             "Vec<u8>", result_vec_u8_bytes, runtime=runtime
-        )  # TODO may need to force_legacy after testing.
+        )
 
         # Decode result
         # Get correct type

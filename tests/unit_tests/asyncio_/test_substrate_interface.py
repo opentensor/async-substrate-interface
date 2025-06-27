@@ -6,9 +6,7 @@ from websockets.exceptions import InvalidURI
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 from async_substrate_interface.types import ScaleObj
-
-
-ARCHIVE_ENTRYPOINT = "wss://archive.chain.opentensor.ai:443"
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT
 
 
 @pytest.mark.asyncio
@@ -137,9 +135,9 @@ async def test_legacy_decoding():
             assert isinstance(key, int)
             assert isinstance(value, ScaleObj)
 
-        unix = await substrate.query(
+        timestamp = await substrate.query(
             "Timestamp",
             "Now",
             block_hash=block_hash,
         )
-        assert unix.value == 1716358476004
+        assert timestamp.value == 1716358476004

@@ -23,7 +23,6 @@ from async_substrate_interface.errors import (
     SubstrateRequestException,
     BlockNotFound,
     MaxRetriesExceeded,
-    MetadataAtVersionNotFound,
     StateDiscardedError,
 )
 from async_substrate_interface.protocols import Keypair
@@ -45,6 +44,7 @@ from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
     decode_query_map,
+    legacy_scale_decode,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
@@ -577,17 +577,6 @@ class SubstrateInterface(SubstrateMixin):
             return self.runtime.metadata
 
     @property
-    def implements_scaleinfo(self) -> Optional[bool]:
-        """
-        Returns True if current runtime implements a `PortableRegistry` (`MetadataV14` and higher). Returns `None` if
-        no currently loaded runtime.
-        """
-        if self.runtime and self.runtime.metadata:
-            return self.runtime.metadata.portable_registry is not None
-        else:
-            return None
-
-    @property
     def properties(self):
         if self._properties is None:
             self._properties = self.rpc_request("system_properties", []).get("result")
@@ -669,7 +658,7 @@ class SubstrateInterface(SubstrateMixin):
                 "Client error: Execution failed: Other: Exported method Metadata_metadata_at_version is not found"
                 in e.args
             ):
-                raise MetadataAtVersionNotFound
+                return None, None
             else:
                 raise e
         metadata_option_hex_str = metadata_rpc_result["result"]
@@ -701,7 +690,12 @@ class SubstrateInterface(SubstrateMixin):
             # Decode AccountId bytes to SS58 address
             return ss58_encode(scale_bytes, SS58_FORMAT)
         else:
-            obj = decode_by_type_string(type_string, self.runtime.registry, scale_bytes)
+            if self.runtime.metadata_v15 is not None:
+                obj = decode_by_type_string(
+                    type_string, self.runtime.registry, scale_bytes
+                )
+            else:
+                obj = legacy_scale_decode(type_string, scale_bytes, self.runtime)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
@@ -714,7 +708,7 @@ class SubstrateInterface(SubstrateMixin):
         self.runtime.reload_type_registry(use_remote_preset=False, auto_discover=True)
 
         self.runtime_config.set_active_spec_version_id(runtime.runtime_version)
-        if self.implements_scaleinfo:
+        if self.runtime.implements_scaleinfo:
             logger.debug("Add PortableRegistry from metadata to type registry")
             self.runtime_config.add_portable_registry(runtime.metadata)
         # Set runtime compatibility flags
@@ -754,7 +748,8 @@ class SubstrateInterface(SubstrateMixin):
             if runtime := self.runtime_cache.retrieve(block=block_id):
                 self.runtime = runtime
                 self.runtime.load_runtime()
-                self.runtime.load_registry_type_map()
+                if self.runtime.registry:
+                    self.runtime.load_registry_type_map()
                 return self.runtime
             block_hash = self.get_block_hash(block_id)
 
@@ -765,7 +760,8 @@ class SubstrateInterface(SubstrateMixin):
             if runtime := self.runtime_cache.retrieve(block_hash=block_hash):
                 self.runtime = runtime
                 self.runtime.load_runtime()
-                self.runtime.load_registry_type_map()
+                if self.runtime.registry:
+                    self.runtime.load_registry_type_map()
                 return self.runtime
 
         runtime_version = self.get_block_runtime_version_for(block_hash)
@@ -780,12 +776,14 @@ class SubstrateInterface(SubstrateMixin):
         if runtime := self.runtime_cache.retrieve(runtime_version=runtime_version):
             self.runtime = runtime
             self.runtime.load_runtime()
-            self.runtime.load_registry_type_map()
+            if self.runtime.registry:
+                self.runtime.load_registry_type_map()
             return runtime
         else:
             self.runtime = self.get_runtime_for_version(runtime_version, block_hash)
             self.runtime.load_runtime()
-            self.runtime.load_registry_type_map()
+            if self.runtime.registry:
+                self.runtime.load_registry_type_map()
             return self.runtime
 
     def get_runtime_for_version(
@@ -819,9 +817,15 @@ class SubstrateInterface(SubstrateMixin):
         metadata_v15, registry = self._load_registry_at_block(
             block_hash=runtime_block_hash
         )
-        logger.debug(
-            f"Retrieved metadata v15 for {runtime_version} from Substrate node"
-        )
+        if metadata_v15 is not None:
+            logger.debug(
+                f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
+            )
+        else:
+            logger.debug(
+                f"Exported method Metadata_metadata_at_version is not found for {runtime_version}. This indicates the "
+                f"block is quite old, decoding for this block will use legacy Python decoding."
+            )
 
         runtime = Runtime(
             chain=self.chain,
@@ -1204,7 +1208,7 @@ class SubstrateInterface(SubstrateMixin):
                             block_data["header"]["digest"]["logs"][idx] = log_digest
 
                             if include_author and "PreRuntime" in log_digest.value:
-                                if self.implements_scaleinfo:
+                                if self.runtime.implements_scaleinfo:
                                     engine = bytes(log_digest[1][0])
                                     # Retrieve validator set
                                     parent_hash = block_data["header"]["parentHash"]
@@ -1609,7 +1613,12 @@ class SubstrateInterface(SubstrateMixin):
         )
         if storage_obj:
             for item in list(storage_obj):
-                events.append(convert_event_data(item))
+                try:
+                    events.append(convert_event_data(item))
+                except (
+                    AttributeError
+                ):  # indicates this was legacy decoded with scalecodec
+                    events.append(item)
         return events
 
     def get_metadata(self, block_hash=None) -> MetadataV15:
@@ -2530,19 +2539,27 @@ class SubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            metadata_v15_value = runtime.metadata_v15.value()
+            if runtime.metadata_v15 is None:
+                _ = self.runtime_config.type_registry["runtime_api"][api]["methods"][
+                    method
+                ]
+                runtime_api_types = self.runtime_config.type_registry["runtime_api"][
+                    api
+                ].get("types", {})
+                runtime.runtime_config.update_type_registry_types(runtime_api_types)
+                return self._do_runtime_call_old(api, method, params, block_hash)
+            else:
+                metadata_v15_value = runtime.metadata_v15.value()
 
-            apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
-            api_entry = apis[api]
-            methods = {entry["name"]: entry for entry in api_entry["methods"]}
-            runtime_call_def = methods[method]
+                apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
+                api_entry = apis[api]
+                methods = {entry["name"]: entry for entry in api_entry["methods"]}
+                runtime_call_def = methods[method]
+                if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
+                    return self._do_runtime_call_old(api, method, params, block_hash)
+
         except KeyError:
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
-
-        if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
-            result = self._do_runtime_call_old(api, method, params, block_hash)
-
-            return result
 
         if isinstance(params, list) and len(params) != len(runtime_call_def["inputs"]):
             raise ValueError(
@@ -2745,7 +2762,7 @@ class SubstrateInterface(SubstrateMixin):
         """
         self.init_runtime(block_hash=block_hash)
 
-        if not self.implements_scaleinfo:
+        if not self.runtime.implements_scaleinfo:
             raise NotImplementedError("MetadataV14 or higher runtimes is required")
 
         type_registry = {}
