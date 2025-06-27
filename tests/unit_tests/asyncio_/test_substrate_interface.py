@@ -1,4 +1,5 @@
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, ANY
 
 import pytest
@@ -182,3 +183,45 @@ async def test_ss58_conversion():
             if len(value.value) > 0:
                 for decoded_key in value.value:
                     assert isinstance(decoded_key, str)
+
+
+@pytest.mark.asyncio
+async def test_fully_exhaust_query_map():
+    async with AsyncSubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
+        block_hash = await substrate.get_chain_finalised_head()
+        non_fully_exhauster_start = time.time()
+        non_fully_exhausted_qm = await substrate.query_map(
+            "SubtensorModule",
+            "CRV3WeightCommits",
+            block_hash=block_hash,
+        )
+        initial_records_count = len(non_fully_exhausted_qm.records)
+        assert initial_records_count <= 100  # default page size
+        exhausted_records_count = 0
+        async for _ in non_fully_exhausted_qm:
+            exhausted_records_count += 1
+        non_fully_exhausted_time = time.time() - non_fully_exhauster_start
+
+        assert len(non_fully_exhausted_qm.records) >= initial_records_count
+        fully_exhausted_start = time.time()
+        fully_exhausted_qm = await substrate.query_map(
+            "SubtensorModule",
+            "CRV3WeightCommits",
+            block_hash=block_hash,
+            fully_exhaust=True,
+        )
+
+        fully_exhausted_time = time.time() - fully_exhausted_start
+        initial_records_count_fully_exhaust = len(fully_exhausted_qm.records)
+        assert fully_exhausted_time <= non_fully_exhausted_time, (
+            f"Fully exhausted took longer than non-fully exhausted with "
+            f"{len(non_fully_exhausted_qm.records)} records in non-fully exhausted "
+            f"in {non_fully_exhausted_time} seconds, and {initial_records_count_fully_exhaust} in fully exhausted"
+            f" in {fully_exhausted_time} seconds. This could be caused by the fact that on this specific block, "
+            f"there are fewer records than take up a single page. This difference should still be small."
+        )
+        fully_exhausted_records_count = 0
+        async for _ in fully_exhausted_qm:
+            fully_exhausted_records_count += 1
+        assert fully_exhausted_records_count == initial_records_count_fully_exhaust
+        assert initial_records_count_fully_exhaust == exhausted_records_count

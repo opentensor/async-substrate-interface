@@ -73,7 +73,7 @@ def _decode_scale_list_with_runtime(
 
 
 def decode_query_map(
-    result_group_changes,
+    result_group_changes: list,
     prefix,
     runtime: "Runtime",
     param_types,
