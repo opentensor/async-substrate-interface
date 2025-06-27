@@ -116,7 +116,9 @@ class Runtime:
         metadata_v15=None,
         runtime_info=None,
         registry=None,
+        ss58_format=SS58_FORMAT,
     ):
+        self.ss58_format = ss58_format
         self.config = {}
         self.chain = chain
         self.type_registry = type_registry

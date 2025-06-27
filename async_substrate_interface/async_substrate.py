@@ -64,6 +64,7 @@ from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
     legacy_scale_decode,
+    convert_account_ids,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
@@ -816,6 +817,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                 if ss58_prefix_constant:
                     self.ss58_format = ss58_prefix_constant.value
+                    runtime.ss58_format = ss58_prefix_constant.value
         self.initialized = True
         self._initializing = False
 
@@ -994,6 +996,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 runtime = await self.init_runtime(block_hash=block_hash)
             if runtime.metadata_v15 is not None or force_legacy is True:
                 obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
+                try:
+                    type_str_int = int(type_string.split("::")[1])
+                    decoded_type_str = runtime.type_id_to_name[type_str_int]
+                    obj = convert_account_ids(obj, decoded_type_str)
+                except (ValueError, KeyError):
+                    pass
             else:
                 obj = legacy_scale_decode(type_string, scale_bytes, runtime)
         if return_scale_obj:
@@ -1105,6 +1113,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             metadata_v15=metadata_v15,
             runtime_info=runtime_info,
             registry=registry,
+            ss58_format=self.ss58_format,
         )
         self.runtime_cache.add_item(
             block=block_number,

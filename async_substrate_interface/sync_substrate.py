@@ -834,6 +834,7 @@ class SubstrateInterface(SubstrateMixin):
             metadata_v15=metadata_v15,
             runtime_info=runtime_info,
             registry=registry,
+            ss58_format=self.ss58_format,
         )
         self.runtime_cache.add_item(
             block=block_number,
