@@ -120,7 +120,8 @@ async def test_websocket_shutdown_timer():
 
 @pytest.mark.asyncio
 async def test_legacy_decoding():
-    pre_metadata_v15_block = 3_014_300  # several blocks before metadata v15 was added
+    # roughly 4000 blocks before metadata v15 was added
+    pre_metadata_v15_block = 3_010_611
 
     async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
         block_hash = await substrate.get_block_hash(pre_metadata_v15_block)
@@ -135,3 +136,10 @@ async def test_legacy_decoding():
         async for key, value in query_map_result:
             assert isinstance(key, int)
             assert isinstance(value, ScaleObj)
+
+        unix = await substrate.query(
+            "Timestamp",
+            "Now",
+            block_hash=block_hash,
+        )
+        assert unix.value == 1716358476004
