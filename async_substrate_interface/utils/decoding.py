@@ -81,6 +81,7 @@ def decode_query_map(
     value_type,
     key_hashers,
     ignore_decoding_errors,
+    decode_ss58: bool = False,
 ):
     def concat_hash_len(key_hasher: str) -> int:
         """
@@ -129,25 +130,29 @@ def decode_query_map(
             # strip key_hashers to use as item key
             if len(param_types) - len(params) == 1:
                 item_key = dk[1]
-                if kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0":
-                    item_key = ss58_encode(bytes(item_key[0]), runtime.ss58_format)
+                if decode_ss58:
+                    if kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0":
+                        item_key = ss58_encode(bytes(item_key[0]), runtime.ss58_format)
 
             else:
                 item_key = tuple(
                     dk[key + 1] for key in range(len(params), len(param_types) + 1, 2)
                 )
-                # TODO handle decoding here, but first figure out what triggers this
 
         except Exception as _:
             if not ignore_decoding_errors:
                 raise
             item_key = None
-        try:
-            value_type_str_int = int(vts.split("::")[1])
-            decoded_type_str = runtime.type_id_to_name[value_type_str_int]
-            item_value = convert_account_ids(dv, decoded_type_str, runtime.ss58_format)
-        except (ValueError, KeyError) as e:
-            item_value = dv
+        item_value = dv
+        if decode_ss58:
+            try:
+                value_type_str_int = int(vts.split("::")[1])
+                decoded_type_str = runtime.type_id_to_name[value_type_str_int]
+                item_value = convert_account_ids(
+                    dv, decoded_type_str, runtime.ss58_format
+                )
+            except (ValueError, KeyError):
+                pass
         result.append([item_key, ScaleObj(item_value)])
     return result
 
