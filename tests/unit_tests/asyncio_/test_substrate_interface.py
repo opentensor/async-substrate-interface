@@ -8,6 +8,9 @@ from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 from async_substrate_interface.types import ScaleObj
 
 
+ARCHIVE_ENTRYPOINT = "wss://archive.chain.opentensor.ai:443"
+
+
 @pytest.mark.asyncio
 async def test_invalid_url_raises_exception():
     """Test that invalid URI raises an InvalidURI exception."""
@@ -113,3 +116,22 @@ async def test_websocket_shutdown_timer():
         await substrate.get_chain_head()
         await asyncio.sleep(6)  # same sleep time as before
         assert substrate.ws._initialized is True  # connection should still be open
+
+
+@pytest.mark.asyncio
+async def test_legacy_decoding():
+    pre_metadata_v15_block = 3_014_300  # several blocks before metadata v15 was added
+
+    async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
+        block_hash = await substrate.get_block_hash(pre_metadata_v15_block)
+        events = await substrate.get_events(block_hash)
+        assert isinstance(events, list)
+
+        query_map_result = await substrate.query_map(
+            module="SubtensorModule",
+            storage_function="NetworksAdded",
+            block_hash=block_hash,
+        )
+        async for key, value in query_map_result:
+            assert isinstance(key, int)
+            assert isinstance(value, ScaleObj)

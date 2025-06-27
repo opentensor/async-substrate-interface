@@ -65,6 +65,7 @@ from async_substrate_interface.utils.cache import (
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
+    legacy_scale_decode,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
@@ -816,7 +817,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 )
 
                 if ss58_prefix_constant:
-                    self.ss58_format = ss58_prefix_constant
+                    self.ss58_format = ss58_prefix_constant.value
         self.initialized = True
         self._initializing = False
 
@@ -908,7 +909,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def _load_registry_at_block(
         self, block_hash: Optional[str]
-    ) -> tuple[MetadataV15, PortableRegistry]:
+    ) -> tuple[Optional[MetadataV15], Optional[PortableRegistry]]:
         # Should be called for any block that fails decoding.
         # Possibly the metadata was different.
         try:
@@ -922,7 +923,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Client error: Execution failed: Other: Exported method Metadata_metadata_at_version is not found"
                 in e.args
             ):
-                raise MetadataAtVersionNotFound
+                logger.warning(
+                    "Exported method Metadata_metadata_at_version is not found. This indicates the block is quite old, "
+                    "decoding for this block will use legacy Python decoding."
+                )
+                return None, None
             else:
                 raise e
         metadata_option_hex_str = metadata_rpc_result["result"]
@@ -964,6 +969,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return_scale_obj: bool = False,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
+        force_legacy: bool = False,
     ) -> Union[ScaleObj, Any]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
@@ -979,6 +985,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             block_hash: Hash of the block where the desired runtime is located. Ignored if supplying `runtime`
             runtime: Optional Runtime object whose registry to use for decoding. If not specified, runtime will be
                 loaded based on the block hash specified (or latest block if no block_hash is specified)
+            force_legacy: Whether to explicitly use legacy Python-only decoding (non bt-decode).
 
         Returns:
             Decoded object
@@ -991,10 +998,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             if not runtime:
                 runtime = await self.init_runtime(block_hash=block_hash)
-                runtime_registry = runtime.registry
+            if runtime.metadata_v15 is not None or force_legacy is True:
+                obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
             else:
-                runtime_registry = runtime.registry
-            obj = decode_by_type_string(type_string, runtime_registry, scale_bytes)
+                obj = legacy_scale_decode(type_string, scale_bytes, runtime)
         if return_scale_obj:
             return ScaleObj(obj)
         else:
@@ -1933,7 +1940,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
         if storage_obj:
             for item in list(storage_obj):
-                events.append(convert_event_data(item))
+                try:
+                    events.append(convert_event_data(item))
+                except (
+                    AttributeError
+                ):  # indicates this was legacy decoded with scalecodec
+                    events.append(item)
         return events
 
     async def get_metadata(self, block_hash=None) -> MetadataV15:
@@ -2909,7 +2921,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         result_vec_u8_bytes = hex_to_bytes(result_data["result"])
         result_bytes = await self.decode_scale(
             "Vec<u8>", result_vec_u8_bytes, runtime=runtime
-        )
+        )  # TODO may need to force_legacy after testing.
 
         # Decode result
         # Get correct type
@@ -2945,21 +2957,31 @@ class AsyncSubstrateInterface(SubstrateMixin):
             params = {}
 
         try:
-            metadata_v15_value = runtime.metadata_v15.value()
+            if runtime.metadata_v15 is None:
+                _ = self.runtime_config.type_registry["runtime_api"][api]["methods"][
+                    method
+                ]
+                runtime_api_types = self.runtime_config.type_registry["runtime_api"][
+                    api
+                ].get("types", {})
+                runtime.runtime_config.update_type_registry_types(runtime_api_types)
+                return await self._do_runtime_call_old(
+                    api, method, params, block_hash, runtime=runtime
+                )
 
-            apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
-            api_entry = apis[api]
-            methods = {entry["name"]: entry for entry in api_entry["methods"]}
-            runtime_call_def = methods[method]
+            else:
+                metadata_v15_value = runtime.metadata_v15.value()
+
+                apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
+                api_entry = apis[api]
+                methods = {entry["name"]: entry for entry in api_entry["methods"]}
+                runtime_call_def = methods[method]
+                if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
+                    return await self._do_runtime_call_old(
+                        api, method, params, block_hash, runtime=runtime
+                    )
         except KeyError:
             raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
-
-        if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
-            result = await self._do_runtime_call_old(
-                api, method, params, block_hash, runtime=runtime
-            )
-
-            return result
 
         if isinstance(params, list) and len(params) != len(runtime_call_def["inputs"]):
             raise ValueError(

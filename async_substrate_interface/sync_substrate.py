@@ -560,7 +560,7 @@ class SubstrateInterface(SubstrateMixin):
                     "System", "SS58Prefix", block_hash=self.last_block_hash
                 )
                 if ss58_prefix_constant:
-                    self.ss58_format = ss58_prefix_constant
+                    self.ss58_format = ss58_prefix_constant.value
         self.initialized = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):
