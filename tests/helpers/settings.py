@@ -34,3 +34,5 @@ AURA_NODE_URL = (
 )
 
 ARCHIVE_ENTRYPOINT = "wss://archive.chain.opentensor.ai:443"
+
+LATENT_LITE_ENTRYPOINT = "wss://lite.sub.latent.to:443"

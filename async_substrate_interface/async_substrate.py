@@ -64,6 +64,7 @@ from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
     legacy_scale_decode,
+    convert_account_ids,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
@@ -733,6 +734,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         _mock: bool = False,
         _log_raw_websockets: bool = False,
         ws_shutdown_timer: float = 5.0,
+        decode_ss58: bool = False,
     ):
         """
         The asyncio-compatible version of the subtensor interface commands we use in bittensor. It is important to
@@ -752,10 +754,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
             _mock: whether to use mock version of the subtensor interface
             _log_raw_websockets: whether to log raw websocket requests during RPC requests
             ws_shutdown_timer: how long after the last connection your websocket should close
+            decode_ss58: Whether to decode AccountIds to SS58 or leave them in raw bytes tuples.
 
         """
         super().__init__(
-            type_registry, type_registry_preset, use_remote_preset, ss58_format
+            type_registry,
+            type_registry_preset,
+            use_remote_preset,
+            ss58_format,
+            decode_ss58,
         )
         self.max_retries = max_retries
         self.retry_timeout = retry_timeout
@@ -816,6 +823,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                 if ss58_prefix_constant:
                     self.ss58_format = ss58_prefix_constant.value
+                    runtime.ss58_format = ss58_prefix_constant.value
         self.initialized = True
         self._initializing = False
 
@@ -994,6 +1002,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 runtime = await self.init_runtime(block_hash=block_hash)
             if runtime.metadata_v15 is not None or force_legacy is True:
                 obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
+                if self.decode_ss58:
+                    try:
+                        type_str_int = int(type_string.split("::")[1])
+                        decoded_type_str = runtime.type_id_to_name[type_str_int]
+                        obj = convert_account_ids(
+                            obj, decoded_type_str, runtime.ss58_format
+                        )
+                    except (ValueError, KeyError):
+                        pass
             else:
                 obj = legacy_scale_decode(type_string, scale_bytes, runtime)
         if return_scale_obj:
@@ -1105,6 +1122,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             metadata_v15=metadata_v15,
             runtime_info=runtime_info,
             registry=registry,
+            ss58_format=self.ss58_format,
         )
         self.runtime_cache.add_item(
             block=block_number,
@@ -3471,6 +3489,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     value_type,
                     key_hashers,
                     ignore_decoding_errors,
+                    self.decode_ss58,
                 )
         return AsyncQueryMapResult(
             records=result,

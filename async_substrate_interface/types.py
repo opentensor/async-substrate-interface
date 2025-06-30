@@ -116,7 +116,9 @@ class Runtime:
         metadata_v15=None,
         runtime_info=None,
         registry=None,
+        ss58_format=SS58_FORMAT,
     ):
+        self.ss58_format = ss58_format
         self.config = {}
         self.chain = chain
         self.type_registry = type_registry
@@ -551,8 +553,10 @@ class SubstrateMixin(ABC):
         type_registry_preset: Optional[str] = None,
         use_remote_preset: bool = False,
         ss58_format: Optional[int] = None,
+        decode_ss58: bool = False,
     ):
         # We load a very basic RuntimeConfigurationObject that is only used for the initial metadata decoding
+        self.decode_ss58 = decode_ss58
         self.runtime_config = RuntimeConfigurationObject(ss58_format=ss58_format)
         self.ss58_format = ss58_format
         self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
