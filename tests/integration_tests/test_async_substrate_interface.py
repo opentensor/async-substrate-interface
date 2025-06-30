@@ -1,8 +1,9 @@
 import pytest
+from scalecodec import ss58_encode
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 from async_substrate_interface.types import ScaleObj
-from tests.helpers.settings import ARCHIVE_ENTRYPOINT
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
 
 @pytest.mark.asyncio
@@ -30,3 +31,43 @@ async def test_legacy_decoding():
             block_hash=block_hash,
         )
         assert timestamp.value == 1716358476004
+
+
+@pytest.mark.asyncio
+async def test_ss58_conversion():
+    async with AsyncSubstrateInterface(
+        LATENT_LITE_ENTRYPOINT, ss58_format=42, decode_ss58=False
+    ) as substrate:
+        block_hash = await substrate.get_chain_finalised_head()
+        qm = await substrate.query_map(
+            "SubtensorModule",
+            "OwnedHotkeys",
+            block_hash=block_hash,
+        )
+        # only do the first page, bc otherwise this will be massive
+        for key, value in qm.records:
+            assert isinstance(key, tuple)
+            assert isinstance(value, ScaleObj)
+            assert isinstance(value.value, list)
+            assert len(key) == 1
+            for key_tuple in value.value:
+                assert len(key_tuple[0]) == 32
+                random_key = key_tuple[0]
+
+        ss58_of_key = ss58_encode(bytes(random_key), substrate.ss58_format)
+        assert isinstance(ss58_of_key, str)
+
+        substrate.decode_ss58 = True  # change to decoding True
+
+        qm = await substrate.query_map(
+            "SubtensorModule",
+            "OwnedHotkeys",
+            block_hash=block_hash,
+        )
+        for key, value in qm.records:
+            assert isinstance(key, str)
+            assert isinstance(value, ScaleObj)
+            assert isinstance(value.value, list)
+            if len(value.value) > 0:
+                for decoded_key in value.value:
+                    assert isinstance(decoded_key, str)
