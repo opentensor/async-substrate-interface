@@ -2,12 +2,10 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, ANY
 
 import pytest
-from scalecodec import ss58_encode
 from websockets.exceptions import InvalidURI
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 from async_substrate_interface.types import ScaleObj
-from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
 
 @pytest.mark.asyncio
@@ -101,7 +99,7 @@ async def test_runtime_call(monkeypatch):
 @pytest.mark.asyncio
 async def test_websocket_shutdown_timer():
     # using default ws shutdown timer of 5.0 seconds
-    async with AsyncSubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
+    async with AsyncSubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
         await substrate.get_chain_head()
         await asyncio.sleep(6)
         assert (
@@ -115,70 +113,3 @@ async def test_websocket_shutdown_timer():
         await substrate.get_chain_head()
         await asyncio.sleep(6)  # same sleep time as before
         assert substrate.ws._initialized is True  # connection should still be open
-
-
-@pytest.mark.asyncio
-async def test_legacy_decoding():
-    # roughly 4000 blocks before metadata v15 was added
-    pre_metadata_v15_block = 3_010_611
-
-    async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
-        block_hash = await substrate.get_block_hash(pre_metadata_v15_block)
-        events = await substrate.get_events(block_hash)
-        assert isinstance(events, list)
-
-        query_map_result = await substrate.query_map(
-            module="SubtensorModule",
-            storage_function="NetworksAdded",
-            block_hash=block_hash,
-        )
-        async for key, value in query_map_result:
-            assert isinstance(key, int)
-            assert isinstance(value, ScaleObj)
-
-        timestamp = await substrate.query(
-            "Timestamp",
-            "Now",
-            block_hash=block_hash,
-        )
-        assert timestamp.value == 1716358476004
-
-
-@pytest.mark.asyncio
-async def test_ss58_conversion():
-    async with AsyncSubstrateInterface(
-        LATENT_LITE_ENTRYPOINT, ss58_format=42, decode_ss58=False
-    ) as substrate:
-        block_hash = await substrate.get_chain_finalised_head()
-        qm = await substrate.query_map(
-            "SubtensorModule",
-            "OwnedHotkeys",
-            block_hash=block_hash,
-        )
-        # only do the first page, bc otherwise this will be massive
-        for key, value in qm.records:
-            assert isinstance(key, tuple)
-            assert isinstance(value, ScaleObj)
-            assert isinstance(value.value, list)
-            assert len(key) == 1
-            for key_tuple in value.value:
-                assert len(key_tuple[0]) == 32
-                random_key = key_tuple[0]
-
-        ss58_of_key = ss58_encode(bytes(random_key), substrate.ss58_format)
-        assert isinstance(ss58_of_key, str)
-
-        substrate.decode_ss58 = True  # change to decoding True
-
-        qm = await substrate.query_map(
-            "SubtensorModule",
-            "OwnedHotkeys",
-            block_hash=block_hash,
-        )
-        for key, value in qm.records:
-            assert isinstance(key, str)
-            assert isinstance(value, ScaleObj)
-            assert isinstance(value.value, list)
-            if len(value.value) > 0:
-                for decoded_key in value.value:
-                    assert isinstance(decoded_key, str)

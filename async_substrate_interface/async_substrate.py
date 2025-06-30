@@ -1379,9 +1379,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def get_metadata_error(
         self,
-        module_name,
-        error_name,
-        block_hash=None,
+        module_name: str,
+        error_name: str,
+        block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
     ):
         """
@@ -3114,9 +3114,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def get_metadata_constant(
         self,
-        module_name,
-        constant_name,
-        block_hash=None,
+        module_name: str,
+        constant_name: str,
+        block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
     ):
         """
