@@ -649,8 +649,8 @@ class SubstrateMixin(ABC):
     def serialize_storage_item(
         self,
         storage_item: ScaleType,
-        module,
-        spec_version_id,
+        module: str,
+        spec_version_id: int,
         runtime: Optional[Runtime] = None,
     ) -> dict:
         """
