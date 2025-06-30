@@ -1634,7 +1634,10 @@ class SubstrateInterface(SubstrateMixin):
             block_hash = self.get_chain_head()
 
         storage_obj = self.query(
-            module="System", storage_function="Events", block_hash=block_hash, force_legacy_decode=True
+            module="System",
+            storage_function="Events",
+            block_hash=block_hash,
+            force_legacy_decode=True,
         )
         # bt-decode Metadata V15 is not ideal for events. Force legacy decoding for this
         if storage_obj:
@@ -1821,7 +1824,7 @@ class SubstrateInterface(SubstrateMixin):
         value_scale_type: Optional[str] = None,
         storage_item: Optional[ScaleType] = None,
         result_handler: Optional[ResultHandler] = None,
-        force_legacy_decode: bool = False
+        force_legacy_decode: bool = False,
     ) -> tuple[Any, bool]:
         """
         Processes the RPC call response by decoding it, returning it as is, or setting a handler for subscriptions,
@@ -1855,7 +1858,9 @@ class SubstrateInterface(SubstrateMixin):
                 q = bytes(query_value)
             else:
                 q = query_value
-            result = self.decode_scale(value_scale_type, q, force_legacy=force_legacy_decode)
+            result = self.decode_scale(
+                value_scale_type, q, force_legacy=force_legacy_decode
+            )
         if isinstance(result_handler, Callable):
             # For multipart responses as a result of subscriptions.
             message, bool_result = result_handler(result, subscription_id)
@@ -1869,7 +1874,7 @@ class SubstrateInterface(SubstrateMixin):
         storage_item: Optional[ScaleType] = None,
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
-        force_legacy_decode: bool = False
+        force_legacy_decode: bool = False,
     ) -> RequestManager.RequestResults:
         request_manager = RequestManager(payloads)
         _received = {}
@@ -1903,7 +1908,7 @@ class SubstrateInterface(SubstrateMixin):
                         storage_item,
                         result_handler,
                         attempt + 1,
-                        force_legacy_decode
+                        force_legacy_decode,
                     )
             if "id" in response:
                 _received[response["id"]] = response
@@ -1935,7 +1940,7 @@ class SubstrateInterface(SubstrateMixin):
                             value_scale_type,
                             storage_item,
                             result_handler,
-                            force_legacy_decode
+                            force_legacy_decode,
                         )
                         request_manager.add_response(
                             item_id, decoded_response, complete
@@ -2874,7 +2879,7 @@ class SubstrateInterface(SubstrateMixin):
         raw_storage_key: Optional[bytes] = None,
         subscription_handler=None,
         reuse_block_hash: bool = False,
-        force_legacy_decode: bool = False
+        force_legacy_decode: bool = False,
     ) -> Optional[Union["ScaleObj", Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
@@ -2900,7 +2905,7 @@ class SubstrateInterface(SubstrateMixin):
             value_scale_type,
             storage_item,
             result_handler=subscription_handler,
-            force_legacy_decode=force_legacy_decode
+            force_legacy_decode=force_legacy_decode,
         )
         result = responses[preprocessed.queryable][0]
         if isinstance(result, (list, tuple, int, float)):
