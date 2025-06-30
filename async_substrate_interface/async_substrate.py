@@ -456,7 +456,6 @@ class AsyncQueryMapResult:
         )
         if len(result.records) < self.page_size:
             self.loading_complete = True
-
         # Update last key from new result set to use as offset for next page
         self.last_key = result.last_key
         return result.records
@@ -3373,6 +3372,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         page_size: int = 100,
         ignore_decoding_errors: bool = False,
         reuse_block_hash: bool = False,
+        fully_exhaust: bool = False,
     ) -> AsyncQueryMapResult:
         """
         Iterates over all key-pairs located at the given module and storage_function. The storage
@@ -3403,6 +3403,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 decoding
             reuse_block_hash: use True if you wish to make the query using the last-used block hash. Do not mark True
                               if supplying a block_hash
+            fully_exhaust: Pull the entire result at once, rather than paginating. Only use if you need the entire query
+                map result.
 
         Returns:
              AsyncQueryMapResult object
@@ -3453,11 +3455,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
             page_size = max_results
 
         # Retrieve storage keys
-        response = await self.rpc_request(
-            method="state_getKeysPaged",
-            params=[prefix, page_size, start_key, block_hash],
-            runtime=runtime,
-        )
+        if not fully_exhaust:
+            response = await self.rpc_request(
+                method="state_getKeysPaged",
+                params=[prefix, page_size, start_key, block_hash],
+                runtime=runtime,
+            )
+        else:
+            response = await self.rpc_request(
+                method="state_getKeys", params=[prefix, block_hash], runtime=runtime
+            )
 
         if "error" in response:
             raise SubstrateRequestException(response["error"]["message"])
@@ -3470,18 +3477,60 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if len(result_keys) > 0:
             last_key = result_keys[-1]
 
-            # Retrieve corresponding value
-            response = await self.rpc_request(
-                method="state_queryStorageAt",
-                params=[result_keys, block_hash],
-                runtime=runtime,
-            )
+            # Retrieve corresponding value(s)
+            if not fully_exhaust:
+                response = await self.rpc_request(
+                    method="state_queryStorageAt",
+                    params=[result_keys, block_hash],
+                    runtime=runtime,
+                )
+                if "error" in response:
+                    raise SubstrateRequestException(response["error"]["message"])
+                for result_group in response["result"]:
+                    result = decode_query_map(
+                        result_group["changes"],
+                        prefix,
+                        runtime,
+                        param_types,
+                        params,
+                        value_type,
+                        key_hashers,
+                        ignore_decoding_errors,
+                        self.decode_ss58,
+                    )
+            else:
+                all_responses = []
+                page_batches = [
+                    result_keys[i : i + page_size]
+                    for i in range(0, len(result_keys), page_size)
+                ]
+                changes = []
+                for batch_group in [
+                    # run five concurrent batch pulls; could go higher, but it's good to be a good citizens
+                    # of the ecosystem
+                    page_batches[i : i + 5]
+                    for i in range(0, len(page_batches), 5)
+                ]:
+                    all_responses.extend(
+                        await asyncio.gather(
+                            *[
+                                self.rpc_request(
+                                    method="state_queryStorageAt",
+                                    params=[batch_keys, block_hash],
+                                    runtime=runtime,
+                                )
+                                for batch_keys in batch_group
+                            ]
+                        )
+                    )
+                for response in all_responses:
+                    if "error" in response:
+                        raise SubstrateRequestException(response["error"]["message"])
+                    for result_group in response["result"]:
+                        changes.extend(result_group["changes"])
 
-            if "error" in response:
-                raise SubstrateRequestException(response["error"]["message"])
-            for result_group in response["result"]:
                 result = decode_query_map(
-                    result_group["changes"],
+                    changes,
                     prefix,
                     runtime,
                     param_types,
