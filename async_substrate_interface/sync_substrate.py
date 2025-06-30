@@ -568,6 +568,7 @@ class SubstrateInterface(SubstrateMixin):
                 if ss58_prefix_constant:
                     self.ss58_format = ss58_prefix_constant.value
                     self.runtime.ss58_format = ss58_prefix_constant.value
+                    self.runtime.runtime_config.ss58_format = ss58_prefix_constant.value
         self.initialized = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):

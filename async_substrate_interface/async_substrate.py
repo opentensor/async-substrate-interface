@@ -823,6 +823,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 if ss58_prefix_constant:
                     self.ss58_format = ss58_prefix_constant.value
                     runtime.ss58_format = ss58_prefix_constant.value
+                    runtime.runtime_config.ss58_format = ss58_prefix_constant.value
         self.initialized = True
         self._initializing = False
 
