@@ -15,19 +15,33 @@ from scalecodec.types import GenericCall, ScaleType, MultiAccountId
 from .const import SS58_FORMAT
 from .utils import json
 
-
 logger = logging.getLogger("async_substrate_interface")
 
 
 class RuntimeCache:
+    """
+    Cache that holds all the Runtime objects used by AsyncSubstrateInterface and SubstrateInterface. See the docstring
+    for Runtime for more information about Runtime objects specifically.
+
+    For SubstrateInterface (sync), this serves purely as a quick way of retrieving a previously loaded Runtime. For
+    AsyncSubstrateInterface, this is very important, as, while it does the same as for SubstrateInterface, it also
+    serves as an easy way for a user to fetch a Runtime whose registry or metadata they wish to utilize in some way.
+
+    The `last_used` attribute is always updated with the most recently inserted or retrieved Runtime object. If you're
+    querying numerous blocks at once with different runtimes, and you wish to use the metadata or registry directly, it
+    is important you are utilizing the correct version.
+    """
+
     blocks: dict[int, "Runtime"]
     block_hashes: dict[str, "Runtime"]
     versions: dict[int, "Runtime"]
+    last_used: Optional["Runtime"]
 
     def __init__(self):
         self.blocks = {}
         self.block_hashes = {}
         self.versions = {}
+        self.last_used = None
 
     def add_item(
         self,
@@ -35,7 +49,11 @@ class RuntimeCache:
         block: Optional[int] = None,
         block_hash: Optional[str] = None,
         runtime_version: Optional[int] = None,
-    ):
+    ) -> None:
+        """
+        Adds a Runtime object to the cache mapped to its version, block number, and/or block hash.
+        """
+        self.last_used = runtime
         if block is not None:
             self.blocks[block] = runtime
         if block_hash is not None:
@@ -49,18 +67,35 @@ class RuntimeCache:
         block_hash: Optional[str] = None,
         runtime_version: Optional[int] = None,
     ) -> Optional["Runtime"]:
+        """
+        Retrieves a Runtime object from the cache, using the key of its block number, block hash, or runtime version.
+        Retrieval happens in this order. If no Runtime is found mapped to any of your supplied keys, returns `None`.
+        """
         if block is not None:
-            return self.blocks.get(block)
-        elif block_hash is not None:
-            return self.block_hashes.get(block_hash)
-        elif runtime_version is not None:
-            return self.versions.get(runtime_version)
-        else:
-            return None
+            runtime = self.blocks.get(block)
+            if runtime is not None:
+                self.last_used = runtime
+                return runtime
+        if block_hash is not None:
+            runtime = self.block_hashes.get(block_hash)
+            if runtime is not None:
+                self.last_used = runtime
+                return runtime
+        if runtime_version is not None:
+            runtime = self.versions.get(runtime_version)
+            if runtime is not None:
+                self.last_used = runtime
+                return runtime
+        return None
 
 
 class Runtime:
-    runtime_version = None
+    """
+    The Runtime object holds the necessary metadata and registry information required to do necessary scale encoding and
+    decoding. Currently only Metadata V15 is supported for decoding, though we plan to release legacy decoding options.
+    """
+
+    runtime_version: Optional[int] = None
     transaction_version = None
     cache_region = None
     metadata = None
@@ -69,10 +104,12 @@ class Runtime:
     runtime_info = None
     type_registry_preset = None
     registry: Optional[PortableRegistry] = None
+    registry_type_map: dict[str, int]
+    type_id_to_name: dict[int, str]
 
     def __init__(
         self,
-        chain,
+        chain: str,
         runtime_config: RuntimeConfigurationObject,
         metadata,
         type_registry,
@@ -90,97 +127,230 @@ class Runtime:
         self.registry = registry
         self.runtime_version = runtime_info.get("specVersion")
         self.transaction_version = runtime_info.get("transactionVersion")
+        self.load_runtime()
+        if registry is not None:
+            self.load_registry_type_map()
+
+    def load_runtime(self):
+        """
+        Initial loading of the runtime's type registry information.
+        """
+        # Update type registry
+        self.reload_type_registry(use_remote_preset=False, auto_discover=True)
+
+        self.runtime_config.set_active_spec_version_id(self.runtime_version)
+        if self.implements_scaleinfo:
+            logger.debug("Adding PortableRegistry from metadata to type registry")
+            self.runtime_config.add_portable_registry(self.metadata)
+        # Set runtime compatibility flags
+        try:
+            _ = self.runtime_config.create_scale_object("sp_weights::weight_v2::Weight")
+            self.config["is_weight_v2"] = True
+            self.runtime_config.update_type_registry_types(
+                {"Weight": "sp_weights::weight_v2::Weight"}
+            )
+        except NotImplementedError:
+            self.config["is_weight_v2"] = False
+            self.runtime_config.update_type_registry_types({"Weight": "WeightV1"})
+
+    @property
+    def implements_scaleinfo(self) -> Optional[bool]:
+        """
+        Returns True if current runtime implements a `PortableRegistry` (`MetadataV14` and higher)
+        """
+        if self.metadata:
+            return self.metadata.portable_registry is not None
+        else:
+            return None
 
     def __str__(self):
         return f"Runtime: {self.chain} | {self.config}"
 
+    def reload_type_registry(
+        self, use_remote_preset: bool = True, auto_discover: bool = True
+    ):
+        """
+        Reload type registry and preset used to instantiate the SubstrateInterface object. Useful to periodically apply
+        changes in type definitions when a runtime upgrade occurred
 
-#    @property
-#    def implements_scaleinfo(self) -> bool:
-#        """
-#        Returns True if current runtime implementation a `PortableRegistry` (`MetadataV14` and higher)
-#        """
-#        if self.metadata:
-#            return self.metadata.portable_registry is not None
-#        else:
-#            return False
-#
-#    def reload_type_registry(
-#        self, use_remote_preset: bool = True, auto_discover: bool = True
-#    ):
-#        """
-#        Reload type registry and preset used to instantiate the SubstrateInterface object. Useful to periodically apply
-#        changes in type definitions when a runtime upgrade occurred
-#
-#        Args:
-#            use_remote_preset: When True preset is downloaded from Github master, otherwise use files from local
-#                installed scalecodec package
-#            auto_discover: Whether to automatically discover the type registry presets based on the chain name and the
-#                type registry
-#        """
-#        self.runtime_config.clear_type_registry()
-#
-#        self.runtime_config.implements_scale_info = self.implements_scaleinfo
-#
-#        # Load metadata types in runtime configuration
-#        self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
-#        self.apply_type_registry_presets(
-#            use_remote_preset=use_remote_preset, auto_discover=auto_discover
-#        )
-#
-#    def apply_type_registry_presets(
-#        self,
-#        use_remote_preset: bool = True,
-#        auto_discover: bool = True,
-#    ):
-#        """
-#        Applies type registry presets to the runtime
-#
-#        Args:
-#            use_remote_preset: whether to use presets from remote
-#            auto_discover: whether to use presets from local installed scalecodec package
-#        """
-#        if self.type_registry_preset is not None:
-#            # Load type registry according to preset
-#            type_registry_preset_dict = load_type_registry_preset(
-#                name=self.type_registry_preset, use_remote_preset=use_remote_preset
-#            )
-#
-#            if not type_registry_preset_dict:
-#                raise ValueError(
-#                    f"Type registry preset '{self.type_registry_preset}' not found"
-#                )
-#
-#        elif auto_discover:
-#            # Try to auto discover type registry preset by chain name
-#            type_registry_name = self.chain.lower().replace(" ", "-")
-#            try:
-#                type_registry_preset_dict = load_type_registry_preset(
-#                    type_registry_name
-#                )
-#                self.type_registry_preset = type_registry_name
-#            except ValueError:
-#                type_registry_preset_dict = None
-#
-#        else:
-#            type_registry_preset_dict = None
-#
-#        if type_registry_preset_dict:
-#            # Load type registries in runtime configuration
-#            if self.implements_scaleinfo is False:
-#                # Only runtime with no embedded types in metadata need the default set of explicit defined types
-#                self.runtime_config.update_type_registry(
-#                    load_type_registry_preset(
-#                        "legacy", use_remote_preset=use_remote_preset
-#                    )
-#                )
-#
-#            if self.type_registry_preset != "legacy":
-#                self.runtime_config.update_type_registry(type_registry_preset_dict)
-#
-#        if self.type_registry:
-#            # Load type registries in runtime configuration
-#            self.runtime_config.update_type_registry(self.type_registry)
+        Args:
+           use_remote_preset: When True preset is downloaded from Github master, otherwise use files from local
+               installed scalecodec package
+           auto_discover: Whether to automatically discover the type registry presets based on the chain name and the
+               type registry
+        """
+        self.runtime_config.clear_type_registry()
+
+        self.runtime_config.implements_scale_info = self.implements_scaleinfo
+
+        # Load metadata types in runtime configuration
+        self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
+        self.apply_type_registry_presets(
+            use_remote_preset=use_remote_preset, auto_discover=auto_discover
+        )
+
+    def apply_type_registry_presets(
+        self,
+        use_remote_preset: bool = True,
+        auto_discover: bool = True,
+    ):
+        """
+        Applies type registry presets to the runtime
+
+        Args:
+           use_remote_preset: whether to use presets from remote
+           auto_discover: whether to use presets from local installed scalecodec package
+        """
+        if self.type_registry_preset is not None:
+            # Load type registry according to preset
+            type_registry_preset_dict = load_type_registry_preset(
+                name=self.type_registry_preset, use_remote_preset=use_remote_preset
+            )
+
+            if not type_registry_preset_dict:
+                raise ValueError(
+                    f"Type registry preset '{self.type_registry_preset}' not found"
+                )
+
+        elif auto_discover:
+            # Try to auto discover type registry preset by chain name
+            type_registry_name = self.chain.lower().replace(" ", "-")
+            try:
+                type_registry_preset_dict = load_type_registry_preset(
+                    type_registry_name
+                )
+                self.type_registry_preset = type_registry_name
+            except ValueError:
+                type_registry_preset_dict = None
+
+        else:
+            type_registry_preset_dict = None
+
+        if type_registry_preset_dict:
+            # Load type registries in runtime configuration
+            if self.implements_scaleinfo is False:
+                # Only runtime with no embedded types in metadata need the default set of explicit defined types
+                self.runtime_config.update_type_registry(
+                    load_type_registry_preset(
+                        "legacy", use_remote_preset=use_remote_preset
+                    )
+                )
+
+            if self.type_registry_preset != "legacy":
+                self.runtime_config.update_type_registry(type_registry_preset_dict)
+
+        if self.type_registry:
+            # Load type registries in runtime configuration
+            self.runtime_config.update_type_registry(self.type_registry)
+
+    def load_registry_type_map(self) -> None:
+        """
+        Loads the runtime's type mapping according to registry
+        """
+        registry_type_map = {}
+        type_id_to_name = {}
+        types = json.loads(self.registry.registry)["types"]
+        type_by_id = {entry["id"]: entry for entry in types}
+
+        # Pass 1: Gather simple types
+        for type_entry in types:
+            type_id = type_entry["id"]
+            type_def = type_entry["type"]["def"]
+            type_path = type_entry["type"].get("path")
+            if type_entry.get("params") or "variant" in type_def:
+                continue
+            if type_path:
+                type_name = type_path[-1]
+                registry_type_map[type_name] = type_id
+                type_id_to_name[type_id] = type_name
+            else:
+                # Possibly a primitive
+                if "primitive" in type_def:
+                    prim_name = type_def["primitive"]
+                    registry_type_map[prim_name] = type_id
+                    type_id_to_name[type_id] = prim_name
+
+        # Pass 2: Resolve remaining types
+        pending_ids = set(type_by_id.keys()) - set(type_id_to_name.keys())
+
+        def resolve_type_definition(type_id_):
+            type_entry_ = type_by_id[type_id_]
+            type_def_ = type_entry_["type"]["def"]
+            type_path_ = type_entry_["type"].get("path", [])
+            type_params = type_entry_["type"].get("params", [])
+
+            if type_id_ in type_id_to_name:
+                return type_id_to_name[type_id_]
+
+            # Resolve complex types with paths (including generics like Option etc)
+            if type_path_:
+                type_name_ = type_path_[-1]
+                if type_params:
+                    inner_names = []
+                    for param in type_params:
+                        dep_id = param["type"]
+                        if dep_id not in type_id_to_name:
+                            return None
+                        inner_names.append(type_id_to_name[dep_id])
+                    return f"{type_name_}<{', '.join(inner_names)}>"
+                if "variant" in type_def_:
+                    return None
+                return type_name_
+
+            elif "sequence" in type_def_:
+                sequence_type_id = type_def_["sequence"]["type"]
+                inner_type = type_id_to_name.get(sequence_type_id)
+                if inner_type:
+                    type_name_ = f"Vec<{inner_type}>"
+                    return type_name_
+
+            elif "array" in type_def_:
+                array_type_id = type_def_["array"]["type"]
+                inner_type = type_id_to_name.get(array_type_id)
+                maybe_len = type_def_["array"].get("len")
+                if inner_type:
+                    if maybe_len:
+                        type_name_ = f"[{inner_type}; {maybe_len}]"
+                    else:
+                        type_name_ = f"[{inner_type}]"
+                    return type_name_
+
+            elif "compact" in type_def_:
+                compact_type_id = type_def_["compact"]["type"]
+                inner_type = type_id_to_name.get(compact_type_id)
+                if inner_type:
+                    type_name_ = f"Compact<{inner_type}>"
+                    return type_name_
+
+            elif "tuple" in type_def_:
+                tuple_type_ids = type_def_["tuple"]
+                type_names = []
+                for inner_type_id in tuple_type_ids:
+                    if inner_type_id not in type_id_to_name:
+                        return None
+                    type_names.append(type_id_to_name[inner_type_id])
+                type_name_ = ", ".join(type_names)
+                type_name_ = f"({type_name_})"
+                return type_name_
+
+            elif "variant" in type_def_:
+                return None
+
+            return None
+
+        resolved_type = True
+        while resolved_type and pending_ids:
+            resolved_type = False
+            for type_id in list(pending_ids):
+                name = resolve_type_definition(type_id)
+                if name is not None:
+                    type_id_to_name[type_id] = name
+                    registry_type_map[name] = type_id
+                    pending_ids.remove(type_id)
+                    resolved_type = True
+
+        self.registry_type_map = registry_type_map
+        self.type_id_to_name = type_id_to_name
 
 
 class RequestManager:
@@ -373,9 +543,52 @@ class SubstrateMixin(ABC):
     type_registry: Optional[dict]
     ss58_format: Optional[int]
     ws_max_size = 2**32
-    registry_type_map: dict[str, int]
-    type_id_to_name: dict[int, str]
-    runtime: Runtime = None
+    runtime: Runtime = None  # TODO remove
+
+    def __init__(
+        self,
+        type_registry: Optional[dict] = None,
+        type_registry_preset: Optional[str] = None,
+        use_remote_preset: bool = False,
+        ss58_format: Optional[int] = None,
+    ):
+        # We load a very basic RuntimeConfigurationObject that is only used for the initial metadata decoding
+        self.runtime_config = RuntimeConfigurationObject(ss58_format=ss58_format)
+        self.ss58_format = ss58_format
+        self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
+        if type_registry_preset is not None:
+            type_registry_preset_dict = load_type_registry_preset(
+                name=type_registry_preset, use_remote_preset=use_remote_preset
+            )
+            if not type_registry_preset_dict:
+                raise ValueError(
+                    f"Type registry preset '{type_registry_preset}' not found"
+                )
+        else:
+            type_registry_preset_dict = None
+
+        if type_registry_preset_dict:
+            self.runtime_config.update_type_registry(
+                load_type_registry_preset("legacy", use_remote_preset=use_remote_preset)
+            )
+            if type_registry_preset != "legacy":
+                self.runtime_config.update_type_registry(type_registry_preset_dict)
+        if type_registry:
+            # Load type registries in runtime configuration
+            self.runtime_config.update_type_registry(type_registry)
+
+    def _runtime_config_copy(self, implements_scale_info: bool = False):
+        runtime_config = RuntimeConfigurationObject(
+            ss58_format=self.ss58_format, implements_scale_info=implements_scale_info
+        )
+        runtime_config.active_spec_version_id = (
+            self.runtime_config.active_spec_version_id
+        )
+        runtime_config.chain_id = self.runtime_config.chain_id
+        # TODO. This works, but deepcopy does not. Indicating this gets updated somewhere else.
+        runtime_config.type_registry = self.runtime_config.type_registry
+        assert runtime_config.type_registry == self.runtime_config.type_registry
+        return runtime_config
 
     @property
     def chain(self):
@@ -383,30 +596,6 @@ class SubstrateMixin(ABC):
         Returns the substrate chain currently associated with object
         """
         return self._chain
-
-    @property
-    def metadata(self):
-        if not self.runtime or self.runtime.metadata is None:
-            raise AttributeError(
-                "Metadata not found. This generally indicates that the AsyncSubstrateInterface object "
-                "is not properly async initialized."
-            )
-        else:
-            return self.runtime.metadata
-
-    @property
-    def implements_scaleinfo(self) -> Optional[bool]:
-        """
-        Returns True if current runtime implementation a `PortableRegistry` (`MetadataV14` and higher)
-
-        Returns
-        -------
-        bool
-        """
-        if self.runtime and self.runtime.metadata:
-            return self.runtime.metadata.portable_registry is not None
-        else:
-            return None
 
     def ss58_encode(
         self, public_key: Union[str, bytes], ss58_format: int = None
@@ -454,7 +643,11 @@ class SubstrateMixin(ABC):
         return is_valid_ss58_address(value, valid_ss58_format=self.ss58_format)
 
     def serialize_storage_item(
-        self, storage_item: ScaleType, module, spec_version_id
+        self,
+        storage_item: ScaleType,
+        module: str,
+        spec_version_id: int,
+        runtime: Optional[Runtime] = None,
     ) -> dict:
         """
         Helper function to serialize a storage item
@@ -463,10 +656,17 @@ class SubstrateMixin(ABC):
             storage_item: the storage item to serialize
             module: the module to use to serialize the storage item
             spec_version_id: the version id
+            runtime: The runtime to serialize the storage item
 
         Returns:
             dict
         """
+        if not runtime:
+            runtime = self.runtime
+            metadata = self.metadata
+        else:
+            metadata = runtime.metadata
+
         storage_dict = {
             "storage_name": storage_item.name,
             "storage_modifier": storage_item.modifier,
@@ -497,10 +697,10 @@ class SubstrateMixin(ABC):
             query_value = storage_item.value_object["default"].value_object
 
         try:
-            obj = self.runtime_config.create_scale_object(
+            obj = runtime.runtime_config.create_scale_object(
                 type_string=value_scale_type,
                 data=ScaleBytes(query_value),
-                metadata=self.metadata,
+                metadata=metadata,
             )
             obj.decode()
             storage_dict["storage_default"] = obj.decode()
@@ -622,183 +822,6 @@ class SubstrateMixin(ABC):
             "spec_version": spec_version,
         }
 
-    def _load_registry_type_map(self, registry):
-        registry_type_map = {}
-        type_id_to_name = {}
-        types = json.loads(registry.registry)["types"]
-        type_by_id = {entry["id"]: entry for entry in types}
-
-        # Pass 1: Gather simple types
-        for type_entry in types:
-            type_id = type_entry["id"]
-            type_def = type_entry["type"]["def"]
-            type_path = type_entry["type"].get("path")
-            if type_entry.get("params") or "variant" in type_def:
-                continue
-            if type_path:
-                type_name = type_path[-1]
-                registry_type_map[type_name] = type_id
-                type_id_to_name[type_id] = type_name
-            else:
-                # Possibly a primitive
-                if "primitive" in type_def:
-                    prim_name = type_def["primitive"]
-                    registry_type_map[prim_name] = type_id
-                    type_id_to_name[type_id] = prim_name
-
-        # Pass 2: Resolve remaining types
-        pending_ids = set(type_by_id.keys()) - set(type_id_to_name.keys())
-
-        def resolve_type_definition(type_id_):
-            type_entry_ = type_by_id[type_id_]
-            type_def_ = type_entry_["type"]["def"]
-            type_path_ = type_entry_["type"].get("path", [])
-            type_params = type_entry_["type"].get("params", [])
-
-            if type_id_ in type_id_to_name:
-                return type_id_to_name[type_id_]
-
-            # Resolve complex types with paths (including generics like Option etc)
-            if type_path_:
-                type_name_ = type_path_[-1]
-                if type_params:
-                    inner_names = []
-                    for param in type_params:
-                        dep_id = param["type"]
-                        if dep_id not in type_id_to_name:
-                            return None
-                        inner_names.append(type_id_to_name[dep_id])
-                    return f"{type_name_}<{', '.join(inner_names)}>"
-                if "variant" in type_def_:
-                    return None
-                return type_name_
-
-            elif "sequence" in type_def_:
-                sequence_type_id = type_def_["sequence"]["type"]
-                inner_type = type_id_to_name.get(sequence_type_id)
-                if inner_type:
-                    type_name_ = f"Vec<{inner_type}>"
-                    return type_name_
-
-            elif "array" in type_def_:
-                array_type_id = type_def_["array"]["type"]
-                inner_type = type_id_to_name.get(array_type_id)
-                maybe_len = type_def_["array"].get("len")
-                if inner_type:
-                    if maybe_len:
-                        type_name_ = f"[{inner_type}; {maybe_len}]"
-                    else:
-                        type_name_ = f"[{inner_type}]"
-                    return type_name_
-
-            elif "compact" in type_def_:
-                compact_type_id = type_def_["compact"]["type"]
-                inner_type = type_id_to_name.get(compact_type_id)
-                if inner_type:
-                    type_name_ = f"Compact<{inner_type}>"
-                    return type_name_
-
-            elif "tuple" in type_def_:
-                tuple_type_ids = type_def_["tuple"]
-                type_names = []
-                for inner_type_id in tuple_type_ids:
-                    if inner_type_id not in type_id_to_name:
-                        return None
-                    type_names.append(type_id_to_name[inner_type_id])
-                type_name_ = ", ".join(type_names)
-                type_name_ = f"({type_name_})"
-                return type_name_
-
-            elif "variant" in type_def_:
-                return None
-
-            return None
-
-        resolved_type = True
-        while resolved_type and pending_ids:
-            resolved_type = False
-            for type_id in list(pending_ids):
-                name = resolve_type_definition(type_id)
-                if name is not None:
-                    type_id_to_name[type_id] = name
-                    registry_type_map[name] = type_id
-                    pending_ids.remove(type_id)
-                    resolved_type = True
-
-        self.registry_type_map = registry_type_map
-        self.type_id_to_name = type_id_to_name
-
-    def reload_type_registry(
-        self, use_remote_preset: bool = True, auto_discover: bool = True
-    ):
-        """
-        Reload type registry and preset used to instantiate the `AsyncSubstrateInterface` object. Useful to
-        periodically apply changes in type definitions when a runtime upgrade occurred
-
-        Args:
-            use_remote_preset: When True preset is downloaded from Github master,
-                otherwise use files from local installed scalecodec package
-            auto_discover: Whether to automatically discover the type_registry
-                presets based on the chain name and typer registry
-        """
-        self.runtime_config.clear_type_registry()
-
-        self.runtime_config.implements_scale_info = self.implements_scaleinfo
-
-        # Load metadata types in runtime configuration
-        self.runtime_config.update_type_registry(load_type_registry_preset(name="core"))
-        self.apply_type_registry_presets(
-            use_remote_preset=use_remote_preset, auto_discover=auto_discover
-        )
-
-    def apply_type_registry_presets(
-        self, use_remote_preset: bool = True, auto_discover: bool = True
-    ):
-        if self.type_registry_preset is not None:
-            # Load type registry according to preset
-            type_registry_preset_dict = load_type_registry_preset(
-                name=self.type_registry_preset, use_remote_preset=use_remote_preset
-            )
-
-            if not type_registry_preset_dict:
-                raise ValueError(
-                    f"Type registry preset '{self.type_registry_preset}' not found"
-                )
-
-        elif auto_discover:
-            # Try to auto discover type registry preset by chain name
-            type_registry_name = self.chain.lower().replace(" ", "-")
-            try:
-                type_registry_preset_dict = load_type_registry_preset(
-                    type_registry_name
-                )
-                logger.debug(
-                    f"Auto set type_registry_preset to {type_registry_name} ..."
-                )
-                self.type_registry_preset = type_registry_name
-            except ValueError:
-                type_registry_preset_dict = None
-
-        else:
-            type_registry_preset_dict = None
-
-        if type_registry_preset_dict:
-            # Load type registries in runtime configuration
-            if self.implements_scaleinfo is False:
-                # Only runtime with no embedded types in metadata need the default set of explicit defined types
-                self.runtime_config.update_type_registry(
-                    load_type_registry_preset(
-                        "legacy", use_remote_preset=use_remote_preset
-                    )
-                )
-
-            if self.type_registry_preset != "legacy":
-                self.runtime_config.update_type_registry(type_registry_preset_dict)
-
-        if self.type_registry:
-            # Load type registries in runtime configuration
-            self.runtime_config.update_type_registry(self.type_registry)
-
     def extension_call(self, name, **kwargs):
         raise NotImplementedError(
             "Extensions not implemented in AsyncSubstrateInterface"
@@ -836,13 +859,16 @@ class SubstrateMixin(ABC):
             "payload": {"jsonrpc": "2.0", "method": method, "params": params},
         }
 
-    def _encode_scale(self, type_string, value: Any) -> bytes:
+    def _encode_scale(
+        self, type_string, value: Any, runtime: Optional[Runtime] = None
+    ) -> bytes:
         """
         Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string
 
         Args:
             type_string: the type string of the SCALE object for decoding
             value: value to encode
+            runtime: Optional Runtime whose registry to use for encoding
 
         Returns:
             encoded bytes
@@ -850,14 +876,16 @@ class SubstrateMixin(ABC):
         if value is None:
             result = b"\x00"
         else:
+            if not runtime:
+                runtime = self.runtime
             try:
                 vec_acct_id = (
-                    f"scale_info::{self.registry_type_map['Vec<AccountId32>']}"
+                    f"scale_info::{runtime.registry_type_map['Vec<AccountId32>']}"
                 )
             except KeyError:
                 vec_acct_id = "scale_info::152"
             try:
-                optional_acct_u16 = f"scale_info::{self.registry_type_map['Option<(AccountId32, u16)>']}"
+                optional_acct_u16 = f"scale_info::{runtime.registry_type_map['Option<(AccountId32, u16)>']}"
             except KeyError:
                 optional_acct_u16 = "scale_info::579"
 
@@ -902,12 +930,11 @@ class SubstrateMixin(ABC):
                 else:
                     value = value.value  # Unwrap the value of the type
 
-            result = bytes(
-                encode_by_type_string(type_string, self.runtime.registry, value)
-            )
+            result = bytes(encode_by_type_string(type_string, runtime.registry, value))
         return result
 
-    def _encode_account_id(self, account) -> bytes:
+    @staticmethod
+    def _encode_account_id(account) -> bytes:
         """Encode an account ID into bytes.
 
         Args:

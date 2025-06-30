@@ -71,8 +71,11 @@ async def test_cached_fetcher_propagates_errors():
 @pytest.mark.asyncio
 async def test_cached_fetcher_eviction():
     """Tests that LRU eviction works in CachedFetcher."""
-    mock_method = mock.AsyncMock(side_effect=lambda x: f"val_{x}")
-    fetcher = CachedFetcher(max_size=2, method=mock_method)
+
+    async def side_effect_method(x):
+        return f"val_{x}"
+
+    fetcher = CachedFetcher(max_size=2, method=side_effect_method)
 
     # Fill cache
     await fetcher("key1")

@@ -32,3 +32,5 @@ BABE_NODE_URL = environ.get("SUBSTRATE_BABE_NODE_URL") or POLKADOT_NODE_URL
 AURA_NODE_URL = (
     environ.get("SUBSTRATE_AURA_NODE_URL") or "wss://acala-rpc-1.aca-api.network"
 )
+
+ARCHIVE_ENTRYPOINT = "wss://archive.chain.opentensor.ai:443"

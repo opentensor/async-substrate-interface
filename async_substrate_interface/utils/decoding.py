@@ -1,6 +1,7 @@
 from typing import Union, TYPE_CHECKING
 
 from bt_decode import AxonInfo, PrometheusInfo, decode_list
+from scalecodec import ScaleBytes
 
 from async_substrate_interface.utils import hex_to_bytes
 from async_substrate_interface.types import ScaleObj
@@ -55,10 +56,16 @@ def _bt_decode_to_dict_or_list(obj) -> Union[dict, list[dict]]:
 def _decode_scale_list_with_runtime(
     type_strings: list[str],
     scale_bytes_list: list[bytes],
-    runtime_registry,
+    runtime: "Runtime",
     return_scale_obj: bool = False,
 ):
-    obj = decode_list(type_strings, runtime_registry, scale_bytes_list)
+    if runtime.metadata_v15 is not None:
+        obj = decode_list(type_strings, runtime.registry, scale_bytes_list)
+    else:
+        obj = [
+            legacy_scale_decode(x, y, runtime)
+            for (x, y) in zip(type_strings, scale_bytes_list)
+        ]
     if return_scale_obj:
         return [ScaleObj(x) for x in obj]
     else:
@@ -109,7 +116,7 @@ def decode_query_map(
     all_decoded = _decode_scale_list_with_runtime(
         pre_decoded_key_types + pre_decoded_value_types,
         pre_decoded_keys + pre_decoded_values,
-        runtime.registry,
+        runtime,
     )
     middl_index = len(all_decoded) // 2
     decoded_keys = all_decoded[:middl_index]
@@ -132,3 +139,18 @@ def decode_query_map(
         item_value = dv
         result.append([item_key, item_value])
     return result
+
+
+def legacy_scale_decode(
+    type_string: str, scale_bytes: Union[str, ScaleBytes], runtime: "Runtime"
+):
+    if isinstance(scale_bytes, (str, bytes)):
+        scale_bytes = ScaleBytes(scale_bytes)
+
+    obj = runtime.runtime_config.create_scale_object(
+        type_string=type_string, data=scale_bytes, metadata=runtime.metadata
+    )
+
+    obj.decode(check_remaining=runtime.config.get("strict_scale_decode"))
+
+    return obj.value
