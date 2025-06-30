@@ -256,9 +256,9 @@ class ExtrinsicReceipt:
                     self.__weight = dispatch_info["weight"]
 
                     if "Module" in dispatch_error:
-                        module_index = dispatch_error["Module"][0]["index"]
+                        module_index = dispatch_error["Module"]["index"]
                         error_index = int.from_bytes(
-                            bytes(dispatch_error["Module"][0]["error"]),
+                            bytes(dispatch_error["Module"]["error"]),
                             byteorder="little",
                             signed=False,
                         )
