@@ -122,9 +122,11 @@ def decode_query_map(
     middl_index = len(all_decoded) // 2
     decoded_keys = all_decoded[:middl_index]
     decoded_values = all_decoded[middl_index:]
-    for (kts, vts), (dk, dv) in zip(
-        zip(pre_decoded_key_types, pre_decoded_value_types),
-        zip(decoded_keys, decoded_values),
+    for kts, vts, dk, dv in zip(
+            pre_decoded_key_types,
+            pre_decoded_value_types,
+            decoded_keys,
+            decoded_values,
     ):
         try:
             # strip key_hashers to use as item key
