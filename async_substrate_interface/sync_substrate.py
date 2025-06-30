@@ -256,16 +256,17 @@ class ExtrinsicReceipt:
                     self.__weight = dispatch_info["weight"]
 
                     if "Module" in dispatch_error:
-                        module_index = dispatch_error["Module"][0]["index"]
-                        error_index = int.from_bytes(
-                            bytes(dispatch_error["Module"][0]["error"]),
-                            byteorder="little",
-                            signed=False,
-                        )
+                        if isinstance(dispatch_error["Module"], tuple):
+                            module_index = dispatch_error["Module"][0]
+                            error_index = dispatch_error["Module"][1]
+                        else:
+                            module_index = dispatch_error["Module"]["index"]
+                            error_index = dispatch_error["Module"]["error"]
 
                         if isinstance(error_index, str):
                             # Actual error index is first u8 in new [u8; 4] format
                             error_index = int(error_index[2:4], 16)
+
                         module_error = self.substrate.metadata.get_module_error(
                             module_index=module_index, error_index=error_index
                         )
@@ -568,6 +569,7 @@ class SubstrateInterface(SubstrateMixin):
                 if ss58_prefix_constant:
                     self.ss58_format = ss58_prefix_constant.value
                     self.runtime.ss58_format = ss58_prefix_constant.value
+                    self.runtime.runtime_config.ss58_format = ss58_prefix_constant.value
         self.initialized = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -679,6 +681,7 @@ class SubstrateInterface(SubstrateMixin):
         type_string: str,
         scale_bytes: bytes,
         return_scale_obj=False,
+        force_legacy: bool = False,
     ) -> Union[ScaleObj, Any]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
@@ -689,6 +692,7 @@ class SubstrateInterface(SubstrateMixin):
             type_string: the type string of the SCALE object for decoding
             scale_bytes: the bytes representation of the SCALE object to decode
             return_scale_obj: Whether to return the decoded value wrapped in a SCALE-object-like wrapper, or raw.
+            force_legacy: Whether to force the use of the legacy Metadata V14 decoder
 
         Returns:
             Decoded object
@@ -697,7 +701,7 @@ class SubstrateInterface(SubstrateMixin):
             # Decode AccountId bytes to SS58 address
             return ss58_encode(scale_bytes, self.ss58_format)
         else:
-            if self.runtime.metadata_v15 is not None:
+            if self.runtime.metadata_v15 is not None and force_legacy is False:
                 obj = decode_by_type_string(
                     type_string, self.runtime.registry, scale_bytes
                 )
@@ -1631,16 +1635,15 @@ class SubstrateInterface(SubstrateMixin):
             block_hash = self.get_chain_head()
 
         storage_obj = self.query(
-            module="System", storage_function="Events", block_hash=block_hash
+            module="System",
+            storage_function="Events",
+            block_hash=block_hash,
+            force_legacy_decode=True,
         )
+        # bt-decode Metadata V15 is not ideal for events. Force legacy decoding for this
         if storage_obj:
             for item in list(storage_obj):
-                try:
-                    events.append(convert_event_data(item))
-                except (
-                    AttributeError
-                ):  # indicates this was legacy decoded with scalecodec
-                    events.append(item)
+                events.append(item)
         return events
 
     def get_metadata(self, block_hash=None) -> MetadataV15:
@@ -1822,6 +1825,7 @@ class SubstrateInterface(SubstrateMixin):
         value_scale_type: Optional[str] = None,
         storage_item: Optional[ScaleType] = None,
         result_handler: Optional[ResultHandler] = None,
+        force_legacy_decode: bool = False,
     ) -> tuple[Any, bool]:
         """
         Processes the RPC call response by decoding it, returning it as is, or setting a handler for subscriptions,
@@ -1833,6 +1837,7 @@ class SubstrateInterface(SubstrateMixin):
             value_scale_type: Scale Type string used for decoding ScaleBytes results
             storage_item: The ScaleType object used for decoding ScaleBytes results
             result_handler: the result handler coroutine used for handling longer-running subscriptions
+            force_legacy_decode: Whether to force legacy Metadata V14 decoding of the response
 
         Returns:
              (decoded response, completion)
@@ -1854,7 +1859,9 @@ class SubstrateInterface(SubstrateMixin):
                 q = bytes(query_value)
             else:
                 q = query_value
-            result = self.decode_scale(value_scale_type, q)
+            result = self.decode_scale(
+                value_scale_type, q, force_legacy=force_legacy_decode
+            )
         if isinstance(result_handler, Callable):
             # For multipart responses as a result of subscriptions.
             message, bool_result = result_handler(result, subscription_id)
@@ -1868,6 +1875,7 @@ class SubstrateInterface(SubstrateMixin):
         storage_item: Optional[ScaleType] = None,
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
+        force_legacy_decode: bool = False,
     ) -> RequestManager.RequestResults:
         request_manager = RequestManager(payloads)
         _received = {}
@@ -1901,6 +1909,7 @@ class SubstrateInterface(SubstrateMixin):
                         storage_item,
                         result_handler,
                         attempt + 1,
+                        force_legacy_decode,
                     )
             if "id" in response:
                 _received[response["id"]] = response
@@ -1932,6 +1941,7 @@ class SubstrateInterface(SubstrateMixin):
                             value_scale_type,
                             storage_item,
                             result_handler,
+                            force_legacy_decode,
                         )
                         request_manager.add_response(
                             item_id, decoded_response, complete
@@ -2870,6 +2880,7 @@ class SubstrateInterface(SubstrateMixin):
         raw_storage_key: Optional[bytes] = None,
         subscription_handler=None,
         reuse_block_hash: bool = False,
+        force_legacy_decode: bool = False,
     ) -> Optional[Union["ScaleObj", Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
@@ -2895,6 +2906,7 @@ class SubstrateInterface(SubstrateMixin):
             value_scale_type,
             storage_item,
             result_handler=subscription_handler,
+            force_legacy_decode=force_legacy_decode,
         )
         result = responses[preprocessed.queryable][0]
         if isinstance(result, (list, tuple, int, float)):

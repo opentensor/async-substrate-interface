@@ -281,17 +281,26 @@ class AsyncExtrinsicReceipt:
                     self.__weight = dispatch_info["weight"]
 
                     if "Module" in dispatch_error:
-                        module_index = dispatch_error["Module"][0]["index"]
-                        error_index = int.from_bytes(
-                            bytes(dispatch_error["Module"][0]["error"]),
-                            byteorder="little",
-                            signed=False,
-                        )
+                        if isinstance(dispatch_error["Module"], tuple):
+                            module_index = dispatch_error["Module"][0]
+                            error_index = dispatch_error["Module"][1]
+                        else:
+                            module_index = dispatch_error["Module"]["index"]
+                            error_index = dispatch_error["Module"]["error"]
 
                         if isinstance(error_index, str):
                             # Actual error index is first u8 in new [u8; 4] format
                             error_index = int(error_index[2:4], 16)
-                        module_error = self.substrate.metadata.get_module_error(
+
+                        if self.block_hash:
+                            runtime = await self.substrate.init_runtime(
+                                block_hash=self.block_hash
+                            )
+                        else:
+                            runtime = await self.substrate.init_runtime(
+                                block_id=self.block_number
+                            )
+                        module_error = runtime.metadata.get_module_error(
                             module_index=module_index, error_index=error_index
                         )
                         self.__error_message = {
@@ -823,6 +832,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 if ss58_prefix_constant:
                     self.ss58_format = ss58_prefix_constant.value
                     runtime.ss58_format = ss58_prefix_constant.value
+                    runtime.runtime_config.ss58_format = ss58_prefix_constant.value
         self.initialized = True
         self._initializing = False
 
@@ -999,7 +1009,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             if not runtime:
                 runtime = await self.init_runtime(block_hash=block_hash)
-            if runtime.metadata_v15 is not None or force_legacy is True:
+            if runtime.metadata_v15 is not None and force_legacy is False:
                 obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
                 if self.decode_ss58:
                     try:
@@ -1930,7 +1940,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     if key == "who":
                         who = ss58_encode(bytes(value[0]), self.ss58_format)
                         attributes["who"] = who
-                    if isinstance(value, dict):
+                    elif key == "from":
+                        who_from = ss58_encode(bytes(value[0]), self.ss58_format)
+                        attributes["from"] = who_from
+                    elif key == "to":
+                        who_to = ss58_encode(bytes(value[0]), self.ss58_format)
+                        attributes["to"] = who_to
+                    elif isinstance(value, dict):
                         # Convert nested single-key dictionaries to their keys as strings
                         for sub_key, sub_value in value.items():
                             if isinstance(sub_value, dict):
@@ -1958,16 +1974,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
             block_hash = await self.get_chain_head()
 
         storage_obj = await self.query(
-            module="System", storage_function="Events", block_hash=block_hash
+            module="System",
+            storage_function="Events",
+            block_hash=block_hash,
+            force_legacy_decode=True,
         )
+        # bt-decode Metadata V15 is not ideal for events. Force legacy decoding for this
         if storage_obj:
             for item in list(storage_obj):
-                try:
-                    events.append(convert_event_data(item))
-                except (
-                    AttributeError
-                ):  # indicates this was legacy decoded with scalecodec
-                    events.append(item)
+                events.append(item)
         return events
 
     async def get_metadata(self, block_hash=None) -> MetadataV15:
@@ -2175,6 +2190,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         storage_item: Optional[ScaleType] = None,
         result_handler: Optional[ResultHandler] = None,
         runtime: Optional[Runtime] = None,
+        force_legacy_decode: bool = False,
     ) -> tuple[Any, bool]:
         """
         Processes the RPC call response by decoding it, returning it as is, or setting a handler for subscriptions,
@@ -2187,6 +2203,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             storage_item: The ScaleType object used for decoding ScaleBytes results
             result_handler: the result handler coroutine used for handling longer-running subscriptions
             runtime: Optional Runtime to use for decoding. If not specified, the currently-loaded `self.runtime` is used
+            force_legacy_decode: Whether to force the use of the legacy Metadata V14 decoder
 
         Returns:
              (decoded response, completion)
@@ -2208,7 +2225,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 q = bytes(query_value)
             else:
                 q = query_value
-            result = await self.decode_scale(value_scale_type, q, runtime=runtime)
+            result = await self.decode_scale(
+                value_scale_type, q, runtime=runtime, force_legacy=force_legacy_decode
+            )
         if asyncio.iscoroutinefunction(result_handler):
             # For multipart responses as a result of subscriptions.
             message, bool_result = await result_handler(result, subscription_id)
@@ -2223,6 +2242,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
         runtime: Optional[Runtime] = None,
+        force_legacy_decode: bool = False,
     ) -> RequestManager.RequestResults:
         request_manager = RequestManager(payloads)
 
@@ -2267,6 +2287,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                 storage_item,
                                 result_handler,
                                 runtime=runtime,
+                                force_legacy_decode=force_legacy_decode,
                             )
 
                             request_manager.add_response(
@@ -2298,6 +2319,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             storage_item,
                             result_handler,
                             attempt + 1,
+                            force_legacy_decode,
                         )
 
         return request_manager.get_results()
@@ -3323,6 +3345,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         subscription_handler=None,
         reuse_block_hash: bool = False,
         runtime: Optional[Runtime] = None,
+        force_legacy_decode: bool = False,
     ) -> Optional[Union["ScaleObj", Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
@@ -3355,6 +3378,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             storage_item,
             result_handler=subscription_handler,
             runtime=runtime,
+            force_legacy_decode=force_legacy_decode,
         )
         result = responses[preprocessed.queryable][0]
         if isinstance(result, (list, tuple, int, float)):

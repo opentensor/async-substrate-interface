@@ -115,3 +115,20 @@ async def test_fully_exhaust_query_map():
             fully_exhausted_records_count += 1
         assert fully_exhausted_records_count == initial_records_count_fully_exhaust
         assert initial_records_count_fully_exhaust == exhausted_records_count
+
+
+@pytest.mark.asyncio
+async def test_get_events_proper_decoding():
+    # known block/hash pair that has the events we seek to decode
+    block = 5846788
+    block_hash = "0x0a1c45063a59b934bfee827caa25385e60d5ec1fd8566a58b5cc4affc4eec412"
+
+    async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
+        all_events = await substrate.get_events(block_hash=block_hash)
+        event = all_events[1]
+        print(type(event["attributes"]))
+        assert event["attributes"] == (
+            "5G1NjW9YhXLadMWajvTkfcJy6up3yH2q1YzMXDTi6ijanChe",
+            30,
+            "0xa6b4e5c8241d60ece0c25056b19f7d21ae845269fc771ad46bf3e011865129a5",
+        )
