@@ -256,16 +256,17 @@ class ExtrinsicReceipt:
                     self.__weight = dispatch_info["weight"]
 
                     if "Module" in dispatch_error:
-                        module_index = dispatch_error["Module"]["index"]
-                        error_index = int.from_bytes(
-                            bytes(dispatch_error["Module"]["error"]),
-                            byteorder="little",
-                            signed=False,
-                        )
+                        if isinstance(dispatch_error["Module"], tuple):
+                            module_index = dispatch_error["Module"][0]
+                            error_index = dispatch_error["Module"][1]
+                        else:
+                            module_index = dispatch_error["Module"]["index"]
+                            error_index = dispatch_error["Module"]["error"]
 
                         if isinstance(error_index, str):
                             # Actual error index is first u8 in new [u8; 4] format
                             error_index = int(error_index[2:4], 16)
+
                         module_error = self.substrate.metadata.get_module_error(
                             module_index=module_index, error_index=error_index
                         )
