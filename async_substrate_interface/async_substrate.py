@@ -291,7 +291,15 @@ class AsyncExtrinsicReceipt:
                         if isinstance(error_index, str):
                             # Actual error index is first u8 in new [u8; 4] format
                             error_index = int(error_index[2:4], 16)
-                        module_error = self.substrate.metadata.get_module_error(
+                        if self.block_hash:
+                            runtime = await self.substrate.init_runtime(
+                                block_hash=self.block_hash
+                            )
+                        else:
+                            runtime = await self.substrate.init_runtime(
+                                block_id=self.block_number
+                            )
+                        module_error = runtime.metadata.get_module_error(
                             module_index=module_index, error_index=error_index
                         )
                         self.__error_message = {
