@@ -72,3 +72,4 @@ def test_runtime_call(monkeypatch):
     substrate.rpc_request.assert_any_call(
         "state_call", ["SubstrateApi_SubstrateMethod", "", None]
     )
+    substrate.close()

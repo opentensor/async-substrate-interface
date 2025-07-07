@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0 /2025-07-07
+* Removes unused imports by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/139
+* Improve CachedFetcher by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/140
+* Only use Runtime objects in AsyncSubstrateInterface by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/141
+* python ss58 conversion by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/143
+* fully exhaust query map by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/144
+* Only use v14 decoding for events by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/145
+
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.3.1...v1.4.0
+
 ## 1.3.1 /2025-06-11
 * Fixes default vals for archive_nodes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/134
 * Adds ability to log raw websockets for debugging. by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/133

@@ -1,8 +1,7 @@
-from typing import Union, TYPE_CHECKING
+from typing import Union, TYPE_CHECKING, Any
 
 from bt_decode import AxonInfo, PrometheusInfo, decode_list
-from scalecodec import ss58_encode
-from bittensor_wallet.utils import SS58_FORMAT
+from scalecodec import ScaleBytes, ss58_encode
 
 from async_substrate_interface.utils import hex_to_bytes
 from async_substrate_interface.types import ScaleObj
@@ -57,10 +56,16 @@ def _bt_decode_to_dict_or_list(obj) -> Union[dict, list[dict]]:
 def _decode_scale_list_with_runtime(
     type_strings: list[str],
     scale_bytes_list: list[bytes],
-    runtime_registry,
+    runtime: "Runtime",
     return_scale_obj: bool = False,
 ):
-    obj = decode_list(type_strings, runtime_registry, scale_bytes_list)
+    if runtime.metadata_v15 is not None:
+        obj = decode_list(type_strings, runtime.registry, scale_bytes_list)
+    else:
+        obj = [
+            legacy_scale_decode(x, y, runtime)
+            for (x, y) in zip(type_strings, scale_bytes_list)
+        ]
     if return_scale_obj:
         return [ScaleObj(x) for x in obj]
     else:
@@ -68,7 +73,7 @@ def _decode_scale_list_with_runtime(
 
 
 def decode_query_map(
-    result_group_changes,
+    result_group_changes: list,
     prefix,
     runtime: "Runtime",
     param_types,
@@ -76,6 +81,7 @@ def decode_query_map(
     value_type,
     key_hashers,
     ignore_decoding_errors,
+    decode_ss58: bool = False,
 ):
     def concat_hash_len(key_hasher: str) -> int:
         """
@@ -111,16 +117,25 @@ def decode_query_map(
     all_decoded = _decode_scale_list_with_runtime(
         pre_decoded_key_types + pre_decoded_value_types,
         pre_decoded_keys + pre_decoded_values,
-        runtime.registry,
+        runtime,
     )
     middl_index = len(all_decoded) // 2
     decoded_keys = all_decoded[:middl_index]
-    decoded_values = [ScaleObj(x) for x in all_decoded[middl_index:]]
-    for dk, dv in zip(decoded_keys, decoded_values):
+    decoded_values = all_decoded[middl_index:]
+    for kts, vts, dk, dv in zip(
+        pre_decoded_key_types,
+        pre_decoded_value_types,
+        decoded_keys,
+        decoded_values,
+    ):
         try:
             # strip key_hashers to use as item key
             if len(param_types) - len(params) == 1:
                 item_key = dk[1]
+                if decode_ss58:
+                    if kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0":
+                        item_key = ss58_encode(bytes(item_key[0]), runtime.ss58_format)
+
             else:
                 item_key = tuple(
                     dk[key + 1] for key in range(len(params), len(param_types) + 1, 2)
@@ -130,7 +145,95 @@ def decode_query_map(
             if not ignore_decoding_errors:
                 raise
             item_key = None
-
         item_value = dv
-        result.append([item_key, item_value])
+        if decode_ss58:
+            try:
+                value_type_str_int = int(vts.split("::")[1])
+                decoded_type_str = runtime.type_id_to_name[value_type_str_int]
+                item_value = convert_account_ids(
+                    dv, decoded_type_str, runtime.ss58_format
+                )
+            except (ValueError, KeyError):
+                pass
+        result.append([item_key, ScaleObj(item_value)])
     return result
+
+
+def legacy_scale_decode(
+    type_string: str, scale_bytes: Union[str, ScaleBytes], runtime: "Runtime"
+):
+    if isinstance(scale_bytes, (str, bytes)):
+        scale_bytes = ScaleBytes(scale_bytes)
+
+    obj = runtime.runtime_config.create_scale_object(
+        type_string=type_string, data=scale_bytes, metadata=runtime.metadata
+    )
+
+    obj.decode(check_remaining=runtime.config.get("strict_scale_decode"))
+
+    return obj.value
+
+
+def is_accountid32(value: Any) -> bool:
+    return (
+        isinstance(value, tuple)
+        and len(value) == 32
+        and all(isinstance(b, int) and 0 <= b <= 255 for b in value)
+    )
+
+
+def convert_account_ids(value: Any, type_str: str, ss58_format=42) -> Any:
+    if "AccountId32" not in type_str:
+        return value
+
+    # Option<T>
+    if type_str.startswith("Option<") and value is not None:
+        inner_type = type_str[7:-1]
+        return convert_account_ids(value, inner_type)
+    # Vec<T>
+    if type_str.startswith("Vec<") and isinstance(value, (list, tuple)):
+        inner_type = type_str[4:-1]
+        return tuple(convert_account_ids(v, inner_type) for v in value)
+
+    # Vec<Vec<T>>
+    if type_str.startswith("Vec<Vec<") and isinstance(value, (list, tuple)):
+        inner_type = type_str[8:-2]
+        return tuple(
+            tuple(convert_account_ids(v2, inner_type) for v2 in v1) for v1 in value
+        )
+
+    # Tuple
+    if type_str.startswith("(") and isinstance(value, (list, tuple)):
+        inner_parts = split_tuple_type(type_str)
+        return tuple(convert_account_ids(v, t) for v, t in zip(value, inner_parts))
+
+    # AccountId32
+    if type_str == "AccountId32" and is_accountid32(value[0]):
+        return ss58_encode(bytes(value[0]), ss58_format=ss58_format)
+
+    # Fallback
+    return value
+
+
+def split_tuple_type(type_str: str) -> list[str]:
+    """
+    Splits a type string like '(AccountId32, Vec<StakeInfo>)' into ['AccountId32', 'Vec<StakeInfo>']
+    Handles nested generics.
+    """
+    s = type_str[1:-1]
+    parts = []
+    depth = 0
+    current = ""
+    for char in s:
+        if char == "," and depth == 0:
+            parts.append(current.strip())
+            current = ""
+        else:
+            if char == "<":
+                depth += 1
+            elif char == ">":
+                depth -= 1
+            current += char
+    if current:
+        parts.append(current.strip())
+    return parts

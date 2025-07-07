@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, ANY
 
 import pytest
 from websockets.exceptions import InvalidURI
@@ -64,7 +64,7 @@ async def test_runtime_call(monkeypatch):
 
     # Patch RPC request with correct behavior
     substrate.rpc_request = AsyncMock(
-        side_effect=lambda method, params: {
+        side_effect=lambda method, params, runtime: {
             "result": "0x00" if method == "state_call" else {"parentHash": "0xDEADBEEF"}
         }
     )
@@ -83,14 +83,16 @@ async def test_runtime_call(monkeypatch):
     assert result.value == "decoded_result"
 
     # Check decode_scale called correctly
-    substrate.decode_scale.assert_called_once_with("scale_info::1", b"\x00")
+    substrate.decode_scale.assert_called_once_with(
+        "scale_info::1", b"\x00", runtime=ANY
+    )
 
     # encode_scale should not be called since no inputs
     substrate.encode_scale.assert_not_called()
 
     # Check RPC request called for the state_call
     substrate.rpc_request.assert_any_call(
-        "state_call", ["SubstrateApi_SubstrateMethod", "", None]
+        "state_call", ["SubstrateApi_SubstrateMethod", "", None], runtime=ANY
     )
 
 

@@ -1,14 +1,13 @@
 import asyncio
+import inspect
 from collections import OrderedDict
 import functools
+import logging
 import os
 import pickle
 import sqlite3
 from pathlib import Path
-from typing import Callable, Any
-
-import asyncstdlib as a
-
+from typing import Callable, Any, Awaitable, Hashable, Optional
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
 CACHE_LOCATION = (
@@ -18,6 +17,8 @@ CACHE_LOCATION = (
     if USE_CACHE
     else ":memory:"
 )
+
+logger = logging.getLogger("async_substrate_interface")
 
 
 def _ensure_dir():
@@ -70,7 +71,7 @@ def _retrieve_from_cache(c, table_name, key, chain):
         if result is not None:
             return pickle.loads(result[0])
     except (pickle.PickleError, sqlite3.Error) as e:
-        print(f"Cache error: {str(e)}")
+        logger.exception("Cache error", exc_info=e)
         pass
 
 
@@ -82,7 +83,7 @@ def _insert_into_cache(c, conn, table_name, key, result, chain):
         )
         conn.commit()
     except (pickle.PickleError, sqlite3.Error) as e:
-        print(f"Cache error: {str(e)}")
+        logger.exception("Cache error", exc_info=e)
         pass
 
 
@@ -128,7 +129,7 @@ def sql_lru_cache(maxsize=None):
 
 def async_sql_lru_cache(maxsize=None):
     def decorator(func):
-        @a.lru_cache(maxsize=maxsize)
+        @cached_fetcher(max_size=maxsize)
         async def inner(self, *args, **kwargs):
             c, conn, table_name, key, result, chain, local_chain = (
                 _shared_inner_fn_logic(func, self, args, kwargs)
@@ -147,6 +148,10 @@ def async_sql_lru_cache(maxsize=None):
 
 
 class LRUCache:
+    """
+    Basic Least-Recently-Used Cache, with simple methods `set` and `get`
+    """
+
     def __init__(self, max_size: int):
         self.max_size = max_size
         self.cache = OrderedDict()
@@ -167,31 +172,121 @@ class LRUCache:
 
 
 class CachedFetcher:
-    def __init__(self, max_size: int, method: Callable):
-        self._inflight: dict[int, asyncio.Future] = {}
+    """
+    Async caching class that allows the standard async LRU cache system, but also allows for concurrent
+    asyncio calls (with the same args) to use the same result of a single call.
+
+    This should only be used for asyncio calls where the result is immutable.
+
+    Concept and usage:
+        ```
+        async def fetch(self, block_hash: str) -> str:
+            return await some_resource(block_hash)
+
+        a1, a2, b = await asyncio.gather(fetch("a"), fetch("a"), fetch("b"))
+        ```
+
+        Here, you are making three requests, but you really only need to make two I/O requests
+        (one for "a", one for "b"), and while you wouldn't typically make a request like this directly, it's very
+        common in using this library to inadvertently make these requests y gathering multiple resources that depend
+        on the calls like this under the hood.
+
+        By using
+
+        ```
+        @cached_fetcher(max_size=512)
+        async def fetch(self, block_hash: str) -> str:
+            return await some_resource(block_hash)
+
+        a1, a2, b = await asyncio.gather(fetch("a"), fetch("a"), fetch("b"))
+        ```
+
+        You are only making two I/O calls, and a2 will simply use the result of a1 when it lands.
+    """
+
+    def __init__(
+        self,
+        max_size: int,
+        method: Callable[..., Awaitable[Any]],
+        cache_key_index: Optional[int] = 0,
+    ):
+        """
+        Args:
+            max_size: max size of the cache (in items)
+            method: the function to cache
+            cache_key_index: if the method takes multiple args, this is the index of that cache key in the args list
+                (default is the first arg). By setting this to `None`, it will use all args as the cache key.
+        """
+        self._inflight: dict[Hashable, asyncio.Future] = {}
         self._method = method
         self._cache = LRUCache(max_size=max_size)
+        self._cache_key_index = cache_key_index
 
-    async def execute(self, single_arg: Any) -> str:
-        if item := self._cache.get(single_arg):
+    def make_cache_key(self, args: tuple, kwargs: dict) -> Hashable:
+        bound = inspect.signature(self._method).bind(*args, **kwargs)
+        bound.apply_defaults()
+
+        if self._cache_key_index is not None:
+            key_name = list(bound.arguments)[self._cache_key_index]
+            return bound.arguments[key_name]
+
+        return (tuple(bound.arguments.items()),)
+
+    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        key = self.make_cache_key(args, kwargs)
+
+        if item := self._cache.get(key):
             return item
 
-        if single_arg in self._inflight:
-            result = await self._inflight[single_arg]
-            return result
+        if key in self._inflight:
+            return await self._inflight[key]
 
         loop = asyncio.get_running_loop()
         future = loop.create_future()
-        self._inflight[single_arg] = future
+        self._inflight[key] = future
 
         try:
-            result = await self._method(single_arg)
-            self._cache.set(single_arg, result)
+            result = await self._method(*args, **kwargs)
+            self._cache.set(key, result)
             future.set_result(result)
             return result
         except Exception as e:
-            # Propagate errors
             future.set_exception(e)
             raise
         finally:
-            self._inflight.pop(single_arg, None)
+            self._inflight.pop(key, None)
+
+
+class _CachedFetcherMethod:
+    """
+    Helper class for using CachedFetcher with method caches (rather than functions)
+    """
+
+    def __init__(self, method, max_size: int, cache_key_index: int):
+        self.method = method
+        self.max_size = max_size
+        self.cache_key_index = cache_key_index
+        self._instances = {}
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+
+        # Cache per-instance
+        if instance not in self._instances:
+            bound_method = self.method.__get__(instance, owner)
+            self._instances[instance] = CachedFetcher(
+                max_size=self.max_size,
+                method=bound_method,
+                cache_key_index=self.cache_key_index,
+            )
+        return self._instances[instance]
+
+
+def cached_fetcher(max_size: int, cache_key_index: int = 0):
+    """Wrapper for CachedFetcher. See example in CachedFetcher docstring."""
+
+    def wrapper(method):
+        return _CachedFetcherMethod(method, max_size, cache_key_index)
+
+    return wrapper
