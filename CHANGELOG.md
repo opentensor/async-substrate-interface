@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1 /2025-07-09
+* Missed passing runtime in encoding by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/149
+
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.4.0...v1.4.1
+
 ## 1.4.0 /2025-07-07
 * Removes unused imports by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/139
 * Improve CachedFetcher by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/140
