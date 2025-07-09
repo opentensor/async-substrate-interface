@@ -2944,7 +2944,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 param_type_string = f"{param['type']}"
                 if isinstance(params, list):
                     param_data += await self.encode_scale(
-                        param_type_string, params[idx]
+                        param_type_string, params[idx], runtime=runtime
                     )
                 else:
                     if param["name"] not in params:
@@ -2953,7 +2953,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         )
 
                     param_data += await self.encode_scale(
-                        param_type_string, params[param["name"]]
+                        param_type_string, params[param["name"]], runtime=runtime
                     )
 
         # RPC request
@@ -3038,13 +3038,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
         for idx, param in enumerate(runtime_call_def["inputs"]):
             param_type_string = f"scale_info::{param['ty']}"
             if isinstance(params, list):
-                param_data += await self.encode_scale(param_type_string, params[idx])
+                param_data += await self.encode_scale(
+                    param_type_string, params[idx], runtime=runtime
+                )
             else:
                 if param["name"] not in params:
                     raise ValueError(f"Runtime Call param '{param['name']}' is missing")
 
                 param_data += await self.encode_scale(
-                    param_type_string, params[param["name"]]
+                    param_type_string, params[param["name"]], runtime=runtime
                 )
 
         # RPC request
