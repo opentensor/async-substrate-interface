@@ -2574,16 +2574,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
             for change_storage_key, change_data in result_group["changes"]:
                 # Decode result for specified storage_key
                 storage_key = storage_key_map[change_storage_key]
-                if change_data is None:
-                    change_data = b""
-                else:
-                    change_data = bytes.fromhex(change_data[2:])
+                if change_data is not None:
+                    change_data = ScaleBytes(change_data)
                 result.append(
                     (
                         storage_key,
-                        await self.decode_scale(
-                            storage_key.value_scale_type, change_data, runtime=runtime
-                        ),
+                        storage_key.decode_scale_value(change_data),
                     ),
                 )
 
