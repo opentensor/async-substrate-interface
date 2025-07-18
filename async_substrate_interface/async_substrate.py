@@ -2579,7 +2579,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 result.append(
                     (
                         storage_key,
-                        storage_key.decode_scale_value(change_data),
+                        storage_key.decode_scale_value(change_data).value,
                     ),
                 )
 
