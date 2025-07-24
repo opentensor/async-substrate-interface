@@ -326,6 +326,12 @@ class AsyncExtrinsicReceipt:
                             "name": "Other",
                             "docs": "Unspecified error occurred",
                         }
+                    elif "Token" in dispatch_error:
+                        self.__error_message = {
+                            "type": "System",
+                            "name": "Token",
+                            "docs": dispatch_error["Token"]
+                        }
 
                 elif not has_transaction_fee_paid_event:
                     if (
