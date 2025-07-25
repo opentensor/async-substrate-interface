@@ -297,7 +297,7 @@ class ExtrinsicReceipt:
                         self.__error_message = {
                             "type": "System",
                             "name": "Token",
-                            "docs": dispatch_error["Token"]
+                            "docs": dispatch_error["Token"],
                         }
 
                 elif not has_transaction_fee_paid_event:
