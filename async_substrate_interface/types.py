@@ -75,16 +75,25 @@ class RuntimeCache:
             runtime = self.blocks.get(block)
             if runtime is not None:
                 self.last_used = runtime
+                runtime.load_runtime()
+                if runtime.registry:
+                    runtime.load_registry_type_map()
                 return runtime
         if block_hash is not None:
             runtime = self.block_hashes.get(block_hash)
             if runtime is not None:
                 self.last_used = runtime
+                runtime.load_runtime()
+                if runtime.registry:
+                    runtime.load_registry_type_map()
                 return runtime
         if runtime_version is not None:
             runtime = self.versions.get(runtime_version)
             if runtime is not None:
                 self.last_used = runtime
+                runtime.load_runtime()
+                if runtime.registry:
+                    runtime.load_registry_type_map()
                 return runtime
         return None
 

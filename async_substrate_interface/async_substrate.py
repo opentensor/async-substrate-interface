@@ -1068,6 +1068,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 return runtime
 
         runtime_version = await self.get_block_runtime_version_for(block_hash)
+
         if runtime_version is None:
             raise SubstrateRequestException(
                 f"No runtime information for block '{block_hash}'"
