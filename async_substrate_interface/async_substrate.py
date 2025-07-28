@@ -326,6 +326,12 @@ class AsyncExtrinsicReceipt:
                             "name": "Other",
                             "docs": "Unspecified error occurred",
                         }
+                    elif "Token" in dispatch_error:
+                        self.__error_message = {
+                            "type": "System",
+                            "name": "Token",
+                            "docs": dispatch_error["Token"],
+                        }
 
                 elif not has_transaction_fee_paid_event:
                     if (
@@ -1062,6 +1068,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 return runtime
 
         runtime_version = await self.get_block_runtime_version_for(block_hash)
+
         if runtime_version is None:
             raise SubstrateRequestException(
                 f"No runtime information for block '{block_hash}'"
