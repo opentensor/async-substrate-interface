@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.3 /2025-07-28
+* Add "Token" to caught error messages for extrinsic receipts by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/156
+* runtime version switching by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/157
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.4.2...v1.4.3
+
 ## 1.4.2 /2025-07-23
 * Use scalecodec rather than bt-decode for query_multi by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/152
 
