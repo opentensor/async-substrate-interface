@@ -2506,7 +2506,7 @@ class SubstrateInterface(SubstrateMixin):
         param_data = b""
 
         if "encoder" in runtime_call_def:
-            param_data = runtime_call_def["encoder"](params)
+            param_data = [runtime_call_def["encoder"](params, self.runtime.registry)]
         else:
             for idx, param in enumerate(runtime_call_def["params"]):
                 param_type_string = f"{param['type']}"
