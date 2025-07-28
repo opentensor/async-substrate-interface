@@ -297,7 +297,7 @@ class ExtrinsicReceipt:
                         self.__error_message = {
                             "type": "System",
                             "name": "Token",
-                            "docs": dispatch_error["Token"]
+                            "docs": dispatch_error["Token"],
                         }
 
                 elif not has_transaction_fee_paid_event:
@@ -773,9 +773,6 @@ class SubstrateInterface(SubstrateMixin):
         if block_id is not None:
             if runtime := self.runtime_cache.retrieve(block=block_id):
                 self.runtime = runtime
-                self.runtime.load_runtime()
-                if self.runtime.registry:
-                    self.runtime.load_registry_type_map()
                 return self.runtime
             block_hash = self.get_block_hash(block_id)
 
@@ -785,9 +782,6 @@ class SubstrateInterface(SubstrateMixin):
             self.last_block_hash = block_hash
             if runtime := self.runtime_cache.retrieve(block_hash=block_hash):
                 self.runtime = runtime
-                self.runtime.load_runtime()
-                if self.runtime.registry:
-                    self.runtime.load_registry_type_map()
                 return self.runtime
 
         runtime_version = self.get_block_runtime_version_for(block_hash)
@@ -801,15 +795,9 @@ class SubstrateInterface(SubstrateMixin):
 
         if runtime := self.runtime_cache.retrieve(runtime_version=runtime_version):
             self.runtime = runtime
-            self.runtime.load_runtime()
-            if self.runtime.registry:
-                self.runtime.load_registry_type_map()
-            return runtime
+            return self.runtime
         else:
             self.runtime = self.get_runtime_for_version(runtime_version, block_hash)
-            self.runtime.load_runtime()
-            if self.runtime.registry:
-                self.runtime.load_registry_type_map()
             return self.runtime
 
     def get_runtime_for_version(
