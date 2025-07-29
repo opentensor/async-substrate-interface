@@ -613,9 +613,10 @@ class Websocket:
                     self.ws = await asyncio.wait_for(
                         connect(self.ws_url, **self._options), timeout=10.0
                     )
-                    self._receiving_task = asyncio.get_running_loop().create_task(
-                        self._start_receiving()
-                    )
+                    if self._receiving_task is None or self._receiving_task.done():
+                        self._receiving_task = asyncio.get_running_loop().create_task(
+                            self._start_receiving()
+                        )
                     self._initialized = True
         finally:
             self._is_connecting = False
