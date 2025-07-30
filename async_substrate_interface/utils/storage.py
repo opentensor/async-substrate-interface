@@ -48,9 +48,9 @@ class StorageKey:
         data: bytes,
         runtime_config: RuntimeConfigurationObject,
         metadata: GenericMetadataVersioned,
-        value_scale_type: str = None,
-        pallet: str = None,
-        storage_function: str = None,
+        value_scale_type: Optional[str] = None,
+        pallet: Optional[str] = None,
+        storage_function: Optional[str] = None,
     ) -> "StorageKey":
         """
         Create a StorageKey instance providing raw storage key bytes

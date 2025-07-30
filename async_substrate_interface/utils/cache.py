@@ -127,7 +127,7 @@ def sql_lru_cache(maxsize=None):
     return decorator
 
 
-def async_sql_lru_cache(maxsize=None):
+def async_sql_lru_cache(maxsize: Optional[int] = None):
     def decorator(func):
         @cached_fetcher(max_size=maxsize)
         async def inner(self, *args, **kwargs):
@@ -283,7 +283,7 @@ class _CachedFetcherMethod:
         return self._instances[instance]
 
 
-def cached_fetcher(max_size: int, cache_key_index: int = 0):
+def cached_fetcher(max_size: Optional[int] = None, cache_key_index: int = 0):
     """Wrapper for CachedFetcher. See example in CachedFetcher docstring."""
 
     def wrapper(method):

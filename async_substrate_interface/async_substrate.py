@@ -689,7 +689,7 @@ class Websocket:
         except ConnectionClosed:
             await self.connect(force=True)
 
-    async def send(self, payload: dict) -> int:
+    async def send(self, payload: dict) -> str:
         """
         Sends a payload to the websocket connection.
 
@@ -714,6 +714,7 @@ class Websocket:
             return original_id
         except (ConnectionClosed, ssl.SSLError, EOFError):
             await self.connect(force=True)
+            return await self.send(payload)
 
     async def retrieve(self, item_id: int) -> Optional[dict]:
         """
@@ -911,7 +912,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return self._name
 
     async def get_storage_item(
-        self, module: str, storage_function: str, block_hash: str = None
+        self, module: str, storage_function: str, block_hash: Optional[str] = None
     ):
         runtime = await self.init_runtime(block_hash=block_hash)
         metadata_pallet = runtime.metadata.get_metadata_pallet(module)
@@ -1154,7 +1155,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         pallet: str,
         storage_function: str,
         params: Optional[list] = None,
-        block_hash: str = None,
+        block_hash: Optional[str] = None,
     ) -> StorageKey:
         """
         Create a `StorageKey` instance providing storage function details. See `subscribe_storage()`.
@@ -1169,7 +1170,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             StorageKey
         """
         runtime = await self.init_runtime(block_hash=block_hash)
-
+        params = params or []
         return StorageKey.create_from_storage_function(
             pallet,
             storage_function,
@@ -1424,7 +1425,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         return error
 
     async def get_metadata_runtime_call_functions(
-        self, block_hash: str = None, runtime: Optional[Runtime] = None
+        self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
     ) -> list[GenericRuntimeCallDefinition]:
         """
         Get a list of available runtime API calls
@@ -1763,7 +1764,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         ignore_decoding_errors: bool = False,
         include_author: bool = False,
         finalized_only: bool = False,
-    ) -> dict:
+    ) -> Optional[dict]:
         """
         Retrieves a block header and decodes its containing log digest items. If `block_hash` and `block_number`
         is omitted the chain tip will be retrieved, or the finalized head if `finalized_only` is set to true.
@@ -1790,7 +1791,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             block_hash = await self.get_block_hash(block_number)
 
             if block_hash is None:
-                return
+                return None
 
         if block_hash and finalized_only:
             raise ValueError(
@@ -1820,7 +1821,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def subscribe_block_headers(
         self,
-        subscription_handler: callable,
+        subscription_handler: Callable,
         ignore_decoding_errors: bool = False,
         include_author: bool = False,
         finalized_only=False,
@@ -1902,7 +1903,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         )
 
     async def get_extrinsics(
-        self, block_hash: str = None, block_number: int = None
+        self, block_hash: Optional[str] = None, block_number: Optional[int] = None
     ) -> Optional[list["AsyncExtrinsicReceipt"]]:
         """
         Return all extrinsics for given block_hash or block_number
@@ -2780,7 +2781,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self,
         call: GenericCall,
         keypair: Keypair,
-        era: Optional[dict] = None,
+        era: Optional[Union[dict, str]] = None,
         nonce: Optional[int] = None,
         tip: int = 0,
         tip_asset_id: Optional[int] = None,
@@ -2932,12 +2933,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ) -> ScaleType:
+    ) -> ScaleObj:
         logger.debug(
             f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
         )
         runtime_call_def = _TYPE_REGISTRY["runtime_api"][api]["methods"][method]
-
+        params = params or []
         # Encode params
         param_data = b""
 
@@ -3245,7 +3246,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return result.value
 
     async def get_type_registry(
-        self, block_hash: str = None, max_recursion: int = 4
+        self, block_hash: Optional[str] = None, max_recursion: int = 4
     ) -> dict:
         """
         Generates an exhaustive list of which RUST types exist in the runtime specified at given block_hash (or
@@ -3284,7 +3285,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return type_registry
 
     async def get_type_definition(
-        self, type_string: str, block_hash: str = None
+        self, type_string: str, block_hash: Optional[str] = None
     ) -> str:
         """
         Retrieves SCALE encoding specifications of given type_string
@@ -3589,11 +3590,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         keypair: Keypair,
         multisig_account: MultiAccountId,
         max_weight: Optional[Union[dict, int]] = None,
-        era: dict = None,
-        nonce: int = None,
+        era: Optional[dict] = None,
+        nonce: Optional[int] = None,
         tip: int = 0,
-        tip_asset_id: int = None,
-        signature: Union[bytes, str] = None,
+        tip_asset_id: Optional[int] = None,
+        signature: Optional[Union[bytes, str]] = None,
     ) -> GenericExtrinsic:
         """
         Create a Multisig extrinsic that will be signed by one of the signatories. Checks on-chain if the threshold
@@ -3878,6 +3879,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         elif "result" in response:
             if response["result"]:
                 return int(response["result"]["number"], 16)
+        raise SubstrateRequestException(
+            f"Unable to retrieve block number for {block_hash}"
+        )
 
     async def close(self):
         """
@@ -3973,14 +3977,14 @@ async def get_async_substrate_interface(
     """
     substrate = AsyncSubstrateInterface(
         url,
-        use_remote_preset,
-        auto_discover,
-        ss58_format,
-        type_registry,
-        chain_name,
-        max_retries,
-        retry_timeout,
-        _mock,
+        use_remote_preset=use_remote_preset,
+        auto_discover=auto_discover,
+        ss58_format=ss58_format,
+        type_registry=type_registry,
+        chain_name=chain_name,
+        max_retries=max_retries,
+        retry_timeout=retry_timeout,
+        _mock=_mock,
     )
     await substrate.initialize()
     return substrate
