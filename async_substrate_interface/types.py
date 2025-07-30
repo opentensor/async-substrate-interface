@@ -372,7 +372,7 @@ class RequestManager:
         self.responses = defaultdict(lambda: {"complete": False, "results": []})
         self.payloads_count = len(payloads)
 
-    def add_request(self, item_id: int, request_id: Any):
+    def add_request(self, item_id: Union[int, str], request_id: Any):
         """
         Adds an outgoing request to the responses map for later retrieval
         """
