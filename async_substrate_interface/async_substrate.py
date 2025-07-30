@@ -1015,7 +1015,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             # Decode AccountId bytes to SS58 address
             return ss58_encode(scale_bytes, self.ss58_format)
         else:
-            if not runtime:
+            if runtime is None:
                 runtime = await self.init_runtime(block_hash=block_hash)
             if runtime.metadata_v15 is not None and force_legacy is False:
                 obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
@@ -1318,7 +1318,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of storage functions
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
         storage_list = []
@@ -1356,7 +1356,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Metadata storage function
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
         pallet = runtime.metadata.get_metadata_pallet(module_name)
@@ -1377,7 +1377,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of errors in the metadata
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
         error_list = []
@@ -1415,7 +1415,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             error
 
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
         for module_idx, module in enumerate(runtime.metadata.pallets):
@@ -1433,7 +1433,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of runtime call functions
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
         call_functions = []
 
@@ -1467,7 +1467,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             GenericRuntimeCallDefinition
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
         try:
@@ -2142,7 +2142,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         params = query_for if query_for else []
         # Search storage call in metadata
-        if not runtime:
+        if runtime is None:
             runtime = self.runtime
         metadata_pallet = runtime.metadata.get_metadata_pallet(module)
 
@@ -2504,7 +2504,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
         preprocessed: tuple[Preprocessed] = await asyncio.gather(
             *[
@@ -2562,7 +2562,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             list of `(storage_key, scale_obj)` tuples
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
         # Retrieve corresponding value
@@ -2617,7 +2617,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
              The created Scale Type object
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
         if "metadata" not in kwargs:
             kwargs["metadata"] = runtime.metadata
@@ -3160,7 +3160,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             MetadataModuleConstants
         """
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
         for module in runtime.metadata.pallets:
@@ -3361,7 +3361,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash = await self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
-        if not runtime:
+        if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
         preprocessed: Preprocessed = await self._preprocess(
             params,
