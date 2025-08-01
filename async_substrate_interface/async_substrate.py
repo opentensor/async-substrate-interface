@@ -664,30 +664,28 @@ class Websocket:
         self._is_closing = False
 
     async def _recv(self, recd) -> None:
-        try:
-            if self._log_raw_websockets:
-                raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd}")
-            response = json.loads(recd)
-            self.last_received = await self.loop_time()
-            if "id" in response:
-                self._received[response["id"]].set_result(response)
-                self._in_use_ids.remove(response["id"])
-            elif "params" in response:
-                self._received[response["params"]["subscription"]].set_result(response)
-            else:
-                raise KeyError(response)
-        except ssl.SSLError:
-            raise ConnectionClosed
-        except (ConnectionClosed, KeyError):
-            raise
+        if self._log_raw_websockets:
+            raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd}")
+        response = json.loads(recd)
+        self.last_received = await self.loop_time()
+        if "id" in response:
+            self._received[response["id"]].set_result(response)
+            self._in_use_ids.remove(response["id"])
+        elif "params" in response:
+            self._received[response["params"]["subscription"]].set_result(response)
+        else:
+            raise KeyError(response)
 
     async def _start_receiving(self, ws: ClientConnection) -> Exception:
         try:
             async for recd in ws:
                 await self._recv(recd)
         except Exception as e:
+            if isinstance(e, ssl.SSLError):
+                e = ConnectionClosed
             for i in self._received.keys():
                 self._received[i].set_exception(e)
+                self._received[i].cancel()
             return
 
     async def _start_sending(self, ws) -> Exception:
@@ -702,9 +700,11 @@ class Websocket:
         except Exception as e:
             if to_send is not None:
                 self._received[to_send["id"]].set_exception(e)
+                self._received[to_send["id"]].cancel()
             else:
                 for i in self._received.keys():
                     self._received[i].set_exception(e)
+                    self._received[i].cancel()
             return
 
     async def send(self, payload: dict) -> str:
@@ -2270,6 +2270,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         request_manager = RequestManager(payloads)
 
         subscription_added = False
+        should_retry = False
 
         async with self.ws as ws:
             for payload in payloads:
@@ -2282,37 +2283,43 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         item_id not in request_manager.responses
                         or asyncio.iscoroutinefunction(result_handler)
                     ):
-                        if response := await ws.retrieve(item_id):
-                            if (
-                                asyncio.iscoroutinefunction(result_handler)
-                                and not subscription_added
-                            ):
-                                # handles subscriptions, overwrites the previous mapping of {item_id : payload_id}
-                                # with {subscription_id : payload_id}
-                                try:
-                                    item_id = request_manager.overwrite_request(
-                                        item_id, response["result"]
-                                    )
-                                    subscription_added = True
-                                except KeyError:
-                                    raise SubstrateRequestException(str(response))
-                            decoded_response, complete = await self._process_response(
-                                response,
-                                item_id,
-                                value_scale_type,
-                                storage_item,
-                                result_handler,
-                                runtime=runtime,
-                                force_legacy_decode=force_legacy_decode,
-                            )
+                        try:
+                            if response := await ws.retrieve(item_id):
+                                if (
+                                    asyncio.iscoroutinefunction(result_handler)
+                                    and not subscription_added
+                                ):
+                                    # handles subscriptions, overwrites the previous mapping of {item_id : payload_id}
+                                    # with {subscription_id : payload_id}
+                                    try:
+                                        item_id = request_manager.overwrite_request(
+                                            item_id, response["result"]
+                                        )
+                                        subscription_added = True
+                                    except KeyError:
+                                        raise SubstrateRequestException(str(response))
+                                (
+                                    decoded_response,
+                                    complete,
+                                ) = await self._process_response(
+                                    response,
+                                    item_id,
+                                    value_scale_type,
+                                    storage_item,
+                                    result_handler,
+                                    runtime=runtime,
+                                    force_legacy_decode=force_legacy_decode,
+                                )
 
-                            request_manager.add_response(
-                                item_id, decoded_response, complete
-                            )
+                                request_manager.add_response(
+                                    item_id, decoded_response, complete
+                                )
+                        except ConnectionClosed:
+                            should_retry = True
 
                 if request_manager.is_complete:
                     break
-                if (
+                if should_retry or (
                     (current_time := await ws.loop_time()) - ws.last_received
                     >= self.retry_timeout
                     and current_time - ws.last_sent >= self.retry_timeout
