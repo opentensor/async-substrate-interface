@@ -74,26 +74,28 @@ class RuntimeCache:
         if block is not None:
             runtime = self.blocks.get(block)
             if runtime is not None:
+                if block_hash is not None:
+                    # if lookup occurs for block_hash and block, but only block matches, also map to block_hash
+                    self.add_item(runtime, block_hash=block_hash)
                 self.last_used = runtime
-                # runtime.load_runtime()
-                # if runtime.registry:
-                #     runtime.load_registry_type_map()
                 return runtime
         if block_hash is not None:
             runtime = self.block_hashes.get(block_hash)
             if runtime is not None:
+                if block is not None:
+                    # if lookup occurs for block_hash and block, but only block_hash matches, also map to block
+                    self.add_item(runtime, block=block)
                 self.last_used = runtime
-                # runtime.load_runtime()
-                # if runtime.registry:
-                #     runtime.load_registry_type_map()
                 return runtime
         if runtime_version is not None:
             runtime = self.versions.get(runtime_version)
             if runtime is not None:
+                # if runtime_version matches, also map to block and block_hash (if supplied)
+                if block is not None:
+                    self.add_item(runtime, block=block)
+                if block_hash is not None:
+                    self.add_item(runtime, block_hash=block_hash)
                 self.last_used = runtime
-                # runtime.load_runtime()
-                # if runtime.registry:
-                #     runtime.load_registry_type_map()
                 return runtime
         return None
 
