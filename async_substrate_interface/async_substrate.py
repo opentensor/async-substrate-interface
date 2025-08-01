@@ -514,7 +514,6 @@ class AsyncQueryMapResult:
 
 
 class Websocket:
-    ws:
     def __init__(
         self,
         ws_url: str,
