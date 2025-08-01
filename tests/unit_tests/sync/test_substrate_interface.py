@@ -3,6 +3,8 @@ from unittest.mock import MagicMock
 from async_substrate_interface.sync_substrate import SubstrateInterface
 from async_substrate_interface.types import ScaleObj
 
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT
+
 
 def test_runtime_call(monkeypatch):
     substrate = SubstrateInterface("ws://localhost", _mock=True)
@@ -73,3 +75,14 @@ def test_runtime_call(monkeypatch):
         "state_call", ["SubstrateApi_SubstrateMethod", "", None]
     )
     substrate.close()
+
+
+def test_runtime_switching():
+    block = 6067945  # block where a runtime switch happens
+    with SubstrateInterface(
+        ARCHIVE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
+    ) as substrate:
+        # assures we switch between the runtimes without error
+        assert substrate.get_extrinsics(block_number=block - 20) is not None
+        assert substrate.get_extrinsics(block_number=block) is not None
+        assert substrate.get_extrinsics(block_number=block - 21) is not None

@@ -8,7 +8,6 @@ import asyncio
 import inspect
 import logging
 import ssl
-import time
 import warnings
 from unittest.mock import AsyncMock
 from hashlib import blake2b
@@ -19,11 +18,11 @@ from typing import (
     Callable,
     Awaitable,
     cast,
-    TYPE_CHECKING,
 )
 
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
-from scalecodec.base import ScaleBytes, ScaleType
+from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
+from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
@@ -31,8 +30,12 @@ from scalecodec.types import (
     ss58_encode,
     MultiAccountId,
 )
-from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed, WebSocketException
+from websockets.asyncio.client import connect, ClientConnection
+from websockets.exceptions import (
+    ConnectionClosed,
+    WebSocketException,
+)
+from websockets.protocol import State
 
 from async_substrate_interface.errors import (
     SubstrateRequestException,
@@ -71,9 +74,6 @@ from async_substrate_interface.type_registry import _TYPE_REGISTRY
 from async_substrate_interface.utils.decoding import (
     decode_query_map,
 )
-
-if TYPE_CHECKING:
-    from websockets.asyncio.client import ClientConnection
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
@@ -538,22 +538,19 @@ class Websocket:
         # TODO allow setting max concurrent connections and rpc subscriptions per connection
         # TODO reconnection logic
         self.ws_url = ws_url
-        self.ws: Optional["ClientConnection"] = None
+        self.ws: Optional[ClientConnection] = None
         self.max_subscriptions = asyncio.Semaphore(max_subscriptions)
         self.max_connections = max_connections
         self.shutdown_timer = shutdown_timer
-        self._received = {}
-        self._in_use = 0
-        self._receiving_task = None
+        self._received: dict[str, asyncio.Future] = {}
+        self._sending = asyncio.Queue()
+        self._receiving_task = None  # TODO rename, as this now does send/recv
         self._attempts = 0
-        self._initialized = False
+        self._initialized = False  # TODO remove
         self._lock = asyncio.Lock()
         self._exit_task = None
-        self._open_subscriptions = 0
         self._options = options if options else {}
         self._log_raw_websockets = _log_raw_websockets
-        self._is_connecting = False
-        self._is_closing = False
 
         try:
             now = asyncio.get_running_loop().time()
@@ -570,9 +567,16 @@ class Websocket:
         self.last_sent = now
         self._in_use_ids = set()
 
+    @property
+    def state(self):
+        if self.ws is None:
+            return State.CLOSED
+        else:
+            return self.ws.state
+
     async def __aenter__(self):
-        self._in_use += 1
-        await self.connect()
+        if self.state not in (State.CONNECTING, State.OPEN):
+            await self.connect()
         return self
 
     @staticmethod
@@ -596,47 +600,47 @@ class Websocket:
             )
 
     async def connect(self, force=False):
-        self._is_connecting = True
-        try:
-            now = await self.loop_time()
-            self.last_received = now
-            self.last_sent = now
+        now = await self.loop_time()
+        self.last_received = now
+        self.last_sent = now
+        async with self._lock:
             if self._exit_task:
                 self._exit_task.cancel()
-            if not self._is_closing:
+            if self.state not in (State.OPEN, State.CONNECTING):
                 if not self._initialized or force:
                     try:
                         await asyncio.wait_for(self._cancel(), timeout=10.0)
                     except asyncio.TimeoutError:
                         pass
-
                     self.ws = await asyncio.wait_for(
                         connect(self.ws_url, **self._options), timeout=10.0
                     )
                     if self._receiving_task is None or self._receiving_task.done():
                         self._receiving_task = asyncio.get_running_loop().create_task(
-                            self._start_receiving()
+                            self._handler(self.ws)
                         )
                     self._initialized = True
-        finally:
-            self._is_connecting = False
+
+    async def _handler(self, ws: ClientConnection):
+        consumer_task = asyncio.create_task(self._start_receiving(ws))
+        producer_task = asyncio.create_task(self._start_sending(ws))
+        done, pending = await asyncio.wait(
+            [consumer_task, producer_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._is_closing = True
-        try:
-            if not self._is_connecting:
-                self._in_use -= 1
-                if self._exit_task is not None:
-                    self._exit_task.cancel()
-                    try:
-                        await self._exit_task
-                    except asyncio.CancelledError:
-                        pass
-                if self._in_use == 0 and self.ws is not None:
-                    self._open_subscriptions = 0
-                    self._exit_task = asyncio.create_task(self._exit_with_timer())
-        finally:
-            self._is_closing = False
+        if not self.state != State.CONNECTING:
+            if self._exit_task is not None:
+                self._exit_task.cancel()
+                try:
+                    await self._exit_task
+                except asyncio.CancelledError:
+                    pass
+            if self.ws is not None:
+                self._exit_task = asyncio.create_task(self._exit_with_timer())
 
     async def _exit_with_timer(self):
         """
@@ -660,34 +664,49 @@ class Websocket:
         self._receiving_task = None
         self._is_closing = False
 
-    async def _recv(self) -> None:
-        try:
-            # TODO consider wrapping this in asyncio.wait_for and use that for the timeout logic
-            recd = await self.ws.recv(decode=False)
-            if self._log_raw_websockets:
-                raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd.decode()}")
-            response = json.loads(recd)
-            self.last_received = await self.loop_time()
-            if "id" in response:
-                self._received[response["id"]] = response
-                self._in_use_ids.remove(response["id"])
-            elif "params" in response:
-                self._received[response["params"]["subscription"]] = response
-            else:
-                raise KeyError(response)
-        except ssl.SSLError:
-            raise ConnectionClosed
-        except (ConnectionClosed, KeyError):
-            raise
+    async def _recv(self, recd: bytes) -> None:
+        if self._log_raw_websockets:
+            raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd.decode()}")
+        response = json.loads(recd)
+        self.last_received = await self.loop_time()
+        if "id" in response:
+            self._received[response["id"]].set_result(response)
+            self._in_use_ids.remove(response["id"])
+        elif "params" in response:
+            self._received[response["params"]["subscription"]].set_result(response)
+        else:
+            raise KeyError(response)
 
-    async def _start_receiving(self):
+    async def _start_receiving(self, ws: ClientConnection) -> Exception:
         try:
             while True:
-                await self._recv()
-        except asyncio.CancelledError:
-            pass
-        except ConnectionClosed:
-            await self.connect(force=True)
+                await self._recv(await ws.recv(decode=False))
+        except Exception as e:
+            if isinstance(e, ssl.SSLError):
+                e = ConnectionClosed
+            for i in self._received.keys():
+                self._received[i].set_exception(e)
+                self._received[i].cancel()
+            return
+
+    async def _start_sending(self, ws) -> Exception:
+        to_send = None
+        try:
+            while True:
+                to_send = await self._sending.get()
+                if self._log_raw_websockets:
+                    raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
+                await ws.send(json.dumps(to_send))
+                self.last_sent = await self.loop_time()
+        except Exception as e:
+            if to_send is not None:
+                self._received[to_send["id"]].set_exception(e)
+                self._received[to_send["id"]].cancel()
+            else:
+                for i in self._received.keys():
+                    self._received[i].set_exception(e)
+                    self._received[i].cancel()
+            return
 
     async def send(self, payload: dict) -> str:
         """
@@ -699,22 +718,16 @@ class Websocket:
         Returns:
             id: the internal ID of the request (incremented int)
         """
-        original_id = get_next_id()
-        while original_id in self._in_use_ids:
-            original_id = get_next_id()
-        self._in_use_ids.add(original_id)
-        # self._open_subscriptions += 1
         await self.max_subscriptions.acquire()
-        try:
-            to_send = {**payload, **{"id": original_id}}
-            if self._log_raw_websockets:
-                raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
-            await self.ws.send(json.dumps(to_send))
-            self.last_sent = await self.loop_time()
-            return original_id
-        except (ConnectionClosed, ssl.SSLError, EOFError):
-            await self.connect(force=True)
-            return await self.send(payload)
+        async with self._lock:
+            original_id = get_next_id()
+            while original_id in self._in_use_ids:
+                original_id = get_next_id()
+            self._in_use_ids.add(original_id)
+            self._received[original_id] = asyncio.get_running_loop().create_future()
+        to_send = {**payload, **{"id": original_id}}
+        await self._sending.put(to_send)
+        return original_id
 
     async def retrieve(self, item_id: int) -> Optional[dict]:
         """
@@ -726,11 +739,12 @@ class Websocket:
         Returns:
              retrieved item
         """
-        try:
-            item = self._received.pop(item_id)
+        item: asyncio.Future = self._received.get(item_id)
+        if item.done():
             self.max_subscriptions.release()
-            return item
-        except KeyError:
+            del self._received[item_id]
+            return item.result()
+        else:
             await asyncio.sleep(0.1)
             return None
 
@@ -827,6 +841,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         self._initializing = True
         if not self.initialized:
+            await self.ws.connect()
             if not self._chain:
                 chain = await self.rpc_request("system_chain", [])
                 self._chain = chain.get("result")
@@ -845,7 +860,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self._initializing = False
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
+        await self.ws.shutdown()
 
     @property
     def metadata(self):
@@ -1099,6 +1114,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def _get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
+        runtime_config = RuntimeConfigurationObject()
+        runtime_config.clear_type_registry()
+        runtime_config.update_type_registry(load_type_registry_preset(name="core"))
+
         if not block_hash:
             block_hash, runtime_block_hash, block_number = await asyncio.gather(
                 self.get_chain_head(),
@@ -1112,7 +1131,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
         runtime_info, metadata, (metadata_v15, registry) = await asyncio.gather(
             self.get_block_runtime_info(runtime_block_hash),
-            self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
+            self.get_block_metadata(
+                block_hash=runtime_block_hash,
+                runtime_config=runtime_config,
+                decode=True,
+            ),
             self._load_registry_at_block(block_hash=runtime_block_hash),
         )
         if metadata is None:
@@ -1129,14 +1152,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 f"Exported method Metadata_metadata_at_version is not found for {runtime_version}. This indicates the "
                 f"block is quite old, decoding for this block will use legacy Python decoding."
             )
-        implements_scale_info = metadata.portable_registry is not None
         runtime = Runtime(
             chain=self.chain,
-            runtime_config=self._runtime_config_copy(
-                implements_scale_info=implements_scale_info
-            ),
             metadata=metadata,
             type_registry=self.type_registry,
+            runtime_config=runtime_config,
             metadata_v15=metadata_v15,
             runtime_info=runtime_info,
             registry=registry,
@@ -2092,7 +2112,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return runtime_info["specVersion"]
 
     async def get_block_metadata(
-        self, block_hash: Optional[str] = None, decode: bool = True
+        self,
+        block_hash: Optional[str] = None,
+        runtime_config: Optional[RuntimeConfigurationObject] = None,
+        decode: bool = True,
     ) -> Optional[Union[dict, ScaleType]]:
         """
         A pass-though to existing JSONRPC method `state_getMetadata`.
@@ -2106,7 +2129,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             from the server
         """
         params = None
-        if decode and not self.runtime_config:
+        if decode and not runtime_config:
             raise ValueError(
                 "Cannot decode runtime configuration without a supplied runtime_config"
             )
@@ -2119,7 +2142,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             raise SubstrateRequestException(response["error"]["message"])
 
         if (result := response.get("result")) and decode:
-            metadata_decoder = self.runtime_config.create_scale_object(
+            metadata_decoder = runtime_config.create_scale_object(
                 "MetadataVersioned", data=ScaleBytes(result)
             )
             metadata_decoder.decode()
@@ -2256,18 +2279,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         request_manager = RequestManager(payloads)
 
         subscription_added = False
+        should_retry = False
 
         async with self.ws as ws:
-            if len(payloads) > 1:
-                send_coroutines = await asyncio.gather(
-                    *[ws.send(item["payload"]) for item in payloads]
-                )
-                for item_id, item in zip(send_coroutines, payloads):
-                    request_manager.add_request(item_id, item["id"])
-            else:
-                item = payloads[0]
-                item_id = await ws.send(item["payload"])
-                request_manager.add_request(item_id, item["id"])
+            for payload in payloads:
+                item_id = await ws.send(payload["payload"])
+                request_manager.add_request(item_id, payload["id"])
 
             while True:
                 for item_id in list(request_manager.response_map.keys()):
@@ -2275,48 +2292,55 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         item_id not in request_manager.responses
                         or asyncio.iscoroutinefunction(result_handler)
                     ):
-                        if response := await ws.retrieve(item_id):
-                            if (
-                                asyncio.iscoroutinefunction(result_handler)
-                                and not subscription_added
-                            ):
-                                # handles subscriptions, overwrites the previous mapping of {item_id : payload_id}
-                                # with {subscription_id : payload_id}
-                                try:
-                                    item_id = request_manager.overwrite_request(
-                                        item_id, response["result"]
-                                    )
-                                    subscription_added = True
-                                except KeyError:
-                                    raise SubstrateRequestException(str(response))
-                            decoded_response, complete = await self._process_response(
-                                response,
-                                item_id,
-                                value_scale_type,
-                                storage_item,
-                                result_handler,
-                                runtime=runtime,
-                                force_legacy_decode=force_legacy_decode,
-                            )
+                        try:
+                            if response := await ws.retrieve(item_id):
+                                if (
+                                    asyncio.iscoroutinefunction(result_handler)
+                                    and not subscription_added
+                                ):
+                                    # handles subscriptions, overwrites the previous mapping of {item_id : payload_id}
+                                    # with {subscription_id : payload_id}
+                                    try:
+                                        item_id = request_manager.overwrite_request(
+                                            item_id, response["result"]
+                                        )
+                                        subscription_added = True
+                                    except KeyError:
+                                        raise SubstrateRequestException(str(response))
+                                (
+                                    decoded_response,
+                                    complete,
+                                ) = await self._process_response(
+                                    response,
+                                    item_id,
+                                    value_scale_type,
+                                    storage_item,
+                                    result_handler,
+                                    runtime=runtime,
+                                    force_legacy_decode=force_legacy_decode,
+                                )
 
-                            request_manager.add_response(
-                                item_id, decoded_response, complete
-                            )
+                                request_manager.add_response(
+                                    item_id, decoded_response, complete
+                                )
+                        except ConnectionClosed:
+                            should_retry = True
 
                 if request_manager.is_complete:
                     break
-                if (
-                    (current_time := await self.ws.loop_time()) - self.ws.last_received
+                if should_retry or (
+                    (current_time := await ws.loop_time()) - ws.last_received
                     >= self.retry_timeout
-                    and current_time - self.ws.last_sent >= self.retry_timeout
+                    and current_time - ws.last_sent >= self.retry_timeout
                 ):
+                    # TODO this retry logic should really live inside the Websocket
                     if attempt >= self.max_retries:
                         logger.error(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
                         )
                         raise MaxRetriesExceeded("Max retries reached.")
                     else:
-                        self.ws.last_received = time.time()
+                        self.ws.last_received = await ws.loop_time()
                         await self.ws.connect(force=True)
                         logger.warning(
                             f"Timed out waiting for RPC requests. "
@@ -2634,10 +2658,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         tip: int = 0,
         tip_asset_id: Optional[int] = None,
         include_call_length: bool = False,
+        runtime: Optional[Runtime] = None,
     ) -> ScaleBytes:
         # Retrieve genesis hash
         genesis_hash = await self.get_block_hash(0)
-        runtime = await self.init_runtime(block_hash=None)
+        if runtime is None:
+            runtime = await self.init_runtime(block_hash=None)
 
         if not era:
             era = "00"
@@ -2748,7 +2774,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 )
 
         if include_call_length:
-            length_obj = self.runtime_config.create_scale_object("Bytes")
+            length_obj = runtime.runtime_config.create_scale_object("Bytes")
             call_data = str(length_obj.encode(str(call.data)))
 
         else:
@@ -2844,7 +2870,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             # Create signature payload
             signature_payload = await self.generate_signature_payload(
-                call=call, era=era, nonce=nonce, tip=tip, tip_asset_id=tip_asset_id
+                call=call,
+                era=era,
+                nonce=nonce,
+                tip=tip,
+                tip_asset_id=tip_asset_id,
+                runtime=runtime,
             )
 
             # Set Signature version to crypto type of keypair
@@ -2856,7 +2887,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 signature = await signature
 
         # Create extrinsic
-        extrinsic = self.runtime_config.create_scale_object(
+        extrinsic = runtime.runtime_config.create_scale_object(
             type_string="Extrinsic", metadata=runtime.metadata
         )
 
@@ -2896,7 +2927,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         runtime = await self.init_runtime()
 
         # Create extrinsic
-        extrinsic = self.runtime_config.create_scale_object(
+        extrinsic = runtime.runtime_config.create_scale_object(
             type_string="Extrinsic", metadata=runtime.metadata
         )
 
@@ -3007,10 +3038,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         try:
             if runtime.metadata_v15 is None:
-                _ = self.runtime_config.type_registry["runtime_api"][api]["methods"][
+                _ = runtime.runtime_config.type_registry["runtime_api"][api]["methods"][
                     method
                 ]
-                runtime_api_types = self.runtime_config.type_registry["runtime_api"][
+                runtime_api_types = runtime.runtime_config.type_registry["runtime_api"][
                     api
                 ].get("types", {})
                 runtime.runtime_config.update_type_registry_types(runtime_api_types)
@@ -3277,7 +3308,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             else:
                 type_string = f"scale_info::{scale_info_type.value['id']}"
 
-            scale_cls = self.runtime_config.get_decoder_class(type_string)
+            scale_cls = runtime.runtime_config.get_decoder_class(type_string)
             type_registry[type_string] = scale_cls.generate_type_decomposition(
                 max_recursion=max_recursion
             )
