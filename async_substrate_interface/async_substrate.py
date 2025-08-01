@@ -21,7 +21,8 @@ from typing import (
 )
 
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
-from scalecodec.base import ScaleBytes, ScaleType
+from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
+from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
@@ -1113,6 +1114,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def _get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
+        runtime_config = RuntimeConfigurationObject()
+        runtime_config.clear_type_registry()
+        runtime_config.update_type_registry(load_type_registry_preset(name="core"))
+
         if not block_hash:
             block_hash, runtime_block_hash, block_number = await asyncio.gather(
                 self.get_chain_head(),
@@ -1126,7 +1131,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
         runtime_info, metadata, (metadata_v15, registry) = await asyncio.gather(
             self.get_block_runtime_info(runtime_block_hash),
-            self.get_block_metadata(block_hash=runtime_block_hash, decode=True),
+            self.get_block_metadata(
+                block_hash=runtime_block_hash,
+                runtime_config=runtime_config,
+                decode=True,
+            ),
             self._load_registry_at_block(block_hash=runtime_block_hash),
         )
         if metadata is None:
@@ -1147,6 +1156,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             chain=self.chain,
             metadata=metadata,
             type_registry=self.type_registry,
+            runtime_config=runtime_config,
             metadata_v15=metadata_v15,
             runtime_info=runtime_info,
             registry=registry,
@@ -2102,7 +2112,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return runtime_info["specVersion"]
 
     async def get_block_metadata(
-        self, block_hash: Optional[str] = None, decode: bool = True
+        self,
+        block_hash: Optional[str] = None,
+        runtime_config: Optional[RuntimeConfigurationObject] = None,
+        decode: bool = True,
     ) -> Optional[Union[dict, ScaleType]]:
         """
         A pass-though to existing JSONRPC method `state_getMetadata`.
@@ -2116,7 +2129,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             from the server
         """
         params = None
-        if decode and not self.runtime_config:
+        if decode and not runtime_config:
             raise ValueError(
                 "Cannot decode runtime configuration without a supplied runtime_config"
             )
@@ -2129,7 +2142,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             raise SubstrateRequestException(response["error"]["message"])
 
         if (result := response.get("result")) and decode:
-            metadata_decoder = self.runtime_config.create_scale_object(
+            metadata_decoder = runtime_config.create_scale_object(
                 "MetadataVersioned", data=ScaleBytes(result)
             )
             metadata_decoder.decode()
@@ -2645,10 +2658,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         tip: int = 0,
         tip_asset_id: Optional[int] = None,
         include_call_length: bool = False,
+        runtime: Optional[Runtime] = None,
     ) -> ScaleBytes:
         # Retrieve genesis hash
         genesis_hash = await self.get_block_hash(0)
-        runtime = await self.init_runtime(block_hash=None)
+        if runtime is None:
+            runtime = await self.init_runtime(block_hash=None)
 
         if not era:
             era = "00"
@@ -2759,7 +2774,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 )
 
         if include_call_length:
-            length_obj = self.runtime_config.create_scale_object("Bytes")
+            length_obj = runtime.runtime_config.create_scale_object("Bytes")
             call_data = str(length_obj.encode(str(call.data)))
 
         else:
@@ -2855,7 +2870,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             # Create signature payload
             signature_payload = await self.generate_signature_payload(
-                call=call, era=era, nonce=nonce, tip=tip, tip_asset_id=tip_asset_id
+                call=call,
+                era=era,
+                nonce=nonce,
+                tip=tip,
+                tip_asset_id=tip_asset_id,
+                runtime=runtime,
             )
 
             # Set Signature version to crypto type of keypair
@@ -2867,7 +2887,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 signature = await signature
 
         # Create extrinsic
-        extrinsic = self.runtime_config.create_scale_object(
+        extrinsic = runtime.runtime_config.create_scale_object(
             type_string="Extrinsic", metadata=runtime.metadata
         )
 
@@ -2907,7 +2927,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         runtime = await self.init_runtime()
 
         # Create extrinsic
-        extrinsic = self.runtime_config.create_scale_object(
+        extrinsic = runtime.runtime_config.create_scale_object(
             type_string="Extrinsic", metadata=runtime.metadata
         )
 
@@ -3018,10 +3038,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         try:
             if runtime.metadata_v15 is None:
-                _ = self.runtime_config.type_registry["runtime_api"][api]["methods"][
+                _ = runtime.runtime_config.type_registry["runtime_api"][api]["methods"][
                     method
                 ]
-                runtime_api_types = self.runtime_config.type_registry["runtime_api"][
+                runtime_api_types = runtime.runtime_config.type_registry["runtime_api"][
                     api
                 ].get("types", {})
                 runtime.runtime_config.update_type_registry_types(runtime_api_types)
@@ -3288,7 +3308,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             else:
                 type_string = f"scale_info::{scale_info_type.value['id']}"
 
-            scale_cls = self.runtime_config.get_decoder_class(type_string)
+            scale_cls = runtime.runtime_config.get_decoder_class(type_string)
             type_registry[type_string] = scale_cls.generate_type_decomposition(
                 max_recursion=max_recursion
             )
