@@ -8,7 +8,6 @@ import asyncio
 import inspect
 import logging
 import ssl
-import time
 import warnings
 from unittest.mock import AsyncMock
 from hashlib import blake2b
@@ -19,7 +18,6 @@ from typing import (
     Callable,
     Awaitable,
     cast,
-    TYPE_CHECKING,
 )
 
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
@@ -32,7 +30,10 @@ from scalecodec.types import (
     MultiAccountId,
 )
 from websockets.asyncio.client import connect, ClientConnection
-from websockets.exceptions import ConnectionClosed, WebSocketException
+from websockets.exceptions import (
+    ConnectionClosed,
+    WebSocketException,
+)
 from websockets.protocol import State
 
 from async_substrate_interface.errors import (
@@ -1142,12 +1143,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 f"Exported method Metadata_metadata_at_version is not found for {runtime_version}. This indicates the "
                 f"block is quite old, decoding for this block will use legacy Python decoding."
             )
-        implements_scale_info = metadata.portable_registry is not None
         runtime = Runtime(
             chain=self.chain,
-            runtime_config=self._runtime_config_copy(
-                implements_scale_info=implements_scale_info
-            ),
             metadata=metadata,
             type_registry=self.type_registry,
             metadata_v15=metadata_v15,

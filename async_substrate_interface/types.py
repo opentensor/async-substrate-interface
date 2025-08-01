@@ -75,25 +75,25 @@ class RuntimeCache:
             runtime = self.blocks.get(block)
             if runtime is not None:
                 self.last_used = runtime
-                runtime.load_runtime()
-                if runtime.registry:
-                    runtime.load_registry_type_map()
+                # runtime.load_runtime()
+                # if runtime.registry:
+                #     runtime.load_registry_type_map()
                 return runtime
         if block_hash is not None:
             runtime = self.block_hashes.get(block_hash)
             if runtime is not None:
                 self.last_used = runtime
-                runtime.load_runtime()
-                if runtime.registry:
-                    runtime.load_registry_type_map()
+                # runtime.load_runtime()
+                # if runtime.registry:
+                #     runtime.load_registry_type_map()
                 return runtime
         if runtime_version is not None:
             runtime = self.versions.get(runtime_version)
             if runtime is not None:
                 self.last_used = runtime
-                runtime.load_runtime()
-                if runtime.registry:
-                    runtime.load_registry_type_map()
+                # runtime.load_runtime()
+                # if runtime.registry:
+                #     runtime.load_registry_type_map()
                 return runtime
         return None
 
@@ -119,9 +119,9 @@ class Runtime:
     def __init__(
         self,
         chain: str,
-        runtime_config: RuntimeConfigurationObject,
         metadata,
         type_registry,
+        runtime_config: Optional[RuntimeConfigurationObject] = None,
         metadata_v15=None,
         runtime_info=None,
         registry=None,
@@ -131,13 +131,15 @@ class Runtime:
         self.config = {}
         self.chain = chain
         self.type_registry = type_registry
-        self.runtime_config = runtime_config
         self.metadata = metadata
         self.metadata_v15 = metadata_v15
         self.runtime_info = runtime_info
         self.registry = registry
         self.runtime_version = runtime_info.get("specVersion")
         self.transaction_version = runtime_info.get("transactionVersion")
+        self.runtime_config = runtime_config or RuntimeConfigurationObject(
+            implements_scale_info=self.implements_scaleinfo
+        )
         self.load_runtime()
         if registry is not None:
             self.load_registry_type_map()
