@@ -137,6 +137,7 @@ class Runtime:
         self.metadata_v15 = metadata_v15
         self.runtime_info = runtime_info
         self.registry = registry
+        runtime_info = runtime_info or {}
         self.runtime_version = runtime_info.get("specVersion")
         self.transaction_version = runtime_info.get("transactionVersion")
         self.runtime_config = runtime_config or RuntimeConfigurationObject(
