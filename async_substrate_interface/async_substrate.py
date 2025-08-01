@@ -622,7 +622,6 @@ class Websocket:
     async def _handler(self, ws: ClientConnection):
         consumer_task = asyncio.create_task(self._start_receiving(ws))
         producer_task = asyncio.create_task(self._start_sending(ws))
-        # TODO should attach futures and add exceptions to them
         done, pending = await asyncio.wait(
             [consumer_task, producer_task],
             return_when=asyncio.FIRST_COMPLETED,
@@ -663,9 +662,9 @@ class Websocket:
         self._receiving_task = None
         self._is_closing = False
 
-    async def _recv(self, recd) -> None:
+    async def _recv(self, recd: bytes) -> None:
         if self._log_raw_websockets:
-            raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd}")
+            raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd.decode()}")
         response = json.loads(recd)
         self.last_received = await self.loop_time()
         if "id" in response:
@@ -678,8 +677,8 @@ class Websocket:
 
     async def _start_receiving(self, ws: ClientConnection) -> Exception:
         try:
-            async for recd in ws:
-                await self._recv(recd)
+            while True:
+                await self._recv(await ws.recv(decode=False))
         except Exception as e:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
