@@ -696,7 +696,7 @@ class Websocket:
             while True:
                 to_send = await self._sending.get()
                 if self._log_raw_websockets:
-                    raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}}")
+                    raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
                 await ws.send(json.dumps(to_send))
                 self.last_sent = await self.loop_time()
         except Exception as e:
@@ -2273,7 +2273,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         async with self.ws as ws:
             for payload in payloads:
-                item_id = await ws.send(payload)
+                item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
 
             while True:
