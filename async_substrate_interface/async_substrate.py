@@ -540,7 +540,7 @@ class Websocket:
         self.max_subscriptions = asyncio.Semaphore(max_subscriptions)
         self.max_connections = max_connections
         self.shutdown_timer = shutdown_timer
-        self._received = {}
+        self._received: dict[str, asyncio.Future] = {}
         self._sending = asyncio.Queue()
         self._receiving_task = None  # TODO rename, as this now does send/recv
         self._attempts = 0
@@ -601,22 +601,23 @@ class Websocket:
         now = await self.loop_time()
         self.last_received = now
         self.last_sent = now
-        if self._exit_task:
-            self._exit_task.cancel()
-        if self.state != State.CLOSING:
-            if not self._initialized or force:
-                try:
-                    await asyncio.wait_for(self._cancel(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    pass
-                self.ws = await asyncio.wait_for(
-                    connect(self.ws_url, **self._options), timeout=10.0
-                )
-                if self._receiving_task is None or self._receiving_task.done():
-                    self._receiving_task = asyncio.get_running_loop().create_task(
-                        self._handler(self.ws)
+        async with self._lock:
+            if self._exit_task:
+                self._exit_task.cancel()
+            if self.state not in (State.OPEN, State.CONNECTING):
+                if not self._initialized or force:
+                    try:
+                        await asyncio.wait_for(self._cancel(), timeout=10.0)
+                    except asyncio.TimeoutError:
+                        pass
+                    self.ws = await asyncio.wait_for(
+                        connect(self.ws_url, **self._options), timeout=10.0
                     )
-                self._initialized = True
+                    if self._receiving_task is None or self._receiving_task.done():
+                        self._receiving_task = asyncio.get_running_loop().create_task(
+                            self._handler(self.ws)
+                        )
+                    self._initialized = True
 
     async def _handler(self, ws: ClientConnection):
         consumer_task = asyncio.create_task(self._start_receiving(ws))
@@ -669,10 +670,10 @@ class Websocket:
             response = json.loads(recd)
             self.last_received = await self.loop_time()
             if "id" in response:
-                self._received[response["id"]] = response
+                self._received[response["id"]].set_result(response)
                 self._in_use_ids.remove(response["id"])
             elif "params" in response:
-                self._received[response["params"]["subscription"]] = response
+                self._received[response["params"]["subscription"]].set_result(response)
             else:
                 raise KeyError(response)
         except ssl.SSLError:
@@ -685,19 +686,26 @@ class Websocket:
             async for recd in ws:
                 await self._recv(recd)
         except Exception as e:
-            return e
+            for i in self._received.keys():
+                self._received[i].set_exception(e)
+            return
 
     async def _start_sending(self, ws) -> Exception:
+        to_send = None
         try:
             while True:
-                logger.info("699 Not Empty")
                 to_send = await self._sending.get()
                 if self._log_raw_websockets:
-                    raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
+                    raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}}")
                 await ws.send(json.dumps(to_send))
                 self.last_sent = await self.loop_time()
         except Exception as e:
-            return e
+            if to_send is not None:
+                self._received[to_send["id"]].set_exception(e)
+            else:
+                for i in self._received.keys():
+                    self._received[i].set_exception(e)
+            return
 
     async def send(self, payload: dict) -> str:
         """
@@ -715,8 +723,8 @@ class Websocket:
             while original_id in self._in_use_ids:
                 original_id = get_next_id()
             self._in_use_ids.add(original_id)
+            self._received[original_id] = asyncio.get_running_loop().create_future()
         to_send = {**payload, **{"id": original_id}}
-        logger.info(f"Sending {to_send}")
         await self._sending.put(to_send)
         return original_id
 
@@ -730,11 +738,12 @@ class Websocket:
         Returns:
              retrieved item
         """
-        try:
-            item = self._received.pop(item_id)
+        item: asyncio.Future = self._received.get(item_id)
+        if item.done():
             self.max_subscriptions.release()
-            return item
-        except KeyError:
+            del self._received[item_id]
+            return item.result()
+        else:
             await asyncio.sleep(0.1)
             return None
 
@@ -2263,16 +2272,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         subscription_added = False
 
         async with self.ws as ws:
-            if len(payloads) > 1:
-                send_coroutines = await asyncio.gather(
-                    *[ws.send(item["payload"]) for item in payloads]
-                )
-                for item_id, item in zip(send_coroutines, payloads):
-                    request_manager.add_request(item_id, item["id"])
-            else:
-                item = payloads[0]
-                item_id = await ws.send(item["payload"])
-                request_manager.add_request(item_id, item["id"])
+            for payload in payloads:
+                item_id = await ws.send(payload)
+                request_manager.add_request(item_id, payload["id"])
 
             while True:
                 for item_id in list(request_manager.response_map.keys()):
@@ -2311,9 +2313,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 if request_manager.is_complete:
                     break
                 if (
-                    (current_time := await self.ws.loop_time()) - self.ws.last_received
+                    (current_time := await ws.loop_time()) - ws.last_received
                     >= self.retry_timeout
-                    and current_time - self.ws.last_sent >= self.retry_timeout
+                    and current_time - ws.last_sent >= self.retry_timeout
                 ):
                     if attempt >= self.max_retries:
                         logger.error(
@@ -2321,7 +2323,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         )
                         raise MaxRetriesExceeded("Max retries reached.")
                     else:
-                        self.ws.last_received = time.time()
+                        self.ws.last_received = await ws.loop_time()
                         await self.ws.connect(force=True)
                         logger.warning(
                             f"Timed out waiting for RPC requests. "
