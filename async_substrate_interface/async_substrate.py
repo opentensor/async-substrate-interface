@@ -2324,6 +2324,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     >= self.retry_timeout
                     and current_time - ws.last_sent >= self.retry_timeout
                 ):
+                    # TODO this retry logic should really live inside the Websocket
                     if attempt >= self.max_retries:
                         logger.error(
                             f"Timed out waiting for RPC requests {attempt} times. Exiting."
