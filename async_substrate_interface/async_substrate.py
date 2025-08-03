@@ -2323,12 +2323,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             f"Retrying attempt {attempt + 1} of {self.max_retries}"
                         )
                         return await self._make_rpc_request(
-                            payloads,
-                            value_scale_type,
-                            storage_item,
-                            result_handler,
-                            attempt + 1,
-                            force_legacy_decode,
+                            payloads=payloads,
+                            value_scale_type=value_scale_type,
+                            storage_item=storage_item,
+                            result_handler=result_handler,
+                            attempt=attempt + 1,
+                            runtime=runtime,
+                            force_legacy_decode=force_legacy_decode,
                         )
 
         return request_manager.get_results()
