@@ -543,6 +543,7 @@ class Websocket:
         self.max_connections = max_connections
         self.shutdown_timer = shutdown_timer
         self._received: dict[str, asyncio.Future] = {}
+        self._received_subscriptions: dict[str, asyncio.Queue] = {}
         self._sending = asyncio.Queue()
         self._receiving_task = None  # TODO rename, as this now does send/recv
         self._attempts = 0
@@ -673,7 +674,8 @@ class Websocket:
             self._received[response["id"]].set_result(response)
             self._in_use_ids.remove(response["id"])
         elif "params" in response:
-            self._received[response["params"]["subscription"]].set_result(response)
+            sub_id = response["params"]["subscription"]
+            await self._received_subscriptions[sub_id].put(response)
         else:
             raise KeyError(response)
 
@@ -708,6 +710,9 @@ class Websocket:
                     self._received[i].cancel()
             return
 
+    async def add_subscription(self, subscription_id: str) -> None:
+        self._received_subscriptions[subscription_id] = asyncio.Queue()
+
     async def send(self, payload: dict) -> str:
         """
         Sends a payload to the websocket connection.
@@ -729,7 +734,7 @@ class Websocket:
         await self._sending.put(to_send)
         return original_id
 
-    async def retrieve(self, item_id: int) -> Optional[dict]:
+    async def retrieve(self, item_id: str) -> Optional[dict]:
         """
         Retrieves a single item from received responses dict queue
 
@@ -739,14 +744,20 @@ class Websocket:
         Returns:
              retrieved item
         """
-        item: asyncio.Future = self._received.get(item_id)
-        if item.done():
-            self.max_subscriptions.release()
-            del self._received[item_id]
-            return item.result()
+        item: Optional[asyncio.Future] = self._received.get(item_id)
+        if item is not None:
+            if item.done():
+                self.max_subscriptions.release()
+                del self._received[item_id]
+                return item.result()
         else:
-            await asyncio.sleep(0.1)
-            return None
+            try:
+                return self._received_subscriptions[item_id].get_nowait()
+            # TODO make sure to delete during unsubscribe
+            except asyncio.QueueEmpty:
+                pass
+        await asyncio.sleep(0.1)
+        return None
 
 
 class AsyncSubstrateInterface(SubstrateMixin):
@@ -2304,6 +2315,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                         item_id = request_manager.overwrite_request(
                                             item_id, response["result"]
                                         )
+                                        await ws.add_subscription(response["result"])
                                         subscription_added = True
                                     except KeyError:
                                         raise SubstrateRequestException(str(response))
@@ -2347,12 +2359,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             f"Retrying attempt {attempt + 1} of {self.max_retries}"
                         )
                         return await self._make_rpc_request(
-                            payloads,
-                            value_scale_type,
-                            storage_item,
-                            result_handler,
-                            attempt + 1,
-                            force_legacy_decode,
+                            payloads=payloads,
+                            value_scale_type=value_scale_type,
+                            storage_item=storage_item,
+                            result_handler=result_handler,
+                            attempt=attempt + 1,
+                            runtime=runtime,
+                            force_legacy_decode=force_legacy_decode,
                         )
 
         return request_manager.get_results()
