@@ -696,6 +696,9 @@ class Websocket:
         to_send = None
         try:
             while True:
+                # TODO possibly when these are pulled from the Queue, they should also go into a dict or set, with the
+                # TODO done_callback assigned to remove them when complete. This could allow easier resending in cases
+                # TODO such as a timeout.
                 to_send = await self._sending.get()
                 if self._log_raw_websockets:
                     raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
