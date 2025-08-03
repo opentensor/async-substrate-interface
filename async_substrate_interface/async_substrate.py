@@ -686,9 +686,10 @@ class Websocket:
         except Exception as e:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
-            for i in self._received.keys():
-                self._received[i].set_exception(e)
-                self._received[i].cancel()
+            for fut in self._received.values():
+                if not fut.done():
+                    fut.set_exception(e)
+                    fut.cancel()
             return
 
     async def _start_sending(self, ws) -> Exception:
