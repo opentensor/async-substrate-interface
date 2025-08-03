@@ -2289,6 +2289,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         force_legacy_decode: bool = False,
     ) -> RequestManager.RequestResults:
         request_manager = RequestManager(payloads)
+        # TODO maybe instead of the current logic, I should assign the futs during send() and then just
+        # TODO use that to determine when it's completed. But how would this work with subscriptions?
 
         subscription_added = False
         should_retry = False
@@ -2341,6 +2343,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                 if request_manager.is_complete:
                     break
+                # TODO I sometimes get timeouts immediately. Why?
                 if should_retry or (
                     (current_time := await ws.loop_time()) - ws.last_received
                     >= self.retry_timeout
