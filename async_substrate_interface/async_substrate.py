@@ -9,6 +9,7 @@ import inspect
 import logging
 import ssl
 import warnings
+from contextlib import suppress
 from unittest.mock import AsyncMock
 from hashlib import blake2b
 from typing import (
@@ -524,7 +525,7 @@ class Websocket:
         shutdown_timer=5,
         options: Optional[dict] = None,
         _log_raw_websockets: bool = False,
-        retry_timeout: float = 60.0
+        retry_timeout: float = 60.0,
     ):
         """
         Websocket manager object. Allows for the use of a single websocket connection by multiple
@@ -604,7 +605,6 @@ class Websocket:
             )
 
     async def connect(self, force=False):
-        logger.debug("Connecting.")
         now = await self.loop_time()
         self.last_received = now
         self.last_sent = now
@@ -620,28 +620,24 @@ class Websocket:
                     self.ws = await asyncio.wait_for(
                         connect(self.ws_url, **self._options), timeout=10.0
                     )
-                    logger.debug("Connected.")
                     if self._send_recv_task is None or self._send_recv_task.done():
                         self._send_recv_task = asyncio.get_running_loop().create_task(
                             self._handler(self.ws)
                         )
-                    logger.debug("Recd task started.")
                     self._initialized = True
 
     async def _handler(self, ws: ClientConnection) -> None:
         recv_task = asyncio.create_task(self._start_receiving(ws))
         send_task = asyncio.create_task(self._start_sending(ws))
-        logger.debug("Starting send/recv tasks.")
         done, pending = await asyncio.wait(
             [recv_task, send_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
-        logger.debug(f"send/recv tasks done: {done}\n{pending}")
         loop = asyncio.get_running_loop()
         should_reconnect = False
         for task in pending:
             task.cancel()
-        if isinstance(recv_task.exception(), asyncio.TimeoutError):
+        if isinstance(recv_task.result(), asyncio.TimeoutError):
             # TODO check the logic here
             should_reconnect = True
         if should_reconnect is True:
@@ -680,7 +676,6 @@ class Websocket:
             pass
 
     async def shutdown(self):
-        self._is_closing = True
         try:
             await asyncio.wait_for(self._cancel(), timeout=10.0)
         except asyncio.TimeoutError:
@@ -688,7 +683,6 @@ class Websocket:
         self.ws = None
         self._initialized = False
         self._send_recv_task = None
-        self._is_closing = False
 
     async def _recv(self, recd: bytes) -> None:
         if self._log_raw_websockets:
@@ -728,7 +722,6 @@ class Websocket:
         try:
             while True:
                 to_send_ = await self._sending.get()
-                logger.debug(f"Pulled {to_send_} from the queue")
                 send_id = to_send_["id"]
                 to_send = json.dumps(to_send_)
                 async with self._lock:
@@ -747,10 +740,6 @@ class Websocket:
                     self._received[i].cancel()
             return e
 
-    async def add_subscription(self, subscription_id: str) -> None:
-        logger.debug(f"Adding {subscription_id} to subscriptions.")
-        self._received_subscriptions[subscription_id] = asyncio.Queue()
-
     async def send(self, payload: dict) -> str:
         """
         Sends a payload to the websocket connection.
@@ -762,7 +751,6 @@ class Websocket:
             id: the internal ID of the request (incremented int)
         """
         await self.max_subscriptions.acquire()
-        logger.debug(f"Sending payload: {payload}")
         async with self._lock:
             original_id = get_next_id()
             while original_id in self._in_use_ids:
@@ -771,7 +759,6 @@ class Websocket:
             self._received[original_id] = asyncio.get_running_loop().create_future()
         to_send = {**payload, **{"id": original_id}}
         await self._sending.put(to_send)
-        logger.debug("767 queue put")
         return original_id
 
     async def unsubscribe(self, subscription_id: str) -> None:
@@ -2374,7 +2361,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                     item_id = request_manager.overwrite_request(
                                         item_id, response["result"]
                                     )
-                                    await ws.add_subscription(response["result"])
                                     subscription_added = True
                                 except KeyError:
                                     raise SubstrateRequestException(str(response))
