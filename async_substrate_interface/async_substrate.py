@@ -633,9 +633,9 @@ class Websocket:
         should_reconnect = False
         for task in pending:
             task.cancel()
-        if isinstance(recv_task.result(), asyncio.TimeoutError):
-            # TODO check the logic here
-            should_reconnect = True
+        for task in done:
+            if isinstance(task.result(), (asyncio.TimeoutError, ConnectionClosed)):
+                should_reconnect = True
         if should_reconnect is True:
             for original_id, payload in list(self._inflight.items()):
                 self._received[original_id] = loop.create_future()
@@ -796,6 +796,7 @@ class Websocket:
             if item.done():
                 self.max_subscriptions.release()
                 del self._received[item_id]
+
                 return item.result()
         else:
             try:
