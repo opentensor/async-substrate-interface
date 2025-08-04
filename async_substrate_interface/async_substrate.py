@@ -692,7 +692,6 @@ class Websocket:
                 self._received[response["id"]].set_result(response)
                 self._in_use_ids.remove(response["id"])
         elif "params" in response:
-            # TODO self._inflight won't work with subscriptions
             sub_id = response["params"]["subscription"]
             if sub_id not in self._received_subscriptions:
                 self._received_subscriptions[sub_id] = asyncio.Queue()
