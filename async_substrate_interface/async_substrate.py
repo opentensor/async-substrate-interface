@@ -546,7 +546,7 @@ class Websocket:
         self.retry_timeout = retry_timeout
         self._received: dict[str, asyncio.Future] = {}
         self._received_subscriptions: dict[str, asyncio.Queue] = {}
-        self._sending = asyncio.Queue()
+        self._sending: Optional[asyncio.Queue] = None
         self._send_recv_task = None
         self._inflight: dict[str, str] = {}
         self._attempts = 0
@@ -554,20 +554,6 @@ class Websocket:
         self._exit_task = None
         self._options = options if options else {}
         self._log_raw_websockets = _log_raw_websockets
-
-        try:
-            now = asyncio.get_running_loop().time()
-        except RuntimeError:
-            warnings.warn(
-                "You are instantiating the AsyncSubstrateInterface Websocket outside of an event loop. "
-                "Verify this is intended."
-            )
-            # default value for in case there's no running asyncio loop
-            # this really doesn't matter in most cases, as it's only used for comparison on the first call to
-            # see how long it's been since the last call
-            now = 0.0
-        self.last_received = now
-        self.last_sent = now
         self._in_use_ids = set()
 
     @property
@@ -603,10 +589,9 @@ class Websocket:
             )
 
     async def connect(self, force=False):
-        now = await self.loop_time()
-        self.last_received = now
-        self.last_sent = now
         async with self._lock:
+            if self._sending is None or self._sending.empty():
+                self._sending = asyncio.Queue()
             if self._exit_task:
                 self._exit_task.cancel()
             if self.state not in (State.OPEN, State.CONNECTING) or force:
@@ -683,7 +668,6 @@ class Websocket:
         if self._log_raw_websockets:
             raw_websocket_logger.debug(f"WEBSOCKET_RECEIVE> {recd.decode()}")
         response = json.loads(recd)
-        self.last_received = await self.loop_time()
         if "id" in response:
             async with self._lock:
                 self._inflight.pop(response["id"])
@@ -707,7 +691,7 @@ class Websocket:
                 )
                 await self._recv(recd)
         except Exception as e:
-            logger.exception("Start receving exception", exc_info=e)
+            logger.exception("Start receiving exception", exc_info=e)
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             for fut in self._received.values():
@@ -728,8 +712,8 @@ class Websocket:
                 if self._log_raw_websockets:
                     raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
                 await ws.send(to_send)
-                self.last_sent = await self.loop_time()
         except Exception as e:
+            logger.exception("Start sending exception", exc_info=e)
             if to_send is not None:
                 self._received[to_send["id"]].set_exception(e)
                 self._received[to_send["id"]].cancel()
