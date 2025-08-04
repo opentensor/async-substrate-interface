@@ -604,7 +604,7 @@ class Websocket:
             )
 
     async def connect(self, force=False):
-        # TODO after connecting, move from _inflight to the queue
+        logger.debug("Connecting.")
         now = await self.loop_time()
         self.last_received = now
         self.last_sent = now
@@ -620,25 +620,30 @@ class Websocket:
                     self.ws = await asyncio.wait_for(
                         connect(self.ws_url, **self._options), timeout=10.0
                     )
+                    logger.debug("Connected.")
                     if self._send_recv_task is None or self._send_recv_task.done():
                         self._send_recv_task = asyncio.get_running_loop().create_task(
                             self._handler(self.ws)
                         )
+                    logger.debug("Recd task started.")
                     self._initialized = True
 
     async def _handler(self, ws: ClientConnection) -> None:
         recv_task = asyncio.create_task(self._start_receiving(ws))
         send_task = asyncio.create_task(self._start_sending(ws))
+        logger.debug("Starting send/recv tasks.")
         done, pending = await asyncio.wait(
             [recv_task, send_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
+        logger.debug("send/recv tasks done.")
         loop = asyncio.get_running_loop()
         should_reconnect = False
         for task in pending:
             task.cancel()
-            if isinstance(task.exception(), asyncio.TimeoutError):
-                should_reconnect = True
+        if isinstance(recv_task.exception(), asyncio.TimeoutError):
+            # TODO check the logic here
+            should_reconnect = True
         if should_reconnect is True:
             for original_id, payload in list(self._inflight.items()):
                 self._received[original_id] = loop.create_future()
@@ -647,7 +652,6 @@ class Websocket:
             logger.info("Timeout occurred. Reconnecting.")
             await self.connect(True)
             await self._handler(ws=ws)
-
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if not self.state != State.CONNECTING:
@@ -705,6 +709,8 @@ class Websocket:
                 if self._inflight:
                     recd = await asyncio.wait_for(ws.recv(decode=False), timeout=self.retry_timeout)
                     await self._recv(recd)
+                else:
+                    await asyncio.sleep(0.1)
         except Exception as e:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
@@ -719,6 +725,7 @@ class Websocket:
         try:
             while True:
                 to_send_ = await self._sending.get()
+                logger.debug(f"Pulled {to_send_} from the queue")
                 send_id = to_send_["id"]
                 to_send = json.dumps(to_send_)
                 async with self._lock:
@@ -751,6 +758,7 @@ class Websocket:
             id: the internal ID of the request (incremented int)
         """
         await self.max_subscriptions.acquire()
+        logger.debug(f"Sending payload: {payload}")
         async with self._lock:
             original_id = get_next_id()
             while original_id in self._in_use_ids:
@@ -759,6 +767,7 @@ class Websocket:
             self._received[original_id] = asyncio.get_running_loop().create_future()
         to_send = {**payload, **{"id": original_id}}
         await self._sending.put(to_send)
+        logger.debug("767 queue put")
         return original_id
 
     async def retrieve(self, item_id: str) -> Optional[dict]:
@@ -2320,7 +2329,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         # TODO use that to determine when it's completed. But how would this work with subscriptions?
 
         subscription_added = False
-        should_retry = False
 
         async with self.ws as ws:
             for payload in payloads:
@@ -2333,71 +2341,40 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         item_id not in request_manager.responses
                         or asyncio.iscoroutinefunction(result_handler)
                     ):
-                        try:
-                            if response := await ws.retrieve(item_id):
-                                if (
-                                    asyncio.iscoroutinefunction(result_handler)
-                                    and not subscription_added
-                                ):
-                                    # handles subscriptions, overwrites the previous mapping of {item_id : payload_id}
-                                    # with {subscription_id : payload_id}
-                                    try:
-                                        item_id = request_manager.overwrite_request(
-                                            item_id, response["result"]
-                                        )
-                                        await ws.add_subscription(response["result"])
-                                        subscription_added = True
-                                    except KeyError:
-                                        raise SubstrateRequestException(str(response))
-                                (
-                                    decoded_response,
-                                    complete,
-                                ) = await self._process_response(
-                                    response,
-                                    item_id,
-                                    value_scale_type,
-                                    storage_item,
-                                    result_handler,
-                                    runtime=runtime,
-                                    force_legacy_decode=force_legacy_decode,
-                                )
+                        if response := await ws.retrieve(item_id):
+                            if (
+                                asyncio.iscoroutinefunction(result_handler)
+                                and not subscription_added
+                            ):
+                                # handles subscriptions, overwrites the previous mapping of {item_id : payload_id}
+                                # with {subscription_id : payload_id}
+                                try:
+                                    item_id = request_manager.overwrite_request(
+                                        item_id, response["result"]
+                                    )
+                                    await ws.add_subscription(response["result"])
+                                    subscription_added = True
+                                except KeyError:
+                                    raise SubstrateRequestException(str(response))
+                            (
+                                decoded_response,
+                                complete,
+                            ) = await self._process_response(
+                                response,
+                                item_id,
+                                value_scale_type,
+                                storage_item,
+                                result_handler,
+                                runtime=runtime,
+                                force_legacy_decode=force_legacy_decode,
+                            )
 
-                                request_manager.add_response(
-                                    item_id, decoded_response, complete
-                                )
-                        except ConnectionClosed:
-                            should_retry = True
+                            request_manager.add_response(
+                                item_id, decoded_response, complete
+                            )
 
                 if request_manager.is_complete:
                     break
-                # TODO I sometimes get timeouts immediately. Why?
-                if should_retry or (
-                    (current_time := await ws.loop_time()) - ws.last_received
-                    >= self.retry_timeout
-                    and current_time - ws.last_sent >= self.retry_timeout
-                ):
-                    # TODO this retry logic should really live inside the Websocket
-                    if attempt >= self.max_retries:
-                        logger.error(
-                            f"Timed out waiting for RPC requests {attempt} times. Exiting."
-                        )
-                        raise MaxRetriesExceeded("Max retries reached.")
-                    else:
-                        self.ws.last_received = await ws.loop_time()
-                        await self.ws.connect(force=True)
-                        logger.warning(
-                            f"Timed out waiting for RPC requests. "
-                            f"Retrying attempt {attempt + 1} of {self.max_retries}"
-                        )
-                        return await self._make_rpc_request(
-                            payloads=payloads,
-                            value_scale_type=value_scale_type,
-                            storage_item=storage_item,
-                            result_handler=result_handler,
-                            attempt=attempt + 1,
-                            runtime=runtime,
-                            force_legacy_decode=force_legacy_decode,
-                        )
 
         return request_manager.get_results()
 
