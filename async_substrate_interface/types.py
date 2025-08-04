@@ -377,13 +377,13 @@ class RequestManager:
         self.responses = defaultdict(lambda: {"complete": False, "results": []})
         self.payloads_count = len(payloads)
 
-    def add_request(self, item_id: str, request_id: Any):
+    def add_request(self, item_id: str, request_id: str):
         """
         Adds an outgoing request to the responses map for later retrieval
         """
         self.response_map[item_id] = request_id
 
-    def overwrite_request(self, item_id: str, request_id: Any):
+    def overwrite_request(self, item_id: str, request_id: str):
         """
         Overwrites an existing request in the responses map with a new request_id. This is used
         for multipart responses that generate a subscription id we need to watch, rather than the initial

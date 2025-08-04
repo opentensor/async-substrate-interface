@@ -636,7 +636,7 @@ class Websocket:
             [recv_task, send_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
-        logger.debug("send/recv tasks done.")
+        logger.debug(f"send/recv tasks done: {done}\n{pending}")
         loop = asyncio.get_running_loop()
         should_reconnect = False
         for task in pending:
@@ -652,6 +652,10 @@ class Websocket:
             logger.info("Timeout occurred. Reconnecting.")
             await self.connect(True)
             await self._handler(ws=ws)
+        elif isinstance(e := recv_task.result(), Exception):
+            return e
+        elif isinstance(e := send_task.result(), Exception):
+            return e
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if not self.state != State.CONNECTING:
@@ -699,6 +703,7 @@ class Websocket:
         elif "params" in response:
             # TODO self._inflight won't work with subscriptions
             sub_id = response["params"]["subscription"]
+            logger.debug(f"Adding {sub_id} to subscriptions.")
             await self._received_subscriptions[sub_id].put(response)
         else:
             raise KeyError(response)
@@ -706,19 +711,17 @@ class Websocket:
     async def _start_receiving(self, ws: ClientConnection) -> Exception:
         try:
             while True:
-                if self._inflight:
-                    recd = await asyncio.wait_for(ws.recv(decode=False), timeout=self.retry_timeout)
-                    await self._recv(recd)
-                else:
-                    await asyncio.sleep(0.1)
+                recd = await asyncio.wait_for(ws.recv(decode=False), timeout=self.retry_timeout)
+                await self._recv(recd)
         except Exception as e:
+            logger.exception("Start receving exception", exc_info=e)
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             for fut in self._received.values():
                 if not fut.done():
                     fut.set_exception(e)
                     fut.cancel()
-            return
+            return e
 
     async def _start_sending(self, ws) -> Exception:
         to_send = None
@@ -742,9 +745,10 @@ class Websocket:
                 for i in self._received.keys():
                     self._received[i].set_exception(e)
                     self._received[i].cancel()
-            return
+            return e
 
     async def add_subscription(self, subscription_id: str) -> None:
+        logger.debug(f"Adding {subscription_id} to subscriptions.")
         self._received_subscriptions[subscription_id] = asyncio.Queue()
 
     async def send(self, payload: dict) -> str:
@@ -770,6 +774,22 @@ class Websocket:
         logger.debug("767 queue put")
         return original_id
 
+    async def unsubscribe(self, subscription_id: str) -> None:
+        """
+        Unwatches a watched extrinsic subscription.
+
+        Args:
+            subscription_id: the internal ID of the subscription (typically a hex string)
+        """
+        async with self._lock:
+            original_id = get_next_id()
+            while original_id in self._in_use_ids:
+                original_id = get_next_id()
+            del self._received_subscriptions[subscription_id]
+
+        to_send = {"jsonrpc": "2.0", "method": "author_unwatchExtrinsic", "params": [subscription_id]}
+        await self._sending.put(to_send)
+
     async def retrieve(self, item_id: str) -> Optional[dict]:
         """
         Retrieves a single item from received responses dict queue
@@ -789,9 +809,11 @@ class Websocket:
         else:
             try:
                 return self._received_subscriptions[item_id].get_nowait()
-            # TODO make sure to delete during unsubscribe
             except asyncio.QueueEmpty:
                 pass
+        if self._send_recv_task.done():
+            if isinstance(e := self._send_recv_task.result(), Exception):
+                raise e
         await asyncio.sleep(0.1)
         return None
 
@@ -3776,10 +3798,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 }
 
                 if "finalized" in message_result and wait_for_finalization:
-                    # Created as a task because we don't actually care about the result
-                    self._forgettable_task = asyncio.create_task(
-                        self.rpc_request("author_unwatchExtrinsic", [subscription_id])
-                    )
+                    async with self.ws as ws:
+                        await ws.unsubscribe(subscription_id)
                     return {
                         "block_hash": message_result["finalized"],
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
@@ -3790,10 +3810,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     and wait_for_inclusion
                     and not wait_for_finalization
                 ):
-                    # Created as a task because we don't actually care about the result
-                    self._forgettable_task = asyncio.create_task(
-                        self.rpc_request("author_unwatchExtrinsic", [subscription_id])
-                    )
+                    async with self.ws as ws:
+                        await ws.unsubscribe(subscription_id)
                     return {
                         "block_hash": message_result["inblock"],
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
