@@ -810,7 +810,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
-        _log_raw_websockets: bool = True,  # TODO change this back
+        _log_raw_websockets: bool = False,
         ws_shutdown_timer: float = 5.0,
         decode_ss58: bool = False,
     ):
