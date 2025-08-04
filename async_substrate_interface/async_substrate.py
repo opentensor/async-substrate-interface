@@ -692,12 +692,15 @@ class Websocket:
         if "id" in response:
             async with self._lock:
                 self._inflight.pop(response["id"])
-            self._received[response["id"]].set_result(response)
-            self._in_use_ids.remove(response["id"])
+            with suppress(KeyError):
+                # These would be subscriptions that were unsubscribed
+                self._received[response["id"]].set_result(response)
+                self._in_use_ids.remove(response["id"])
         elif "params" in response:
             # TODO self._inflight won't work with subscriptions
             sub_id = response["params"]["subscription"]
-            logger.debug(f"Adding {sub_id} to subscriptions.")
+            if sub_id not in self._received_subscriptions:
+                self._received_subscriptions[sub_id] = asyncio.Queue()
             await self._received_subscriptions[sub_id].put(response)
         else:
             raise KeyError(response)
@@ -705,7 +708,9 @@ class Websocket:
     async def _start_receiving(self, ws: ClientConnection) -> Exception:
         try:
             while True:
-                recd = await asyncio.wait_for(ws.recv(decode=False), timeout=self.retry_timeout)
+                recd = await asyncio.wait_for(
+                    ws.recv(decode=False), timeout=self.retry_timeout
+                )
                 await self._recv(recd)
         except Exception as e:
             logger.exception("Start receving exception", exc_info=e)
@@ -774,7 +779,12 @@ class Websocket:
                 original_id = get_next_id()
             del self._received_subscriptions[subscription_id]
 
-        to_send = {"jsonrpc": "2.0", "method": "author_unwatchExtrinsic", "params": [subscription_id]}
+        to_send = {
+            "jsonrpc": "2.0",
+            "id": original_id,
+            "method": "author_unwatchExtrinsic",
+            "params": [subscription_id],
+        }
         await self._sending.put(to_send)
 
     async def retrieve(self, item_id: str) -> Optional[dict]:
