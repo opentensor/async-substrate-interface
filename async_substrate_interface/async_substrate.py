@@ -744,7 +744,9 @@ class Websocket:
         await self._sending.put(to_send)
         return original_id
 
-    async def unsubscribe(self, subscription_id: str, method: str = "author_unwatchExtrinsic") -> None:
+    async def unsubscribe(
+        self, subscription_id: str, method: str = "author_unwatchExtrinsic"
+    ) -> None:
         """
         Unwatches a watched extrinsic subscription.
 
