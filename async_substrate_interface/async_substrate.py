@@ -524,6 +524,7 @@ class Websocket:
         shutdown_timer=5,
         options: Optional[dict] = None,
         _log_raw_websockets: bool = False,
+        retry_timeout: float = 60.0
     ):
         """
         Websocket manager object. Allows for the use of a single websocket connection by multiple
@@ -542,10 +543,12 @@ class Websocket:
         self.max_subscriptions = asyncio.Semaphore(max_subscriptions)
         self.max_connections = max_connections
         self.shutdown_timer = shutdown_timer
+        self.retry_timeout = retry_timeout
         self._received: dict[str, asyncio.Future] = {}
         self._received_subscriptions: dict[str, asyncio.Queue] = {}
         self._sending = asyncio.Queue()
-        self._receiving_task = None  # TODO rename, as this now does send/recv
+        self._send_recv_task = None
+        self._inflight: dict[str, str] = {}
         self._attempts = 0
         self._initialized = False  # TODO remove
         self._lock = asyncio.Lock()
@@ -586,8 +589,8 @@ class Websocket:
 
     async def _cancel(self):
         try:
-            self._receiving_task.cancel()
-            await self._receiving_task
+            self._send_recv_task.cancel()
+            await self._send_recv_task
             await self.ws.close()
         except (
             AttributeError,
@@ -601,13 +604,14 @@ class Websocket:
             )
 
     async def connect(self, force=False):
+        # TODO after connecting, move from _inflight to the queue
         now = await self.loop_time()
         self.last_received = now
         self.last_sent = now
         async with self._lock:
             if self._exit_task:
                 self._exit_task.cancel()
-            if self.state not in (State.OPEN, State.CONNECTING):
+            if self.state not in (State.OPEN, State.CONNECTING) or force:
                 if not self._initialized or force:
                     try:
                         await asyncio.wait_for(self._cancel(), timeout=10.0)
@@ -616,21 +620,34 @@ class Websocket:
                     self.ws = await asyncio.wait_for(
                         connect(self.ws_url, **self._options), timeout=10.0
                     )
-                    if self._receiving_task is None or self._receiving_task.done():
-                        self._receiving_task = asyncio.get_running_loop().create_task(
+                    if self._send_recv_task is None or self._send_recv_task.done():
+                        self._send_recv_task = asyncio.get_running_loop().create_task(
                             self._handler(self.ws)
                         )
                     self._initialized = True
 
-    async def _handler(self, ws: ClientConnection):
-        consumer_task = asyncio.create_task(self._start_receiving(ws))
-        producer_task = asyncio.create_task(self._start_sending(ws))
+    async def _handler(self, ws: ClientConnection) -> None:
+        recv_task = asyncio.create_task(self._start_receiving(ws))
+        send_task = asyncio.create_task(self._start_sending(ws))
         done, pending = await asyncio.wait(
-            [consumer_task, producer_task],
+            [recv_task, send_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
+        loop = asyncio.get_running_loop()
+        should_reconnect = False
         for task in pending:
             task.cancel()
+            if isinstance(task.exception(), asyncio.TimeoutError):
+                should_reconnect = True
+        if should_reconnect is True:
+            for original_id, payload in list(self._inflight.items()):
+                self._received[original_id] = loop.create_future()
+                to_send = json.loads(payload)
+                await self._sending.put(to_send)
+            logger.info("Timeout occurred. Reconnecting.")
+            await self.connect(True)
+            await self._handler(ws=ws)
+
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if not self.state != State.CONNECTING:
@@ -662,7 +679,7 @@ class Websocket:
             pass
         self.ws = None
         self._initialized = False
-        self._receiving_task = None
+        self._send_recv_task = None
         self._is_closing = False
 
     async def _recv(self, recd: bytes) -> None:
@@ -671,9 +688,12 @@ class Websocket:
         response = json.loads(recd)
         self.last_received = await self.loop_time()
         if "id" in response:
+            async with self._lock:
+                self._inflight.pop(response["id"])
             self._received[response["id"]].set_result(response)
             self._in_use_ids.remove(response["id"])
         elif "params" in response:
+            # TODO self._inflight won't work with subscriptions
             sub_id = response["params"]["subscription"]
             await self._received_subscriptions[sub_id].put(response)
         else:
@@ -682,7 +702,9 @@ class Websocket:
     async def _start_receiving(self, ws: ClientConnection) -> Exception:
         try:
             while True:
-                await self._recv(await ws.recv(decode=False))
+                if self._inflight:
+                    recd = await asyncio.wait_for(ws.recv(decode=False), timeout=self.retry_timeout)
+                    await self._recv(recd)
         except Exception as e:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
@@ -696,13 +718,14 @@ class Websocket:
         to_send = None
         try:
             while True:
-                # TODO possibly when these are pulled from the Queue, they should also go into a dict or set, with the
-                # TODO done_callback assigned to remove them when complete. This could allow easier resending in cases
-                # TODO such as a timeout.
-                to_send = await self._sending.get()
+                to_send_ = await self._sending.get()
+                send_id = to_send_["id"]
+                to_send = json.dumps(to_send_)
+                async with self._lock:
+                    self._inflight[send_id] = to_send
                 if self._log_raw_websockets:
                     raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
-                await ws.send(json.dumps(to_send))
+                await ws.send(to_send)
                 self.last_sent = await self.loop_time()
         except Exception as e:
             if to_send is not None:
@@ -824,6 +847,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     "write_limit": 2**16,
                 },
                 shutdown_timer=ws_shutdown_timer,
+                retry_timeout=self.retry_timeout,
             )
         else:
             self.ws = AsyncMock(spec=Websocket)
