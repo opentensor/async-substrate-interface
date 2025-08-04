@@ -744,12 +744,15 @@ class Websocket:
         await self._sending.put(to_send)
         return original_id
 
-    async def unsubscribe(self, subscription_id: str) -> None:
+    async def unsubscribe(self, subscription_id: str, method: str = "author_unwatchExtrinsic") -> None:
         """
         Unwatches a watched extrinsic subscription.
 
         Args:
             subscription_id: the internal ID of the subscription (typically a hex string)
+            method: Typically "author_unwatchExtrinsic" for extrinsics, but can have different unsubscribe
+                methods for things like watching chain head ("chain_unsubscribeFinalizedHeads" or
+                "chain_unsubscribeNewHeads")
         """
         async with self._lock:
             original_id = get_next_id()
@@ -760,7 +763,7 @@ class Websocket:
         to_send = {
             "jsonrpc": "2.0",
             "id": original_id,
-            "method": "author_unwatchExtrinsic",
+            "method": method,
             "params": [subscription_id],
         }
         await self._sending.put(to_send)
@@ -807,7 +810,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         max_retries: int = 5,
         retry_timeout: float = 60.0,
         _mock: bool = False,
-        _log_raw_websockets: bool = False,
+        _log_raw_websockets: bool = True,  # TODO change this back
         ws_shutdown_timer: float = 5.0,
         decode_ss58: bool = False,
     ):
@@ -1727,13 +1730,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                     if subscription_result is not None:
                         reached = True
+                        logger.info("REACHED!")
                         # Handler returned end result: unsubscribe from further updates
-                        self._forgettable_task = asyncio.create_task(
-                            self.rpc_request(
-                                f"chain_unsubscribe{rpc_method_prefix}Heads",
-                                [subscription_id],
+                        async with self.ws as ws:
+                            await ws.unsubscribe(
+                                subscription_id,
+                                method=f"chain_unsubscribe{rpc_method_prefix}Heads",
                             )
-                        )
 
                 return subscription_result, reached
 
