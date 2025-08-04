@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.5.0 /2025-08-04
+* ConcurrencyError fix by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/162
+* Added better typing by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/163
+* Fix arg order in retries by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/165
+  * removes "bool object has no attribute Metadata" errors 
+* Concurrency improvements by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/164
+  * True Runtime independence in AsyncSubstrateInterface:
+    * ensures no need to reload types from a shared object that may interfere with concurrency
+    * increases memory usage slightly, but drops CPU usage dramatically by not needing to reload the type registry when retrieving from cache
+  * RuntimeCache improved to automatically add additional mappings
+  * Uses a single dispatcher queue for concurrent sending/receiving which eliminates the need for coroutines to manage their own state in regard to connection management.
+  * Futures from the Websocket now get assigned their own exceptions
+  * Overall cleaner logic flow with regard to rpc requests
+  * The Websocket object now handles reconnections/timeouts
+  * Separation of normal ping-pong calls and longer-running subscriptions
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.4.3...v1.5.0
+
 ## 1.4.3 /2025-07-28
 * Add "Token" to caught error messages for extrinsic receipts by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/156
 * runtime version switching by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/157

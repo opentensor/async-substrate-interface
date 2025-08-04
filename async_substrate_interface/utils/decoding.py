@@ -160,7 +160,7 @@ def decode_query_map(
 
 
 def legacy_scale_decode(
-    type_string: str, scale_bytes: Union[str, ScaleBytes], runtime: "Runtime"
+    type_string: str, scale_bytes: Union[str, bytes, ScaleBytes], runtime: "Runtime"
 ):
     if isinstance(scale_bytes, (str, bytes)):
         scale_bytes = ScaleBytes(scale_bytes)
