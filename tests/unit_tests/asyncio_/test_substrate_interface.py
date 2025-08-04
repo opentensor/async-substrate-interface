@@ -6,6 +6,7 @@ from websockets.exceptions import InvalidURI
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 from async_substrate_interface.types import ScaleObj
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT
 
 
 @pytest.mark.asyncio
@@ -113,3 +114,21 @@ async def test_websocket_shutdown_timer():
         await substrate.get_chain_head()
         await asyncio.sleep(6)  # same sleep time as before
         assert substrate.ws._initialized is True  # connection should still be open
+
+
+@pytest.mark.asyncio
+async def test_runtime_switching():
+    block = 6067945  # block where a runtime switch happens
+    async with AsyncSubstrateInterface(
+        ARCHIVE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
+    ) as substrate:
+        # assures we switch between the runtimes without error
+        assert await substrate.get_extrinsics(block_number=block - 20) is not None
+        assert await substrate.get_extrinsics(block_number=block) is not None
+        assert await substrate.get_extrinsics(block_number=block - 21) is not None
+        one, two = await asyncio.gather(
+            substrate.get_extrinsics(block_number=block - 22),
+            substrate.get_extrinsics(block_number=block + 1),
+        )
+        assert one is not None
+        assert two is not None

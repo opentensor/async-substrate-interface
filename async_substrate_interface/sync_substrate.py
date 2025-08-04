@@ -774,6 +774,9 @@ class SubstrateInterface(SubstrateMixin):
 
         if block_id is not None:
             if runtime := self.runtime_cache.retrieve(block=block_id):
+                runtime.load_runtime()
+                if runtime.registry:
+                    runtime.load_registry_type_map()
                 self.runtime = runtime
                 return self.runtime
             block_hash = self.get_block_hash(block_id)
@@ -783,6 +786,9 @@ class SubstrateInterface(SubstrateMixin):
         else:
             self.last_block_hash = block_hash
             if runtime := self.runtime_cache.retrieve(block_hash=block_hash):
+                runtime.load_runtime()
+                if runtime.registry:
+                    runtime.load_registry_type_map()
                 self.runtime = runtime
                 return self.runtime
 
@@ -795,12 +801,17 @@ class SubstrateInterface(SubstrateMixin):
         if self.runtime and runtime_version == self.runtime.runtime_version:
             return self.runtime
 
-        if runtime := self.runtime_cache.retrieve(runtime_version=runtime_version):
-            self.runtime = runtime
-            return self.runtime
+        if (
+            runtime := self.runtime_cache.retrieve(runtime_version=runtime_version)
+        ) is not None:
+            pass
         else:
-            self.runtime = self.get_runtime_for_version(runtime_version, block_hash)
-            return self.runtime
+            runtime = self.get_runtime_for_version(runtime_version, block_hash)
+        runtime.load_runtime()
+        if runtime.registry:
+            runtime.load_registry_type_map()
+        self.runtime = runtime
+        return self.runtime
 
     def get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
