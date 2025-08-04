@@ -538,7 +538,6 @@ class Websocket:
             shutdown_timer: Number of seconds to shut down websocket connection after last use
         """
         # TODO allow setting max concurrent connections and rpc subscriptions per connection
-        # TODO reconnection logic
         self.ws_url = ws_url
         self.ws: Optional[ClientConnection] = None
         self.max_subscriptions = asyncio.Semaphore(max_subscriptions)
@@ -551,7 +550,6 @@ class Websocket:
         self._send_recv_task = None
         self._inflight: dict[str, str] = {}
         self._attempts = 0
-        self._initialized = False  # TODO remove
         self._lock = asyncio.Lock()
         self._exit_task = None
         self._options = options if options else {}
@@ -612,19 +610,17 @@ class Websocket:
             if self._exit_task:
                 self._exit_task.cancel()
             if self.state not in (State.OPEN, State.CONNECTING) or force:
-                if not self._initialized or force:
-                    try:
-                        await asyncio.wait_for(self._cancel(), timeout=10.0)
-                    except asyncio.TimeoutError:
-                        pass
-                    self.ws = await asyncio.wait_for(
-                        connect(self.ws_url, **self._options), timeout=10.0
+                try:
+                    await asyncio.wait_for(self._cancel(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    pass
+                self.ws = await asyncio.wait_for(
+                    connect(self.ws_url, **self._options), timeout=10.0
+                )
+                if self._send_recv_task is None or self._send_recv_task.done():
+                    self._send_recv_task = asyncio.get_running_loop().create_task(
+                        self._handler(self.ws)
                     )
-                    if self._send_recv_task is None or self._send_recv_task.done():
-                        self._send_recv_task = asyncio.get_running_loop().create_task(
-                            self._handler(self.ws)
-                        )
-                    self._initialized = True
 
     async def _handler(self, ws: ClientConnection) -> None:
         recv_task = asyncio.create_task(self._start_receiving(ws))
@@ -681,7 +677,6 @@ class Websocket:
         except asyncio.TimeoutError:
             pass
         self.ws = None
-        self._initialized = False
         self._send_recv_task = None
 
     async def _recv(self, recd: bytes) -> None:
@@ -2344,8 +2339,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         force_legacy_decode: bool = False,
     ) -> RequestManager.RequestResults:
         request_manager = RequestManager(payloads)
-        # TODO maybe instead of the current logic, I should assign the futs during send() and then just
-        # TODO use that to determine when it's completed. But how would this work with subscriptions?
 
         subscription_added = False
 
