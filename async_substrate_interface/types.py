@@ -422,7 +422,7 @@ class RequestManager:
         """
         Yields items from response_map whose corresponding response is missing or incomplete.
         """
-        for item_id, request_id in self.response_map.items():
+        for item_id, request_id in list(self.response_map.items()):
             response_info = self.responses.get(request_id)
             if response_info is None or not response_info["complete"]:
                 yield item_id
