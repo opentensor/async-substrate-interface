@@ -526,6 +526,7 @@ class Websocket:
         options: Optional[dict] = None,
         _log_raw_websockets: bool = False,
         retry_timeout: float = 60.0,
+        max_retries: int = 5,
     ):
         """
         Websocket manager object. Allows for the use of a single websocket connection by multiple
@@ -536,6 +537,10 @@ class Websocket:
             max_subscriptions: Maximum number of subscriptions per websocket connection
             max_connections: Maximum number of connections total
             shutdown_timer: Number of seconds to shut down websocket connection after last use
+            options: Options to pass to the websocket connection
+            _log_raw_websockets: Whether to log raw websockets in the "raw_websocket" logger
+            retry_timeout: Timeout in seconds to retry websocket connection
+            max_retries: Maximum number of retries following a timeout
         """
         # TODO allow setting max concurrent connections and rpc subscriptions per connection
         self.ws_url = ws_url
@@ -555,6 +560,7 @@ class Websocket:
         self._options = options if options else {}
         self._log_raw_websockets = _log_raw_websockets
         self._in_use_ids = set()
+        self._max_retries = max_retries
 
     @property
     def state(self):
@@ -615,19 +621,28 @@ class Websocket:
         )
         loop = asyncio.get_running_loop()
         should_reconnect = False
+        is_retry = False
         for task in pending:
             task.cancel()
         for task in done:
+            task_res = task.result()
             if isinstance(
-                task.result(), (asyncio.TimeoutError, ConnectionClosed, TimeoutError)
+                task_res, (asyncio.TimeoutError, ConnectionClosed, TimeoutError)
             ):
                 should_reconnect = True
+            if isinstance(task_res, (asyncio.TimeoutError, TimeoutError)):
+                self._attempts += 1
+                is_retry = True
         if should_reconnect is True:
             for original_id, payload in list(self._inflight.items()):
                 self._received[original_id] = loop.create_future()
                 to_send = json.loads(payload)
                 await self._sending.put(to_send)
-            logger.info("Timeout occurred. Reconnecting.")
+            if is_retry:
+                # Otherwise the connection was just closed due to no activity, which should not count against retries
+                logger.info(
+                    f"Timeout occurred. Reconnecting. Attempt {self._attempts} of {self._max_retries}"
+                )
             await self.connect(True)
             await self._handler(ws=self.ws)
         elif isinstance(e := recv_task.result(), Exception):
@@ -690,6 +705,8 @@ class Websocket:
                 recd = await asyncio.wait_for(
                     ws.recv(decode=False), timeout=self.retry_timeout
                 )
+                # reset the counter once we successfully receive something back
+                self._attempts = 0
                 await self._recv(recd)
         except Exception as e:
             if isinstance(e, ssl.SSLError):
@@ -873,6 +890,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 },
                 shutdown_timer=ws_shutdown_timer,
                 retry_timeout=self.retry_timeout,
+                max_retries=max_retries,
             )
         else:
             self.ws = AsyncMock(spec=Websocket)
