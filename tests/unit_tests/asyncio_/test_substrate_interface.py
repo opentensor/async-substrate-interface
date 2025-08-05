@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, ANY
 
 import pytest
 from websockets.exceptions import InvalidURI
+from websockets.protocol import State
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface
 from async_substrate_interface.types import ScaleObj
@@ -103,9 +104,9 @@ async def test_websocket_shutdown_timer():
     async with AsyncSubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
         await substrate.get_chain_head()
         await asyncio.sleep(6)
-        assert (
-            substrate.ws._initialized is False
-        )  # connection should have closed automatically
+    assert (
+        substrate.ws.state is State.CLOSED
+    )  # connection should have closed automatically
 
     # using custom ws shutdown timer of 10.0 seconds
     async with AsyncSubstrateInterface(
@@ -113,7 +114,7 @@ async def test_websocket_shutdown_timer():
     ) as substrate:
         await substrate.get_chain_head()
         await asyncio.sleep(6)  # same sleep time as before
-        assert substrate.ws._initialized is True  # connection should still be open
+        assert substrate.ws.state is State.OPEN  # connection should still be open
 
 
 @pytest.mark.asyncio

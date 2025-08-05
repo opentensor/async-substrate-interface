@@ -784,9 +784,9 @@ class Websocket:
         if item is not None:
             if item.done():
                 self.max_subscriptions.release()
+                res = item.result()
                 del self._received[item_id]
-
-                return item.result()
+                return res
         else:
             try:
                 return self._received_subscriptions[item_id].get_nowait()
@@ -1165,7 +1165,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def _get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
-        runtime_config = RuntimeConfigurationObject()
+        runtime_config = RuntimeConfigurationObject(ss58_format=self.ss58_format)
         runtime_config.clear_type_registry()
         runtime_config.update_type_registry(load_type_registry_preset(name="core"))
 
@@ -2337,7 +2337,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 request_manager.add_request(item_id, payload["id"])
 
             while True:
-                for item_id in list(request_manager.response_map.keys()):
+                for item_id in request_manager.unresponded():
                     if (
                         item_id not in request_manager.responses
                         or asyncio.iscoroutinefunction(result_handler)
@@ -2368,7 +2368,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                 runtime=runtime,
                                 force_legacy_decode=force_legacy_decode,
                             )
-
                             request_manager.add_response(
                                 item_id, decoded_response, complete
                             )

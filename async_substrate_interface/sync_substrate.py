@@ -1924,7 +1924,7 @@ class SubstrateInterface(SubstrateMixin):
                 _received[response["params"]["subscription"]] = response
             else:
                 raise SubstrateRequestException(response)
-            for item_id in list(request_manager.response_map.keys()):
+            for item_id in request_manager.unresponded():
                 if item_id not in request_manager.responses or isinstance(
                     result_handler, Callable
                 ):
