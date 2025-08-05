@@ -720,7 +720,7 @@ class Websocket:
                         fut.set_exception(e)
                         fut.cancel()
             else:
-                logger.warning("Timeout occurred. Reconnecting.")
+                logger.debug("Timeout occurred. Reconnecting.")
             return e
 
     async def _start_sending(self, ws) -> Exception:
@@ -750,7 +750,7 @@ class Websocket:
                         self._received[i].set_exception(e)
                         self._received[i].cancel()
             else:
-                logger.warning("Timeout occurred. Reconnecting.")
+                logger.debug("Timeout occurred. Reconnecting.")
             return e
 
     async def send(self, payload: dict) -> str:
