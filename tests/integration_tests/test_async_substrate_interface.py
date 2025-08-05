@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pytest
@@ -126,9 +127,37 @@ async def test_get_events_proper_decoding():
     async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
         all_events = await substrate.get_events(block_hash=block_hash)
         event = all_events[1]
-        print(type(event["attributes"]))
         assert event["attributes"] == (
             "5G1NjW9YhXLadMWajvTkfcJy6up3yH2q1YzMXDTi6ijanChe",
             30,
             "0xa6b4e5c8241d60ece0c25056b19f7d21ae845269fc771ad46bf3e011865129a5",
         )
+
+
+@pytest.mark.asyncio
+async def test_query_multiple():
+    block = 6153277
+    cks = [
+        "5FH9AQM4kqbkdC9jyV5FrdEWVYt41nkhFstop7Vhyfb9ZsXt",
+        "5GQxLKxjZWNZDsghmYcw7P6ahC7XJCjx1WD94WGh92quSycx",
+        "5EcaPiDT1cv951SkCFsvdHDs2yAEUWhJDuRP9mHb343WnaVn",
+    ]
+    async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
+        block_hash = await substrate.get_block_hash(block_id=block)
+        assert await substrate.query_multiple(
+            params=cks,
+            module="SubtensorModule",
+            storage_function="OwnedHotkeys",
+            block_hash=block_hash,
+        )
+
+
+@pytest.mark.asyncio
+async def test_reconnection():
+    async with AsyncSubstrateInterface(
+        ARCHIVE_ENTRYPOINT, ss58_format=42, retry_timeout=8.0
+    ) as substrate:
+        await asyncio.sleep(9)  # sleep for longer than the retry timeout
+        bh = await substrate.get_chain_finalised_head()
+        assert isinstance(bh, str)
+        assert isinstance(await substrate.get_block_number(bh), int)

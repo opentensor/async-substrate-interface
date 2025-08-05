@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1 /2025-08-05
+* query multiple/decoding fix by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/168
+* Fix reconnection logic by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/169
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.0...v1.5.1
+
 ## 1.5.0 /2025-08-04
 * ConcurrencyError fix by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/162
 * Added better typing by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/163
