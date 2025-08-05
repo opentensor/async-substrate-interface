@@ -1165,7 +1165,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
     async def _get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
-        runtime_config = RuntimeConfigurationObject()
+        runtime_config = RuntimeConfigurationObject(ss58_format=self.ss58_format)
         runtime_config.clear_type_registry()
         runtime_config.update_type_registry(load_type_registry_preset(name="core"))
 

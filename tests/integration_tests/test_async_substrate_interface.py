@@ -126,13 +126,10 @@ async def test_get_events_proper_decoding():
     async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
         all_events = await substrate.get_events(block_hash=block_hash)
         event = all_events[1]
-        assert (
-            event["attributes"]
-            == (
-                "5G1NjW9YhXLadMWajvTkfcJy6up3yH2q1YzMXDTi6ijanChe",  # TODO issue with decoding here
-                30,
-                "0xa6b4e5c8241d60ece0c25056b19f7d21ae845269fc771ad46bf3e011865129a5",
-            )
+        assert event["attributes"] == (
+            "5G1NjW9YhXLadMWajvTkfcJy6up3yH2q1YzMXDTi6ijanChe",
+            30,
+            "0xa6b4e5c8241d60ece0c25056b19f7d21ae845269fc771ad46bf3e011865129a5",
         )
 
 
