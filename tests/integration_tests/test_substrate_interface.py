@@ -78,9 +78,25 @@ def test_get_events_proper_decoding():
     with SubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
         all_events = substrate.get_events(block_hash=block_hash)
         event = all_events[1]
-        print(type(event["attributes"]))
         assert event["attributes"] == (
             "5G1NjW9YhXLadMWajvTkfcJy6up3yH2q1YzMXDTi6ijanChe",
             30,
             "0xa6b4e5c8241d60ece0c25056b19f7d21ae845269fc771ad46bf3e011865129a5",
+        )
+
+
+def test_query_multiple():
+    block = 6153277
+    cks = [
+        "5FH9AQM4kqbkdC9jyV5FrdEWVYt41nkhFstop7Vhyfb9ZsXt",
+        "5GQxLKxjZWNZDsghmYcw7P6ahC7XJCjx1WD94WGh92quSycx",
+        "5EcaPiDT1cv951SkCFsvdHDs2yAEUWhJDuRP9mHb343WnaVn",
+    ]
+    with SubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
+        block_hash = substrate.get_block_hash(block_id=block)
+        assert substrate.query_multiple(
+            params=cks,
+            module="SubtensorModule",
+            storage_function="OwnedHotkeys",
+            block_hash=block_hash,
         )
