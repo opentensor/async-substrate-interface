@@ -575,7 +575,6 @@ class Websocket:
     async def _cancel(self):
         try:
             self._send_recv_task.cancel()
-            await self._send_recv_task
             await self.ws.close()
         except (
             AttributeError,
@@ -619,7 +618,7 @@ class Websocket:
         for task in pending:
             task.cancel()
         for task in done:
-            if isinstance(task.result(), (asyncio.TimeoutError, ConnectionClosed)):
+            if isinstance(task.result(), (asyncio.TimeoutError, ConnectionClosed, TimeoutError)):
                 should_reconnect = True
         if should_reconnect is True:
             for original_id, payload in list(self._inflight.items()):
@@ -628,7 +627,7 @@ class Websocket:
                 await self._sending.put(to_send)
             logger.info("Timeout occurred. Reconnecting.")
             await self.connect(True)
-            await self._handler(ws=ws)
+            await self._handler(ws=self.ws)
         elif isinstance(e := recv_task.result(), Exception):
             return e
         elif isinstance(e := send_task.result(), Exception):
@@ -691,13 +690,16 @@ class Websocket:
                 )
                 await self._recv(recd)
         except Exception as e:
-            logger.exception("Start receiving exception", exc_info=e)
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
-            for fut in self._received.values():
-                if not fut.done():
-                    fut.set_exception(e)
-                    fut.cancel()
+            if not isinstance(e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)):
+                logger.exception("Websocket receiving exception", exc_info=e)
+                for fut in self._received.values():
+                    if not fut.done():
+                        fut.set_exception(e)
+                        fut.cancel()
+            else:
+                logger.warning("Timeout occurred. Reconnecting.")
             return e
 
     async def _start_sending(self, ws) -> Exception:
@@ -713,14 +715,19 @@ class Websocket:
                     raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
                 await ws.send(to_send)
         except Exception as e:
-            logger.exception("Start sending exception", exc_info=e)
-            if to_send is not None:
-                self._received[to_send["id"]].set_exception(e)
-                self._received[to_send["id"]].cancel()
+            if isinstance(e, ssl.SSLError):
+                e = ConnectionClosed
+            if not isinstance(e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)):
+                logger.exception("Websocket sending exception", exc_info=e)
+                if to_send is not None:
+                    self._received[to_send["id"]].set_exception(e)
+                    self._received[to_send["id"]].cancel()
+                else:
+                    for i in self._received.keys():
+                        self._received[i].set_exception(e)
+                        self._received[i].cancel()
             else:
-                for i in self._received.keys():
-                    self._received[i].set_exception(e)
-                    self._received[i].cancel()
+                logger.warning("Timeout occurred. Reconnecting.")
             return e
 
     async def send(self, payload: dict) -> str:
