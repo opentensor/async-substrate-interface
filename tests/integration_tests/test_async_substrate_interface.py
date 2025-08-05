@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pytest
@@ -149,3 +150,14 @@ async def test_query_multiple():
             storage_function="OwnedHotkeys",
             block_hash=block_hash,
         )
+
+
+@pytest.mark.asyncio
+async def test_reconnection():
+    async with AsyncSubstrateInterface(
+        ARCHIVE_ENTRYPOINT, ss58_format=42, retry_timeout=8.0
+    ) as substrate:
+        await asyncio.sleep(9)  # sleep for longer than the retry timeout
+        bh = await substrate.get_chain_finalised_head()
+        assert isinstance(bh, str)
+        assert isinstance(await substrate.get_block_number(bh), int)

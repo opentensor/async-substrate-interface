@@ -618,7 +618,9 @@ class Websocket:
         for task in pending:
             task.cancel()
         for task in done:
-            if isinstance(task.result(), (asyncio.TimeoutError, ConnectionClosed, TimeoutError)):
+            if isinstance(
+                task.result(), (asyncio.TimeoutError, ConnectionClosed, TimeoutError)
+            ):
                 should_reconnect = True
         if should_reconnect is True:
             for original_id, payload in list(self._inflight.items()):
@@ -692,7 +694,9 @@ class Websocket:
         except Exception as e:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
-            if not isinstance(e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)):
+            if not isinstance(
+                e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
+            ):
                 logger.exception("Websocket receiving exception", exc_info=e)
                 for fut in self._received.values():
                     if not fut.done():
@@ -717,7 +721,9 @@ class Websocket:
         except Exception as e:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
-            if not isinstance(e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)):
+            if not isinstance(
+                e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
+            ):
                 logger.exception("Websocket sending exception", exc_info=e)
                 if to_send is not None:
                     self._received[to_send["id"]].set_exception(e)
