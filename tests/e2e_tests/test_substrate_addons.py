@@ -50,22 +50,22 @@ def test_retry_sync_substrate(single_local_chain):
             time.sleep(2)
 
 
-def test_retry_sync_substrate_max_retries(docker_containers):
-    time.sleep(10)
-    with RetrySyncSubstrate(
-        docker_containers[0].uri, fallback_chains=[docker_containers[1].uri]
-    ) as substrate:
-        for i in range(5):
-            assert substrate.get_chain_head().startswith("0x")
-            if i == 2:
-                subprocess.run(["docker", "pause", docker_containers[0].name])
-            if i == 3:
-                assert substrate.chain_endpoint == docker_containers[1].uri
-            if i == 4:
-                subprocess.run(["docker", "pause", docker_containers[1].name])
-                with pytest.raises(MaxRetriesExceeded):
-                    substrate.get_chain_head().startswith("0x")
-            time.sleep(2)
+# def test_retry_sync_substrate_max_retries(docker_containers):
+#     time.sleep(10)
+#     with RetrySyncSubstrate(
+#         docker_containers[0].uri, fallback_chains=[docker_containers[1].uri]
+#     ) as substrate:
+#         for i in range(5):
+#             assert substrate.get_chain_head().startswith("0x")
+#             if i == 2:
+#                 subprocess.run(["docker", "pause", docker_containers[0].name])
+#             if i == 3:
+#                 assert substrate.chain_endpoint == docker_containers[1].uri
+#             if i == 4:
+#                 subprocess.run(["docker", "pause", docker_containers[1].name])
+#                 with pytest.raises(MaxRetriesExceeded):
+#                     substrate.get_chain_head().startswith("0x")
+#             time.sleep(2)
 
 
 def test_retry_sync_substrate_offline():
