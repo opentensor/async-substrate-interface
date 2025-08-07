@@ -47,4 +47,4 @@ requires = ["setuptools~=70.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-dev = ["pytest", "bittensor", "pytest-asyncio"]
+dev = ["pytest", "bittensor", "pytest-asyncio", "substrate-interface"]
