@@ -1182,7 +1182,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             return await self.get_runtime_for_version(runtime_version, block_hash)
 
-    @cached_fetcher(max_size=16, cache_key_index=0)
+    @cached_fetcher(max_size=SUBSTRATE_RUNTIME_CACHE_SIZE, cache_key_index=0)
     async def get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:

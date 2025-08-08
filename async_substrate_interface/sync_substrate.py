@@ -818,6 +818,7 @@ class SubstrateInterface(SubstrateMixin):
         self.runtime = runtime
         return self.runtime
 
+    @functools.lru_cache(maxsize=SUBSTRATE_RUNTIME_CACHE_SIZE)
     def get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
