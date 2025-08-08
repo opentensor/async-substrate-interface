@@ -52,6 +52,10 @@ def test_retry_sync_substrate(single_local_chain):
             time.sleep(2)
 
 
+@pytest.mark.skip(
+    "There's an issue with this running in the GitHub runner, "
+    "where it seemingly cannot connect to the docker container."
+)
 def test_retry_sync_substrate_max_retries(docker_containers):
     time.sleep(10)
     with RetrySyncSubstrate(
