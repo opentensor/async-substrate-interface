@@ -1,5 +1,6 @@
 import functools
 import logging
+import os
 import socket
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
@@ -54,6 +55,10 @@ ResultHandler = Callable[[dict, Any], tuple[dict, bool]]
 
 logger = logging.getLogger("async_substrate_interface")
 raw_websocket_logger = logging.getLogger("raw_websocket")
+
+# env vars dictating the cache size of the cached methods
+SUBSTRATE_CACHE_METHOD_SIZE = int(os.getenv("SUBSTRATE_CACHE_METHOD_SIZE", "512"))
+SUBSTRATE_RUNTIME_CACHE_SIZE = int(os.getenv("SUBSTRATE_RUNTIME_CACHE_SIZE", "16"))
 
 
 class ExtrinsicReceipt:
@@ -1668,7 +1673,7 @@ class SubstrateInterface(SubstrateMixin):
 
         return runtime.metadata_v15
 
-    @functools.lru_cache(maxsize=512)
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     def get_parent_block_hash(self, block_hash):
         block_header = self.rpc_request("chain_getHeader", [block_hash])
 
@@ -1708,7 +1713,7 @@ class SubstrateInterface(SubstrateMixin):
                 "Unknown error occurred during retrieval of events"
             )
 
-    @functools.lru_cache(maxsize=16)
+    @functools.lru_cache(maxsize=SUBSTRATE_RUNTIME_CACHE_SIZE)
     def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -1718,7 +1723,7 @@ class SubstrateInterface(SubstrateMixin):
 
     get_block_runtime_version = get_block_runtime_info
 
-    @functools.lru_cache(maxsize=512)
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -1959,7 +1964,7 @@ class SubstrateInterface(SubstrateMixin):
 
         return request_manager.get_results()
 
-    @functools.lru_cache(maxsize=512)
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     def supports_rpc_method(self, name: str) -> bool:
         """
         Check if substrate RPC supports given method
@@ -2036,7 +2041,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @functools.lru_cache(maxsize=512)
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     def get_block_hash(self, block_id: int) -> str:
         return self.rpc_request("chain_getBlockHash", [block_id])["result"]
 
