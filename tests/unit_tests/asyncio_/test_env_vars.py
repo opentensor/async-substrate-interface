@@ -1,15 +1,4 @@
-import importlib
-import sys
-
-
-def import_fresh(modname: str):
-    """
-    Imports or reloads the module from a fresh state.
-    """
-    to_drop = [m for m in sys.modules if m == modname or m.startswith(modname + ".")]
-    for m in to_drop:
-        sys.modules.pop(m)
-    return importlib.import_module(modname)
+from tests.helpers.fixtures import import_fresh
 
 
 def test_env_vars(monkeypatch):
