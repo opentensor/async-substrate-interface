@@ -7,6 +7,7 @@ regard to how to instantiate and use it.
 import asyncio
 import inspect
 import logging
+import os
 import ssl
 import warnings
 from contextlib import suppress
@@ -42,7 +43,6 @@ from async_substrate_interface.errors import (
     SubstrateRequestException,
     ExtrinsicNotFound,
     BlockNotFound,
-    MaxRetriesExceeded,
     StateDiscardedError,
 )
 from async_substrate_interface.protocols import Keypair
@@ -80,6 +80,10 @@ ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
 logger = logging.getLogger("async_substrate_interface")
 raw_websocket_logger = logging.getLogger("raw_websocket")
+
+# env vars dictating the cache size of the cached methods
+SUBSTRATE_CACHE_METHOD_SIZE = int(os.getenv("SUBSTRATE_CACHE_METHOD_SIZE", "512"))
+SUBSTRATE_RUNTIME_CACHE_SIZE = int(os.getenv("SUBSTRATE_RUNTIME_CACHE_SIZE", "16"))
 
 
 class AsyncExtrinsicReceipt:
@@ -1178,7 +1182,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             return await self.get_runtime_for_version(runtime_version, block_hash)
 
-    @cached_fetcher(max_size=16, cache_key_index=0)
+    @cached_fetcher(max_size=SUBSTRATE_RUNTIME_CACHE_SIZE, cache_key_index=0)
     async def get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
@@ -2111,7 +2115,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return runtime.metadata_v15
 
-    @cached_fetcher(max_size=512)
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_parent_block_hash(self, block_hash) -> str:
         """
         Retrieves the block hash of the parent of the given block hash
@@ -2166,7 +2170,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Unknown error occurred during retrieval of events"
             )
 
-    @cached_fetcher(max_size=16)
+    @cached_fetcher(max_size=SUBSTRATE_RUNTIME_CACHE_SIZE)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -2179,7 +2183,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         response = await self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @cached_fetcher(max_size=512)
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -2494,7 +2498,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @cached_fetcher(max_size=512)
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_block_hash(self, block_id: int) -> str:
         """
         Retrieves the hash of the specified block number
@@ -4022,19 +4026,19 @@ class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
     Experimental new class that uses disk-caching in addition to memory-caching for the cached methods
     """
 
-    @async_sql_lru_cache(maxsize=512)
+    @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_parent_block_hash(self, block_hash):
         return await self._get_parent_block_hash(block_hash)
 
-    @async_sql_lru_cache(maxsize=16)
+    @async_sql_lru_cache(maxsize=SUBSTRATE_RUNTIME_CACHE_SIZE)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
         return await self._get_block_runtime_info(block_hash)
 
-    @async_sql_lru_cache(maxsize=512)
+    @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_block_runtime_version_for(self, block_hash: str):
         return await self._get_block_runtime_version_for(block_hash)
 
-    @async_sql_lru_cache(maxsize=512)
+    @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_block_hash(self, block_id: int) -> str:
         return await self._get_block_hash(block_id)
 

@@ -219,6 +219,7 @@ class CachedFetcher:
         """
         self._inflight: dict[Hashable, asyncio.Future] = {}
         self._method = method
+        self._max_size = max_size
         self._cache = LRUCache(max_size=max_size)
         self._cache_key_index = cache_key_index
 
