@@ -10,13 +10,15 @@ from async_substrate_interface.substrate_addons import (
     RetryAsyncSubstrate,
 )
 from tests.conftest import start_docker_container
-
-LATENT_LITE_ENTRYPOINT = "wss://lite.sub.latent.to:443"
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
 
 @pytest.fixture(scope="function")
 def docker_containers():
-    processes = (start_docker_container(9944, "9944"), start_docker_container(9945, "9945"))
+    processes = (
+        start_docker_container(9944, "9944"),
+        start_docker_container(9945, "9945"),
+    )
     try:
         yield processes
 
@@ -50,22 +52,22 @@ def test_retry_sync_substrate(single_local_chain):
             time.sleep(2)
 
 
-# def test_retry_sync_substrate_max_retries(docker_containers):
-#     time.sleep(10)
-#     with RetrySyncSubstrate(
-#         docker_containers[0].uri, fallback_chains=[docker_containers[1].uri]
-#     ) as substrate:
-#         for i in range(5):
-#             assert substrate.get_chain_head().startswith("0x")
-#             if i == 2:
-#                 subprocess.run(["docker", "pause", docker_containers[0].name])
-#             if i == 3:
-#                 assert substrate.chain_endpoint == docker_containers[1].uri
-#             if i == 4:
-#                 subprocess.run(["docker", "pause", docker_containers[1].name])
-#                 with pytest.raises(MaxRetriesExceeded):
-#                     substrate.get_chain_head().startswith("0x")
-#             time.sleep(2)
+def test_retry_sync_substrate_max_retries(docker_containers):
+    time.sleep(10)
+    with RetrySyncSubstrate(
+        docker_containers[0].uri, fallback_chains=[docker_containers[1].uri]
+    ) as substrate:
+        for i in range(5):
+            assert substrate.get_chain_head().startswith("0x")
+            if i == 2:
+                subprocess.run(["docker", "pause", docker_containers[0].name])
+            if i == 3:
+                assert substrate.chain_endpoint == docker_containers[1].uri
+            if i == 4:
+                subprocess.run(["docker", "pause", docker_containers[1].name])
+                with pytest.raises(MaxRetriesExceeded):
+                    substrate.get_chain_head().startswith("0x")
+            time.sleep(2)
 
 
 def test_retry_sync_substrate_offline():
@@ -75,26 +77,26 @@ def test_retry_sync_substrate_offline():
         )
 
 
-# @pytest.mark.asyncio
-# async def test_retry_async_subtensor_archive_node():
-#     async with AsyncSubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
-#         current_block = await substrate.get_block_number()
-#         old_block = current_block - 1000
-#         with pytest.raises(StateDiscardedError):
-#             await substrate.get_block(block_number=old_block)
-#     async with RetryAsyncSubstrate(
-#         "wss://lite.sub.latent.to:443", archive_nodes=[LATENT_LITE_ENTRYPOINT]
-#     ) as substrate:
-#         assert isinstance((await substrate.get_block(block_number=old_block)), dict)
-#
-#
-# def test_retry_sync_subtensor_archive_node():
-#     with SubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
-#         current_block = substrate.get_block_number()
-#         old_block = current_block - 1000
-#         with pytest.raises(StateDiscardedError):
-#             substrate.get_block(block_number=old_block)
-#     with RetrySyncSubstrate(
-#         "wss://lite.sub.latent.to:443", archive_nodes=[LATENT_LITE_ENTRYPOINT]
-#     ) as substrate:
-#         assert isinstance((substrate.get_block(block_number=old_block)), dict)
+@pytest.mark.asyncio
+async def test_retry_async_subtensor_archive_node():
+    async with AsyncSubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
+        current_block = await substrate.get_block_number()
+        old_block = current_block - 1000
+        with pytest.raises(StateDiscardedError):
+            await substrate.get_block(block_number=old_block)
+    async with RetryAsyncSubstrate(
+        LATENT_LITE_ENTRYPOINT, archive_nodes=[ARCHIVE_ENTRYPOINT]
+    ) as substrate:
+        assert isinstance((await substrate.get_block(block_number=old_block)), dict)
+
+
+def test_retry_sync_subtensor_archive_node():
+    with SubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
+        current_block = substrate.get_block_number()
+        old_block = current_block - 1000
+        with pytest.raises(StateDiscardedError):
+            substrate.get_block(block_number=old_block)
+    with RetrySyncSubstrate(
+        LATENT_LITE_ENTRYPOINT, archive_nodes=[ARCHIVE_ENTRYPOINT]
+    ) as substrate:
+        assert isinstance((substrate.get_block(block_number=old_block)), dict)
