@@ -36,7 +36,7 @@ class AsyncSqliteDB:
             cls._instances[chain_endpoint] = instance
             return instance
 
-    async def __call__(self, chain, func, args, kwargs) -> Optional[Any]:
+    async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
         if not self._db:
             _ensure_dir()
             self._db = await aiosqlite.connect(CACHE_LOCATION)
@@ -65,26 +65,28 @@ class AsyncSqliteDB:
                           );
                         END;"""
             )
-            key = pickle.dumps((args, kwargs))
+            await self._db.commit()
+            key = pickle.dumps((args, kwargs or None))
             try:
                 cursor: aiosqlite.Cursor = await self._db.execute(
                     f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
                     (key, chain),
                 )
                 result = await cursor.fetchone()
+                await cursor.close()
                 if result is not None:
                     return pickle.loads(result[0])
             except (pickle.PickleError, sqlite3.Error) as e:
                 logger.exception("Cache error", exc_info=e)
                 pass
-
-        result = await func(*args, **kwargs)
+        result = await func(other_self, *args, **kwargs)
         if not local_chain or not USE_CACHE:
             # TODO use a task here
             await self._db.execute(
                 f"INSERT OR REPLACE INTO {table_name} (key, value, chain) VALUES (?,?,?)",
                 (key, pickle.dumps(result), chain),
             )
+            await self._db.commit()
         return result
 
 
@@ -200,7 +202,7 @@ def async_sql_lru_cache(maxsize: Optional[int] = None):
         @cached_fetcher(max_size=maxsize)
         async def inner(self, *args, **kwargs):
             async_sql_db = AsyncSqliteDB(self.url)
-            result = await async_sql_db(self.url, func, args, kwargs)
+            result = await async_sql_db(self.url, self, func, args, kwargs)
             return result
 
         return inner

@@ -63,6 +63,7 @@ from async_substrate_interface.utils import (
 from async_substrate_interface.utils.cache import (
     async_sql_lru_cache,
     cached_fetcher,
+    AsyncSqliteDB,
 )
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
@@ -4025,6 +4026,18 @@ class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
     """
     Experimental new class that uses disk-caching in addition to memory-caching for the cached methods
     """
+
+    async def close(self):
+        """
+        Closes the substrate connection, and the websocket connection.
+        """
+        try:
+            await self.ws.shutdown()
+        except AttributeError:
+            pass
+        db_conn = AsyncSqliteDB(self.url)
+        if db_conn._db is not None:
+            await db_conn._db.close()
 
     @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_parent_block_hash(self, block_hash):
