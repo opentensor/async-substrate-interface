@@ -11,7 +11,8 @@ dependencies = [
   "bt-decode==v0.6.0",
   "scalecodec~=1.2.11",
   "websockets>=14.1",
-  "xxhash"
+  "xxhash",
+  "aiosqlite>=0.21.0,<1.0.0"
 ]
 
 requires-python = ">=3.9,<3.14"

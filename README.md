@@ -89,6 +89,14 @@ the same on-disk cache.
 As with the other two caches, this also takes `SUBSTRATE_CACHE_METHOD_SIZE` and `SUBSTRATE_RUNTIME_CACHE_SIZE` env vars.
 
 
+### ENV VARS
+The following environment variables are used within async-substrate-interface
+ - NO_CACHE (default 0): if set to 1, when using the DiskCachedAsyncSubstrateInterface class, no persistent on-disk cache will be stored, instead using only in-memory cache.
+ - CACHE_LOCATION (default `~/.cache/async-substrate-interface`): this determines the location for the cache file, if using DiskCachedAsyncSubstrateInterface
+ - SUBSTRATE_CACHE_METHOD_SIZE (default 512): the cache size (either in-memory or on-disk) of the smaller return-size methods (see the Caching section for more info)
+ - SUBSTRATE_RUNTIME_CACHE_SIZE (default 16): the cache size (either in-memory or on-disk) of the larger return-size methods (see the Caching section for more info)
+
+
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request to the `staging` branch.
