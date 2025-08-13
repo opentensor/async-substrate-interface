@@ -27,24 +27,28 @@ logger = logging.getLogger("async_substrate_interface")
 class AsyncSqliteDB:
     _instances: dict[str, "AsyncSqliteDB"] = {}
     _db: Optional[aiosqlite.Connection] = None
+    _lock: Optional[asyncio.Lock] = None
 
     def __new__(cls, chain_endpoint: str):
         try:
             return cls._instances[chain_endpoint]
         except KeyError:
             instance = super().__new__(cls)
+            instance._lock = asyncio.Lock()
             cls._instances[chain_endpoint] = instance
             return instance
 
     async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
-        if not self._db:
-            _ensure_dir()
-            self._db = await aiosqlite.connect(CACHE_LOCATION)
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
         table_name = _get_table_name(func)
         key = None
         if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
             await self._db.execute(
-                f"""CREATE TABLE IF NOT EXISTS {table_name} 
+                f"""
+                CREATE TABLE IF NOT EXISTS {table_name} 
                     (
                        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                        key BLOB,
@@ -52,10 +56,11 @@ class AsyncSqliteDB:
                        chain TEXT,
                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
-                    """
+                """
             )
             await self._db.execute(
-                f"""CREATE TRIGGER IF NOT EXISTS prune_rows_trigger AFTER INSERT ON {table_name}
+                f"""
+                CREATE TRIGGER IF NOT EXISTS prune_rows_trigger_{table_name} AFTER INSERT ON {table_name}
                         BEGIN
                           DELETE FROM {table_name}
                           WHERE rowid IN (
@@ -63,7 +68,8 @@ class AsyncSqliteDB:
                             ORDER BY created_at DESC
                             LIMIT -1 OFFSET 500
                           );
-                        END;"""
+                        END;
+                """
             )
             await self._db.commit()
             key = pickle.dumps((args, kwargs or None))
