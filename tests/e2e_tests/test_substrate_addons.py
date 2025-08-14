@@ -1,23 +1,24 @@
-import threading
 import subprocess
-
-import pytest
 import time
 
+import pytest
+
 from async_substrate_interface import AsyncSubstrateInterface, SubstrateInterface
+from async_substrate_interface.errors import MaxRetriesExceeded, StateDiscardedError
 from async_substrate_interface.substrate_addons import (
     RetrySyncSubstrate,
     RetryAsyncSubstrate,
 )
-from async_substrate_interface.errors import MaxRetriesExceeded, StateDiscardedError
 from tests.conftest import start_docker_container
-
-LATENT_LITE_ENTRYPOINT = "wss://lite.sub.latent.to:443"
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
 
 @pytest.fixture(scope="function")
 def docker_containers():
-    processes = (start_docker_container(9945, 9945), start_docker_container(9946, 9946))
+    processes = (
+        start_docker_container(9944, "9944"),
+        start_docker_container(9945, "9945"),
+    )
     try:
         yield processes
 
@@ -29,7 +30,7 @@ def docker_containers():
 
 @pytest.fixture(scope="function")
 def single_local_chain():
-    process = start_docker_container(9945, 9945)
+    process = start_docker_container(9945, "9944")
     try:
         yield process
     finally:
@@ -51,6 +52,11 @@ def test_retry_sync_substrate(single_local_chain):
             time.sleep(2)
 
 
+@pytest.mark.skip(
+    "There's an issue with this running in the GitHub runner, "
+    "where it seemingly cannot connect to the docker container. "
+    "It does run locally, however."
+)
 def test_retry_sync_substrate_max_retries(docker_containers):
     time.sleep(10)
     with RetrySyncSubstrate(
@@ -72,30 +78,30 @@ def test_retry_sync_substrate_max_retries(docker_containers):
 def test_retry_sync_substrate_offline():
     with pytest.raises(ConnectionError):
         RetrySyncSubstrate(
-            "ws://127.0.0.1:9945", fallback_chains=["ws://127.0.0.1:9946"]
+            "ws://127.0.0.1:9944", fallback_chains=["ws://127.0.0.1:9945"]
         )
 
 
 @pytest.mark.asyncio
 async def test_retry_async_subtensor_archive_node():
-    async with AsyncSubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
+    async with AsyncSubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
         current_block = await substrate.get_block_number()
         old_block = current_block - 1000
         with pytest.raises(StateDiscardedError):
             await substrate.get_block(block_number=old_block)
     async with RetryAsyncSubstrate(
-        "wss://lite.sub.latent.to:443", archive_nodes=["ws://178.156.172.75:9944"]
+        LATENT_LITE_ENTRYPOINT, archive_nodes=[ARCHIVE_ENTRYPOINT]
     ) as substrate:
         assert isinstance((await substrate.get_block(block_number=old_block)), dict)
 
 
 def test_retry_sync_subtensor_archive_node():
-    with SubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
+    with SubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
         current_block = substrate.get_block_number()
         old_block = current_block - 1000
         with pytest.raises(StateDiscardedError):
             substrate.get_block(block_number=old_block)
     with RetrySyncSubstrate(
-        "wss://lite.sub.latent.to:443", archive_nodes=["ws://178.156.172.75:9944"]
+        LATENT_LITE_ENTRYPOINT, archive_nodes=[ARCHIVE_ENTRYPOINT]
     ) as substrate:
         assert isinstance((substrate.get_block(block_number=old_block)), dict)
