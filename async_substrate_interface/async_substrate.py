@@ -22,6 +22,7 @@ from typing import (
     cast,
 )
 
+import websockets.exceptions
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.type_registry import load_type_registry_preset
@@ -599,6 +600,7 @@ class Websocket:
 
     async def connect(self, force=False):
         async with self._lock:
+            logger.debug(f"Websocket connecting to {self.ws_url}")
             if self._sending is None or self._sending.empty():
                 self._sending = asyncio.Queue()
             if self._exit_task:
@@ -723,8 +725,10 @@ class Websocket:
                     if not fut.done():
                         fut.set_exception(e)
                         fut.cancel()
+            elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
+                logger.debug("Websocket connection closed.")
             else:
-                logger.debug("Timeout occurred. Reconnecting.")
+                logger.debug(f"Timeout occurred. Reconnecting.")
             return e
 
     async def _start_sending(self, ws) -> Exception:
@@ -753,6 +757,8 @@ class Websocket:
                     for i in self._received.keys():
                         self._received[i].set_exception(e)
                         self._received[i].cancel()
+            elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
+                logger.debug("Websocket connection closed.")
             else:
                 logger.debug("Timeout occurred. Reconnecting.")
             return e
@@ -2370,6 +2376,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
+                logger.debug(f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}")
 
             while True:
                 for item_id in request_manager.unresponded():
@@ -2390,6 +2397,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                     )
                                     subscription_added = True
                                 except KeyError:
+                                    logger.error(
+                                        f"Error received from subtensor for {item_id}: {response}\n"
+                                        f"Currently received responses: {request_manager.get_results()}"
+                                    )
                                     raise SubstrateRequestException(str(response))
                             (
                                 decoded_response,
@@ -2405,6 +2416,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             )
                             request_manager.add_response(
                                 item_id, decoded_response, complete
+                            )
+                            if len(stringified_response := str(decoded_response)) < 2_000:
+                                output_response = stringified_response
+                                # avoids clogging logs up needlessly (esp for Metadata stuff)
+                            else:
+                                output_response = f"{stringified_response[:2_000]} (truncated)"
+                            logger.debug(
+                                f"Received response for item ID {item_id}:\n{output_response}\n"
+                                f"Complete: {complete}"
                             )
 
                 if request_manager.is_complete:
