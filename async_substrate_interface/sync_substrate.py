@@ -632,6 +632,7 @@ class SubstrateInterface(SubstrateMixin):
     def connect(self, init=False):
         if init is True:
             try:
+                logger.debug(f"Websocket connecting to {self.chain_endpoint}")
                 return connect(self.chain_endpoint, max_size=self.ws_max_size)
             except (ConnectionError, socket.gaierror) as e:
                 raise ConnectionError(e)
@@ -640,6 +641,7 @@ class SubstrateInterface(SubstrateMixin):
                 return self.ws
             else:
                 try:
+                    logger.debug(f"Websocket reconnecting to {self.chain_endpoint}")
                     self.ws = connect(self.chain_endpoint, max_size=self.ws_max_size)
                     return self.ws
                 except (ConnectionError, socket.gaierror) as e:
@@ -1902,6 +1904,9 @@ class SubstrateInterface(SubstrateMixin):
                 raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
             ws.send(json.dumps(to_send))
             request_manager.add_request(item_id, payload["id"])
+            logger.debug(
+                f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}"
+            )
 
         while True:
             try:
@@ -1948,6 +1953,10 @@ class SubstrateInterface(SubstrateMixin):
                                 subscription_added = True
                             except KeyError:
                                 raise SubstrateRequestException(str(response))
+                                logger.error(
+                                    f"Error received from subtensor for {item_id}: {response}\n"
+                                    f"Currently received responses: {request_manager.get_results()}"
+                                )
                         decoded_response, complete = self._process_response(
                             response,
                             item_id,
@@ -1958,6 +1967,17 @@ class SubstrateInterface(SubstrateMixin):
                         )
                         request_manager.add_response(
                             item_id, decoded_response, complete
+                        )
+                        if len(stringified_response := str(decoded_response)) < 2_000:
+                            output_response = stringified_response
+                            # avoids clogging logs up needlessly (esp for Metadata stuff)
+                        else:
+                            output_response = (
+                                f"{stringified_response[:2_000]} (truncated)"
+                            )
+                        logger.debug(
+                            f"Received response for item ID {item_id}:\n{output_response}\n"
+                            f"Complete: {complete}"
                         )
 
             if request_manager.is_complete:
