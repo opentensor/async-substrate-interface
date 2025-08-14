@@ -2376,7 +2376,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
-                logger.debug(f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}")
+                logger.debug(
+                    f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}"
+                )
 
             while True:
                 for item_id in request_manager.unresponded():
@@ -2417,11 +2419,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             request_manager.add_response(
                                 item_id, decoded_response, complete
                             )
-                            if len(stringified_response := str(decoded_response)) < 2_000:
+                            if (
+                                len(stringified_response := str(decoded_response))
+                                < 2_000
+                            ):
                                 output_response = stringified_response
                                 # avoids clogging logs up needlessly (esp for Metadata stuff)
                             else:
-                                output_response = f"{stringified_response[:2_000]} (truncated)"
+                                output_response = (
+                                    f"{stringified_response[:2_000]} (truncated)"
+                                )
                             logger.debug(
                                 f"Received response for item ID {item_id}:\n{output_response}\n"
                                 f"Complete: {complete}"

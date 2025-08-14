@@ -1904,7 +1904,9 @@ class SubstrateInterface(SubstrateMixin):
                 raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
             ws.send(json.dumps(to_send))
             request_manager.add_request(item_id, payload["id"])
-            logger.debug(f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}")
+            logger.debug(
+                f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}"
+            )
 
         while True:
             try:
@@ -1970,7 +1972,9 @@ class SubstrateInterface(SubstrateMixin):
                             output_response = stringified_response
                             # avoids clogging logs up needlessly (esp for Metadata stuff)
                         else:
-                            output_response = f"{stringified_response[:2_000]} (truncated)"
+                            output_response = (
+                                f"{stringified_response[:2_000]} (truncated)"
+                            )
                         logger.debug(
                             f"Received response for item ID {item_id}:\n{output_response}\n"
                             f"Complete: {complete}"
