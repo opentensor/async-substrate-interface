@@ -8,7 +8,12 @@ from bt_decode import (
     SubnetInfoV2,
     encode,
 )
-from scalecodec import ss58_encode
+from scalecodec import ss58_decode
+
+
+def ss58_to_bytes(ss58_string):
+    return bytes.fromhex(ss58_decode(ss58_string))
+
 
 _TYPE_REGISTRY: dict[str, dict] = {
     "types": {
@@ -24,7 +29,7 @@ _TYPE_REGISTRY: dict[str, dict] = {
                             "type": "Vec<u8>",
                         },
                     ],
-                    "encoder": lambda addr: encode(ss58_encode(addr), "Vec<u8>"),
+                    "encoder": lambda addr, registry: encode("Vec<u8>", registry, ss58_to_bytes(addr[0] if isinstance(addr, list) else next(iter(addr.values())))),
                     "type": "Vec<u8>",
                     "decoder": DelegateInfo.decode_delegated,
                 },
@@ -97,7 +102,7 @@ _TYPE_REGISTRY: dict[str, dict] = {
                         },
                     ],
                     "type": "Vec<u8>",
-                    "encoder": lambda addr: encode(ss58_encode(addr), "Vec<u8>"),
+                    "encoder": lambda addr, registry: encode("Vec<u8>", registry, ss58_to_bytes(addr[0] if isinstance(addr, list) else next(iter(addr.values())))),
                     "decoder": StakeInfo.decode_vec,
                 },
                 "get_stake_info_for_coldkeys": {
@@ -108,8 +113,10 @@ _TYPE_REGISTRY: dict[str, dict] = {
                         },
                     ],
                     "type": "Vec<u8>",
-                    "encoder": lambda addrs: encode(
-                        [ss58_encode(addr) for addr in addrs], "Vec<Vec<u8>>"
+                    "encoder": lambda addrs, registry: encode(
+                        "Vec<Vec<u8>>",
+                        registry,
+                        [ss58_to_bytes(x) for x in (addrs if isinstance(addrs, list) else list(addrs.values()))],
                     ),
                     "decoder": StakeInfo.decode_vec_tuple_vec,
                 },
