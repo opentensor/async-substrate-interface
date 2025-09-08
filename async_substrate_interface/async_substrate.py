@@ -833,7 +833,7 @@ class Websocket:
                 return self._received_subscriptions[item_id].get_nowait()
             except asyncio.QueueEmpty:
                 pass
-        if self._send_recv_task.done():
+        if self._send_recv_task is not None and self._send_recv_task.done():
             if isinstance(e := self._send_recv_task.result(), Exception):
                 raise e
         await asyncio.sleep(0.1)
