@@ -1,5 +1,6 @@
 import functools
 import logging
+import os
 import socket
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
@@ -54,6 +55,10 @@ ResultHandler = Callable[[dict, Any], tuple[dict, bool]]
 
 logger = logging.getLogger("async_substrate_interface")
 raw_websocket_logger = logging.getLogger("raw_websocket")
+
+# env vars dictating the cache size of the cached methods
+SUBSTRATE_CACHE_METHOD_SIZE = int(os.getenv("SUBSTRATE_CACHE_METHOD_SIZE", "512"))
+SUBSTRATE_RUNTIME_CACHE_SIZE = int(os.getenv("SUBSTRATE_RUNTIME_CACHE_SIZE", "16"))
 
 
 class ExtrinsicReceipt:
@@ -627,6 +632,7 @@ class SubstrateInterface(SubstrateMixin):
     def connect(self, init=False):
         if init is True:
             try:
+                logger.debug(f"Websocket connecting to {self.chain_endpoint}")
                 return connect(self.chain_endpoint, max_size=self.ws_max_size)
             except (ConnectionError, socket.gaierror) as e:
                 raise ConnectionError(e)
@@ -635,6 +641,7 @@ class SubstrateInterface(SubstrateMixin):
                 return self.ws
             else:
                 try:
+                    logger.debug(f"Websocket reconnecting to {self.chain_endpoint}")
                     self.ws = connect(self.chain_endpoint, max_size=self.ws_max_size)
                     return self.ws
                 except (ConnectionError, socket.gaierror) as e:
@@ -813,6 +820,7 @@ class SubstrateInterface(SubstrateMixin):
         self.runtime = runtime
         return self.runtime
 
+    @functools.lru_cache(maxsize=SUBSTRATE_RUNTIME_CACHE_SIZE)
     def get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
@@ -1668,7 +1676,7 @@ class SubstrateInterface(SubstrateMixin):
 
         return runtime.metadata_v15
 
-    @functools.lru_cache(maxsize=512)
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     def get_parent_block_hash(self, block_hash):
         block_header = self.rpc_request("chain_getHeader", [block_hash])
 
@@ -1708,7 +1716,7 @@ class SubstrateInterface(SubstrateMixin):
                 "Unknown error occurred during retrieval of events"
             )
 
-    @functools.lru_cache(maxsize=16)
+    @functools.lru_cache(maxsize=SUBSTRATE_RUNTIME_CACHE_SIZE)
     def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -1718,7 +1726,7 @@ class SubstrateInterface(SubstrateMixin):
 
     get_block_runtime_version = get_block_runtime_info
 
-    @functools.lru_cache(maxsize=512)
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -1896,6 +1904,9 @@ class SubstrateInterface(SubstrateMixin):
                 raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
             ws.send(json.dumps(to_send))
             request_manager.add_request(item_id, payload["id"])
+            logger.debug(
+                f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}"
+            )
 
         while True:
             try:
@@ -1942,6 +1953,10 @@ class SubstrateInterface(SubstrateMixin):
                                 subscription_added = True
                             except KeyError:
                                 raise SubstrateRequestException(str(response))
+                                logger.error(
+                                    f"Error received from subtensor for {item_id}: {response}\n"
+                                    f"Currently received responses: {request_manager.get_results()}"
+                                )
                         decoded_response, complete = self._process_response(
                             response,
                             item_id,
@@ -1953,13 +1968,24 @@ class SubstrateInterface(SubstrateMixin):
                         request_manager.add_response(
                             item_id, decoded_response, complete
                         )
+                        if len(stringified_response := str(decoded_response)) < 2_000:
+                            output_response = stringified_response
+                            # avoids clogging logs up needlessly (esp for Metadata stuff)
+                        else:
+                            output_response = (
+                                f"{stringified_response[:2_000]} (truncated)"
+                            )
+                        logger.debug(
+                            f"Received response for item ID {item_id}:\n{output_response}\n"
+                            f"Complete: {complete}"
+                        )
 
             if request_manager.is_complete:
                 break
 
         return request_manager.get_results()
 
-    @functools.lru_cache(maxsize=512)
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     def supports_rpc_method(self, name: str) -> bool:
         """
         Check if substrate RPC supports given method
@@ -2036,7 +2062,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @functools.lru_cache(maxsize=512)
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     def get_block_hash(self, block_id: int) -> str:
         return self.rpc_request("chain_getBlockHash", [block_id])["result"]
 

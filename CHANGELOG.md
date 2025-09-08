@@ -1,4 +1,14 @@
 # Changelog
+## 1.5.2 /2025-09-08
+* Improve test workflows by @basfroman in https://github.com/opentensor/async-substrate-interface/pull/173
+* Adds env var support for setting cache size by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/174
+* Set env vars as str in unit test by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/177
+* DiskCachedAsyncSubstrateInterface: use aiosqlite by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/176
+* Additional Debug Logging by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/178
+* None type edge case catch by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/184
+
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.1...v1.5.2
 
 ## 1.5.1 /2025-08-05
 * query multiple/decoding fix by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/168

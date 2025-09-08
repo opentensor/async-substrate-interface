@@ -1,6 +1,6 @@
 [project]
 name = "async-substrate-interface"
-version = "1.5.1"
+version = "1.5.2"
 description = "Asyncio library for interacting with substrate. Mostly API-compatible with py-substrate-interface"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -11,7 +11,8 @@ dependencies = [
   "bt-decode==v0.6.0",
   "scalecodec~=1.2.11",
   "websockets>=14.1",
-  "xxhash"
+  "xxhash",
+  "aiosqlite>=0.21.0,<1.0.0"
 ]
 
 requires-python = ">=3.9,<3.14"
@@ -47,4 +48,13 @@ requires = ["setuptools~=70.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-dev = ["pytest", "bittensor", "pytest-asyncio"]
+dev = [
+    "bittensor",
+    "pytest==8.3.5",
+    "pytest-asyncio==0.26.0",
+    "pytest-mock==3.14.0",
+    "pytest-split==0.10.0",
+    "pytest-xdist==3.6.1",
+    "pytest-rerunfailures==10.2",
+    "substrate-interface"
+]

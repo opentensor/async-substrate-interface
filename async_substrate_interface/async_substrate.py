@@ -7,6 +7,7 @@ regard to how to instantiate and use it.
 import asyncio
 import inspect
 import logging
+import os
 import ssl
 import warnings
 from contextlib import suppress
@@ -21,6 +22,7 @@ from typing import (
     cast,
 )
 
+import websockets.exceptions
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.type_registry import load_type_registry_preset
@@ -42,7 +44,6 @@ from async_substrate_interface.errors import (
     SubstrateRequestException,
     ExtrinsicNotFound,
     BlockNotFound,
-    MaxRetriesExceeded,
     StateDiscardedError,
 )
 from async_substrate_interface.protocols import Keypair
@@ -63,6 +64,7 @@ from async_substrate_interface.utils import (
 from async_substrate_interface.utils.cache import (
     async_sql_lru_cache,
     cached_fetcher,
+    AsyncSqliteDB,
 )
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
@@ -80,6 +82,10 @@ ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
 logger = logging.getLogger("async_substrate_interface")
 raw_websocket_logger = logging.getLogger("raw_websocket")
+
+# env vars dictating the cache size of the cached methods
+SUBSTRATE_CACHE_METHOD_SIZE = int(os.getenv("SUBSTRATE_CACHE_METHOD_SIZE", "512"))
+SUBSTRATE_RUNTIME_CACHE_SIZE = int(os.getenv("SUBSTRATE_RUNTIME_CACHE_SIZE", "16"))
 
 
 class AsyncExtrinsicReceipt:
@@ -595,6 +601,7 @@ class Websocket:
 
     async def connect(self, force=False):
         async with self._lock:
+            logger.debug(f"Websocket connecting to {self.ws_url}")
             if self._sending is None or self._sending.empty():
                 self._sending = asyncio.Queue()
             if self._exit_task:
@@ -719,8 +726,10 @@ class Websocket:
                     if not fut.done():
                         fut.set_exception(e)
                         fut.cancel()
+            elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
+                logger.debug("Websocket connection closed.")
             else:
-                logger.debug("Timeout occurred. Reconnecting.")
+                logger.debug(f"Timeout occurred. Reconnecting.")
             return e
 
     async def _start_sending(self, ws) -> Exception:
@@ -749,6 +758,8 @@ class Websocket:
                     for i in self._received.keys():
                         self._received[i].set_exception(e)
                         self._received[i].cancel()
+            elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
+                logger.debug("Websocket connection closed.")
             else:
                 logger.debug("Timeout occurred. Reconnecting.")
             return e
@@ -822,7 +833,7 @@ class Websocket:
                 return self._received_subscriptions[item_id].get_nowait()
             except asyncio.QueueEmpty:
                 pass
-        if self._send_recv_task.done():
+        if self._send_recv_task is not None and self._send_recv_task.done():
             if isinstance(e := self._send_recv_task.result(), Exception):
                 raise e
         await asyncio.sleep(0.1)
@@ -1178,7 +1189,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             return await self.get_runtime_for_version(runtime_version, block_hash)
 
-    @cached_fetcher(max_size=16, cache_key_index=0)
+    @cached_fetcher(max_size=SUBSTRATE_RUNTIME_CACHE_SIZE, cache_key_index=0)
     async def get_runtime_for_version(
         self, runtime_version: int, block_hash: Optional[str] = None
     ) -> Runtime:
@@ -2111,7 +2122,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return runtime.metadata_v15
 
-    @cached_fetcher(max_size=512)
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_parent_block_hash(self, block_hash) -> str:
         """
         Retrieves the block hash of the parent of the given block hash
@@ -2166,7 +2177,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "Unknown error occurred during retrieval of events"
             )
 
-    @cached_fetcher(max_size=16)
+    @cached_fetcher(max_size=SUBSTRATE_RUNTIME_CACHE_SIZE)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
         """
         Retrieve the runtime info of given block_hash
@@ -2179,7 +2190,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         response = await self.rpc_request("state_getRuntimeVersion", [block_hash])
         return response.get("result")
 
-    @cached_fetcher(max_size=512)
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_block_runtime_version_for(self, block_hash: str):
         """
         Retrieve the runtime version of the parent of a given block_hash
@@ -2366,6 +2377,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
+                logger.debug(
+                    f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}"
+                )
 
             while True:
                 for item_id in request_manager.unresponded():
@@ -2386,6 +2400,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
                                     )
                                     subscription_added = True
                                 except KeyError:
+                                    logger.error(
+                                        f"Error received from subtensor for {item_id}: {response}\n"
+                                        f"Currently received responses: {request_manager.get_results()}"
+                                    )
                                     raise SubstrateRequestException(str(response))
                             (
                                 decoded_response,
@@ -2401,6 +2419,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             )
                             request_manager.add_response(
                                 item_id, decoded_response, complete
+                            )
+                            if (
+                                len(stringified_response := str(decoded_response))
+                                < 2_000
+                            ):
+                                output_response = stringified_response
+                                # avoids clogging logs up needlessly (esp for Metadata stuff)
+                            else:
+                                output_response = (
+                                    f"{stringified_response[:2_000]} (truncated)"
+                                )
+                            logger.debug(
+                                f"Received response for item ID {item_id}:\n{output_response}\n"
+                                f"Complete: {complete}"
                             )
 
                 if request_manager.is_complete:
@@ -2494,7 +2526,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-    @cached_fetcher(max_size=512)
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_block_hash(self, block_id: int) -> str:
         """
         Retrieves the hash of the specified block number
@@ -4022,19 +4054,31 @@ class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
     Experimental new class that uses disk-caching in addition to memory-caching for the cached methods
     """
 
-    @async_sql_lru_cache(maxsize=512)
+    async def close(self):
+        """
+        Closes the substrate connection, and the websocket connection.
+        """
+        try:
+            await self.ws.shutdown()
+        except AttributeError:
+            pass
+        db_conn = AsyncSqliteDB(self.url)
+        if db_conn._db is not None:
+            await db_conn._db.close()
+
+    @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_parent_block_hash(self, block_hash):
         return await self._get_parent_block_hash(block_hash)
 
-    @async_sql_lru_cache(maxsize=16)
+    @async_sql_lru_cache(maxsize=SUBSTRATE_RUNTIME_CACHE_SIZE)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
         return await self._get_block_runtime_info(block_hash)
 
-    @async_sql_lru_cache(maxsize=512)
+    @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_block_runtime_version_for(self, block_hash: str):
         return await self._get_block_runtime_version_for(block_hash)
 
-    @async_sql_lru_cache(maxsize=512)
+    @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_block_hash(self, block_id: int) -> str:
         return await self._get_block_hash(block_id)
 
