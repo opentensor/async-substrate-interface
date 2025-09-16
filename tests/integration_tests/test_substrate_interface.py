@@ -100,3 +100,15 @@ def test_query_multiple():
             storage_function="OwnedHotkeys",
             block_hash=block_hash,
         )
+
+
+def test_query_map_with_odd_number_of_params():
+    with SubstrateInterface(LATENT_LITE_ENTRYPOINT, ss58_format=42) as substrate:
+        qm = substrate.query_map(
+            "SubtensorModule",
+            "Alpha",
+            ["5CoZxgtfhcJKX2HmkwnsN18KbaT9aih9eF3b6qVPTgAUbifj"],
+        )
+        first_record = qm.records[0]
+        assert len(first_record) == 2
+        assert len(first_record[0]) == 4

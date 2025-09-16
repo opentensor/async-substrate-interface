@@ -161,3 +161,16 @@ async def test_reconnection():
         bh = await substrate.get_chain_finalised_head()
         assert isinstance(bh, str)
         assert isinstance(await substrate.get_block_number(bh), int)
+
+
+@pytest.mark.asyncio
+async def test_query_map_with_odd_number_of_params():
+    async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT, ss58_format=42) as substrate:
+        qm = await substrate.query_map(
+            "SubtensorModule",
+            "Alpha",
+            ["5CoZxgtfhcJKX2HmkwnsN18KbaT9aih9eF3b6qVPTgAUbifj"],
+        )
+        first_record = qm.records[0]
+        assert len(first_record) == 2
+        assert len(first_record[0]) == 4
