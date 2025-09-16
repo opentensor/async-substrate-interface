@@ -1,4 +1,9 @@
 # Changelog
+## 1.5.3 /2025-09-16
+* edge case query map keys by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/186
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.2...v1.5.3
+
 ## 1.5.2 /2025-09-08
 * Improve test workflows by @basfroman in https://github.com/opentensor/async-substrate-interface/pull/173
 * Adds env var support for setting cache size by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/174

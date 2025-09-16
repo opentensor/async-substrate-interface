@@ -135,11 +135,14 @@ def decode_query_map(
                 if decode_ss58:
                     if kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0":
                         item_key = ss58_encode(bytes(item_key[0]), runtime.ss58_format)
-
             else:
-                item_key = tuple(
-                    dk[key + 1] for key in range(len(params), len(param_types) + 1, 2)
-                )
+                try:
+                    item_key = tuple(
+                        dk[key + 1]
+                        for key in range(len(params), len(param_types) + 1, 2)
+                    )
+                except IndexError:
+                    item_key = dk
 
         except Exception as _:
             if not ignore_decoding_errors:
