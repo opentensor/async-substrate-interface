@@ -1,4 +1,9 @@
 # Changelog
+## 1.5.4 /2025-09-23
+* Raw Websocket Logger Inconsistency Fix by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/188
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.3...v1.5.4
+
 ## 1.5.3 /2025-09-16
 * edge case query map keys by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/186
 
