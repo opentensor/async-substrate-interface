@@ -1899,10 +1899,10 @@ class SubstrateInterface(SubstrateMixin):
         ws = self.connect(init=False if attempt == 1 else True)
         for payload in payloads:
             item_id = get_next_id()
-            to_send = {**payload["payload"], **{"id": item_id}}
+            to_send = json.dumps({**payload["payload"], **{"id": item_id}})
             if self.log_raw_websockets:
                 raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
-            ws.send(json.dumps(to_send))
+            ws.send(to_send)
             request_manager.add_request(item_id, payload["id"])
             logger.debug(
                 f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}"
