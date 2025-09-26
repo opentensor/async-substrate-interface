@@ -610,6 +610,7 @@ class Websocket:
                 try:
                     await asyncio.wait_for(self._cancel(), timeout=10.0)
                 except asyncio.TimeoutError:
+                    logger.debug(f"Timed out waiting for cancellation")
                     pass
                 self.ws = await asyncio.wait_for(
                     connect(self.ws_url, **self._options), timeout=10.0
@@ -618,8 +619,9 @@ class Websocket:
                     self._send_recv_task = asyncio.get_running_loop().create_task(
                         self._handler(self.ws)
                     )
+                logger.debug("Websocket handler attached.")
 
-    async def _handler(self, ws: ClientConnection) -> None:
+    async def _handler(self, ws: ClientConnection) -> Union[None, Exception]:
         recv_task = asyncio.create_task(self._start_receiving(ws))
         send_task = asyncio.create_task(self._start_sending(ws))
         done, pending = await asyncio.wait(
@@ -652,6 +654,7 @@ class Websocket:
                 )
             await self.connect(True)
             await self._handler(ws=self.ws)
+            return None
         elif isinstance(e := recv_task.result(), Exception):
             return e
         elif isinstance(e := send_task.result(), Exception):
@@ -834,8 +837,10 @@ class Websocket:
             except asyncio.QueueEmpty:
                 pass
         if self._send_recv_task is not None and self._send_recv_task.done():
-            if isinstance(e := self._send_recv_task.result(), Exception):
-                raise e
+            if not self._send_recv_task.cancelled():
+                if isinstance((e := self._send_recv_task.exception()), Exception):
+                    logger.exception(f"Websocket sending exception: {e}")
+                    raise e
         await asyncio.sleep(0.1)
         return None
 
