@@ -2382,8 +2382,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
+                if len(stringified_payload := str(payload)) < 2_000:
+                    output_payload = stringified_payload
+                else:
+                    output_payload = f"{stringified_payload[:2_000]} (truncated)"
                 logger.debug(
-                    f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}"
+                    f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {output_payload}"
                 )
 
             while True:
