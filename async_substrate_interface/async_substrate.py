@@ -610,6 +610,7 @@ class Websocket:
                 try:
                     await asyncio.wait_for(self._cancel(), timeout=10.0)
                 except asyncio.TimeoutError:
+                    logger.debug(f"Timed out waiting for cancellation")
                     pass
                 self.ws = await asyncio.wait_for(
                     connect(self.ws_url, **self._options), timeout=10.0
@@ -618,8 +619,9 @@ class Websocket:
                     self._send_recv_task = asyncio.get_running_loop().create_task(
                         self._handler(self.ws)
                     )
+                logger.debug("Websocket handler attached.")
 
-    async def _handler(self, ws: ClientConnection) -> None:
+    async def _handler(self, ws: ClientConnection) -> Union[None, Exception]:
         recv_task = asyncio.create_task(self._start_receiving(ws))
         send_task = asyncio.create_task(self._start_sending(ws))
         done, pending = await asyncio.wait(
@@ -652,6 +654,7 @@ class Websocket:
                 )
             await self.connect(True)
             await self._handler(ws=self.ws)
+            return None
         elif isinstance(e := recv_task.result(), Exception):
             return e
         elif isinstance(e := send_task.result(), Exception):
@@ -834,8 +837,10 @@ class Websocket:
             except asyncio.QueueEmpty:
                 pass
         if self._send_recv_task is not None and self._send_recv_task.done():
-            if isinstance(e := self._send_recv_task.result(), Exception):
-                raise e
+            if not self._send_recv_task.cancelled():
+                if isinstance((e := self._send_recv_task.exception()), Exception):
+                    logger.exception(f"Websocket sending exception: {e}")
+                    raise e
         await asyncio.sleep(0.1)
         return None
 
@@ -2377,8 +2382,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
+                # truncate to 2000 chars for debug logging
+                if len(stringified_payload := str(payload)) < 2_000:
+                    output_payload = stringified_payload
+                else:
+                    output_payload = f"{stringified_payload[:2_000]} (truncated)"
                 logger.debug(
-                    f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {payload}"
+                    f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {output_payload}"
                 )
 
             while True:
@@ -2420,6 +2430,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             request_manager.add_response(
                                 item_id, decoded_response, complete
                             )
+                            # truncate to 2000 chars for debug logging
                             if (
                                 len(stringified_response := str(decoded_response))
                                 < 2_000
