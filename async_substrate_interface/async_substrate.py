@@ -2382,6 +2382,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
+                # truncate to 2000 chars for debug logging
                 if len(stringified_payload := str(payload)) < 2_000:
                     output_payload = stringified_payload
                 else:
@@ -2429,6 +2430,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             request_manager.add_response(
                                 item_id, decoded_response, complete
                             )
+                            # truncate to 2000 chars for debug logging
                             if (
                                 len(stringified_response := str(decoded_response))
                                 < 2_000
