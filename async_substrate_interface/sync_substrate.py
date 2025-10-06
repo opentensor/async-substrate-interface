@@ -2068,7 +2068,7 @@ class SubstrateInterface(SubstrateMixin):
         return self.rpc_request("chain_getBlockHash", [block_id])["result"]
 
     def get_chain_head(self) -> str:
-        result = self._make_rpc_request(
+        response = self._make_rpc_request(
             [
                 self.make_payload(
                     "rpc_request",
@@ -2077,10 +2077,11 @@ class SubstrateInterface(SubstrateMixin):
                 )
             ]
         )
-        if "error" in result[0]:
-            raise SubstrateRequestException(result[0]["error"]["message"])
-        self.last_block_hash = result["rpc_request"][0]["result"]
-        return result["rpc_request"][0]["result"]
+        result = response["rpc_request"][0]
+        if "error" in result:
+            raise SubstrateRequestException(result["error"]["message"])
+        self.last_block_hash = result["result"]
+        return result["result"]
 
     def compose_call(
         self,
