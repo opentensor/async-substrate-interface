@@ -1407,7 +1407,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         runtime = await self.init_runtime()
 
         result_data = await self.rpc_request("author_pendingExtrinsics", [])
-
+        if "error" in result_data:
+            raise SubstrateRequestException(result_data["error"]["message"])
         extrinsics = []
 
         for extrinsic_data in result_data["result"]:
@@ -2141,6 +2142,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def _get_parent_block_hash(self, block_hash) -> str:
         block_header = await self.rpc_request("chain_getHeader", [block_hash])
+        if "error" in block_header:
+            raise SubstrateRequestException(block_header["error"]["message"])
 
         if block_header["result"] is None:
             raise SubstrateRequestException(f'Block not found for "{block_hash}"')
@@ -2172,15 +2175,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             response = await self.rpc_request(
                 "state_getStorage", [storage_key, block_hash]
             )
-
-        if "result" in response:
-            return response.get("result")
-        elif "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
-        else:
-            raise SubstrateRequestException(
-                "Unknown error occurred during retrieval of events"
-            )
+        return response.get("result")
 
     @cached_fetcher(max_size=SUBSTRATE_RUNTIME_CACHE_SIZE)
     async def get_block_runtime_info(self, block_hash: str) -> dict:
@@ -2235,9 +2230,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if block_hash:
             params = [block_hash]
         response = await self.rpc_request("state_getMetadata", params)
-
-        if "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
 
         if (result := response.get("result")) and decode:
             metadata_decoder = runtime_config.create_scale_object(
@@ -2562,6 +2554,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 )
             ]
         )
+        if "error" in result[0]:
+            raise SubstrateRequestException(result[0]["error"]["message"])
         self.last_block_hash = result["rpc_request"][0]["result"]
         return result["rpc_request"][0]["result"]
 
@@ -2689,9 +2683,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
             [[s.to_hex() for s in storage_keys], block_hash],
             runtime=runtime,
         )
-
-        if "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
 
         result = []
 
@@ -3044,12 +3035,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         """
         response = await self.rpc_request("chain_getFinalizedHead", [])
-
-        if response is not None:
-            if "error" in response:
-                raise SubstrateRequestException(response["error"]["message"])
-
-            return response.get("result")
+        return response["result"]
 
     async def _do_runtime_call_old(
         self,
@@ -3092,6 +3078,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             [f"{api}_{method}", param_data.hex(), block_hash],
             runtime=runtime,
         )
+        if "error" in result_data:
+            raise SubstrateRequestException(result_data["error"]["message"])
         result_vec_u8_bytes = hex_to_bytes(result_data["result"])
         result_bytes = await self.decode_scale(
             "Vec<u8>", result_vec_u8_bytes, runtime=runtime
@@ -3185,6 +3173,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             [f"{api}_{method}", param_data.hex(), block_hash],
             runtime=runtime,
         )
+        if "error" in result_data:
+            raise SubstrateRequestException(result_data["error"]["message"])
         output_type_string = f"scale_info::{runtime_call_def['output']}"
 
         # Decode result
@@ -3237,6 +3227,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 nonce_obj = await self.rpc_request(
                     "account_nextIndex", [account_address]
                 )
+                if "error" in nonce_obj:
+                    raise SubstrateRequestException(nonce_obj["error"]["message"])
                 self._nonces[account_address] = nonce_obj["result"]
             else:
                 self._nonces[account_address] += 1
@@ -3622,9 +3614,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 method="state_getKeys", params=[prefix, block_hash], runtime=runtime
             )
 
-        if "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
-
         result_keys = response.get("result")
 
         result = []
@@ -3640,8 +3629,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     params=[result_keys, block_hash],
                     runtime=runtime,
                 )
-                if "error" in response:
-                    raise SubstrateRequestException(response["error"]["message"])
                 for result_group in response["result"]:
                     result = decode_query_map(
                         result_group["changes"],
@@ -3680,8 +3667,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         )
                     )
                 for response in all_responses:
-                    if "error" in response:
-                        raise SubstrateRequestException(response["error"]["message"])
                     for result_group in response["result"]:
                         changes.extend(result_group["changes"])
 
@@ -3905,9 +3890,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "author_submitExtrinsic", [str(extrinsic.data)]
             )
 
-            if "result" not in response:
-                raise SubstrateRequestException(response.get("error"))
-
             result = AsyncExtrinsicReceipt(
                 substrate=self, extrinsic_hash=response["result"]
             )
@@ -3994,12 +3976,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """Async version of `substrateinterface.base.get_block_number` method."""
         response = await self.rpc_request("chain_getHeader", [block_hash])
 
-        if "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
-
-        elif "result" in response:
-            if response["result"]:
-                return int(response["result"]["number"], 16)
+        if response["result"]:
+            return int(response["result"]["number"], 16)
         raise SubstrateRequestException(
             f"Unable to retrieve block number for {block_hash}"
         )

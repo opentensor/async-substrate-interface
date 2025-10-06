@@ -1709,8 +1709,6 @@ class SubstrateInterface(SubstrateMixin):
 
         if "result" in response:
             return response.get("result")
-        elif "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
         else:
             raise SubstrateRequestException(
                 "Unknown error occurred during retrieval of events"
@@ -1760,9 +1758,6 @@ class SubstrateInterface(SubstrateMixin):
         if block_hash:
             params = [block_hash]
         response = self.rpc_request("state_getMetadata", params)
-
-        if "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
 
         if (result := response.get("result")) and decode:
             metadata_decoder = self.runtime_config.create_scale_object(
@@ -2082,6 +2077,8 @@ class SubstrateInterface(SubstrateMixin):
                 )
             ]
         )
+        if "error" in result[0]:
+            raise SubstrateRequestException(result[0]["error"]["message"])
         self.last_block_hash = result["rpc_request"][0]["result"]
         return result["rpc_request"][0]["result"]
 
@@ -2190,9 +2187,6 @@ class SubstrateInterface(SubstrateMixin):
         response = self.rpc_request(
             "state_queryStorageAt", [[s.to_hex() for s in storage_keys], block_hash]
         )
-
-        if "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
 
         result = []
 
@@ -2528,12 +2522,7 @@ class SubstrateInterface(SubstrateMixin):
 
         """
         response = self.rpc_request("chain_getFinalizedHead", [])
-
-        if response is not None:
-            if "error" in response:
-                raise SubstrateRequestException(response["error"]["message"])
-
-            return response.get("result")
+        return response["result"]
 
     def _do_runtime_call_old(
         self,
@@ -3051,9 +3040,6 @@ class SubstrateInterface(SubstrateMixin):
             params=[prefix, page_size, start_key, block_hash],
         )
 
-        if "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
-
         result_keys = response.get("result")
 
         result = []
@@ -3066,9 +3052,6 @@ class SubstrateInterface(SubstrateMixin):
             response = self.rpc_request(
                 method="state_queryStorageAt", params=[result_keys, block_hash]
             )
-
-            if "error" in response:
-                raise SubstrateRequestException(response["error"]["message"])
 
             for result_group in response["result"]:
                 result = decode_query_map(
@@ -3376,15 +3359,12 @@ class SubstrateInterface(SubstrateMixin):
         """Async version of `substrateinterface.base.get_block_number` method."""
         response = self.rpc_request("chain_getHeader", [block_hash])
 
-        if "error" in response:
-            raise SubstrateRequestException(response["error"]["message"])
-
-        elif "result" in response:
-            if response["result"]:
-                return int(response["result"]["number"], 16)
-        raise SubstrateRequestException(
-            f"Unable to determine block number for {block_hash}"
-        )
+        if response["result"]:
+            return int(response["result"]["number"], 16)
+        else:
+            raise SubstrateRequestException(
+                f"Unable to determine block number for {block_hash}"
+            )
 
     def close(self):
         """
