@@ -1,4 +1,9 @@
 # Changelog
+## 1.5.5 /2025-10-06
+* Improve timeout task cancellation by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/190
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.4...v1.5.5
+
 ## 1.5.4 /2025-09-23
 * Raw Websocket Logger Inconsistency Fix by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/188
 
