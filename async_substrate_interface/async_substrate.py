@@ -3055,7 +3055,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         param_data = b""
 
         if "encoder" in runtime_call_def:
-            param_data = runtime_call_def["encoder"](params)
+            if runtime is None:
+                runtime = await self.init_runtime(block_hash=block_hash)
+            param_data = runtime_call_def["encoder"](params, runtime.registry)
         else:
             for idx, param in enumerate(runtime_call_def["params"]):
                 param_type_string = f"{param['type']}"
