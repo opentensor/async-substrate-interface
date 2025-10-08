@@ -1,3 +1,5 @@
+from typing import Union
+from collections import namedtuple
 from bt_decode import (
     NeuronInfo,
     NeuronInfoLite,
@@ -9,6 +11,18 @@ from bt_decode import (
     encode,
 )
 from scalecodec import ss58_decode
+
+
+def stake_info_decode_vec_legacy_compatibility(item) -> list[dict[str, Union[str, int, bytes, bool]]]:
+    stake_infos: list[StakeInfo] = StakeInfo.decode_vec(item)
+    NewStakeInfo = namedtuple("NewStakeInfo", ["netuid", "hotkey", "coldkey", "stake", "locked", "emission", "drain", "is_registered"])
+    output = []
+    for stake_info in stake_infos:
+        output.append(
+            NewStakeInfo(0, stake_info.hotkey, stake_info.coldkey, stake_info.stake, 0, 0, 0, False)
+        )
+    return output
+
 
 _TYPE_REGISTRY: dict[str, dict] = {
     "types": {
@@ -102,7 +116,7 @@ _TYPE_REGISTRY: dict[str, dict] = {
                     "encoder": lambda addr, reg: encode(
                         "Vec<u8>", reg, list(bytes.fromhex(ss58_decode(addr[0] if isinstance(addr, list) else addr["coldkey"])))
                     ),
-                    "decoder": StakeInfo.decode_vec,
+                    "decoder": stake_info_decode_vec_legacy_compatibility,
                 },
                 "get_stake_info_for_coldkeys": {
                     "params": [
