@@ -13,14 +13,49 @@ from bt_decode import (
 from scalecodec import ss58_decode
 
 
-def stake_info_decode_vec_legacy_compatibility(item) -> list[dict[str, Union[str, int, bytes, bool]]]:
+def stake_info_decode_vec_legacy_compatibility(
+    item,
+) -> list[dict[str, Union[str, int, bytes, bool]]]:
     stake_infos: list[StakeInfo] = StakeInfo.decode_vec(item)
-    NewStakeInfo = namedtuple("NewStakeInfo", ["netuid", "hotkey", "coldkey", "stake", "locked", "emission", "drain", "is_registered"])
+    NewStakeInfo = namedtuple(
+        "NewStakeInfo",
+        [
+            "netuid",
+            "hotkey",
+            "coldkey",
+            "stake",
+            "locked",
+            "emission",
+            "drain",
+            "is_registered",
+        ],
+    )
     output = []
     for stake_info in stake_infos:
         output.append(
-            NewStakeInfo(0, stake_info.hotkey, stake_info.coldkey, stake_info.stake, 0, 0, 0, False)
+            NewStakeInfo(
+                0,
+                stake_info.hotkey,
+                stake_info.coldkey,
+                stake_info.stake,
+                0,
+                0,
+                0,
+                False,
+            )
         )
+    return output
+
+
+def preprocess_get_stake_info_for_coldkeys(addrs):
+    output = []
+    if isinstance(addrs[0], list):  # I think
+        for addr in addrs[0]:
+            output.append(list(bytes.fromhex(ss58_decode(addr))))
+    else:
+        if isinstance(addrs[0], dict):
+            for addr in addrs[0]["coldkey_accounts"]:
+                output.append(list(bytes.fromhex(ss58_decode(addr))))
     return output
 
 
@@ -114,7 +149,17 @@ _TYPE_REGISTRY: dict[str, dict] = {
                     ],
                     "type": "Vec<u8>",
                     "encoder": lambda addr, reg: encode(
-                        "Vec<u8>", reg, list(bytes.fromhex(ss58_decode(addr[0] if isinstance(addr, list) else addr["coldkey"])))
+                        "Vec<u8>",
+                        reg,
+                        list(
+                            bytes.fromhex(
+                                ss58_decode(
+                                    addr[0]
+                                    if isinstance(addr, list)
+                                    else addr["coldkey_account"]
+                                )
+                            )
+                        ),
                     ),
                     "decoder": stake_info_decode_vec_legacy_compatibility,
                 },
@@ -129,7 +174,7 @@ _TYPE_REGISTRY: dict[str, dict] = {
                     "encoder": lambda addrs, reg: encode(
                         "Vec<Vec<u8>>",
                         reg,
-                        [list(bytes.fromhex(ss58_decode(addr))) for addr in addrs],
+                        preprocess_get_stake_info_for_coldkeys(addrs),
                     ),
                     "decoder": StakeInfo.decode_vec_tuple_vec,
                 },

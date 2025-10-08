@@ -116,8 +116,13 @@ def test_query_map_with_odd_number_of_params():
 
 def test_old_runtime_calls():
     from bittensor import SubtensorApi
-    sub = SubtensorApi(network='archive', legacy_methods=True, async_subtensor=False)
+
+    sub = SubtensorApi(network="archive", legacy_methods=True, async_subtensor=False)
     # will pass
-    assert sub.get_stake_info_for_coldkey('5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G', 4943592)
+    assert sub.get_stake_info_for_coldkey(
+        "5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G", 4943592
+    )
     # needs to use legacy
-    assert sub.get_stake_info_for_coldkey('5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G', 4670227)
+    assert sub.get_stake_info_for_coldkey(
+        "5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G", 4670227
+    )
