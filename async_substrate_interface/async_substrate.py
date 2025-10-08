@@ -24,6 +24,7 @@ from typing import (
 
 import websockets.exceptions
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
+from scalecodec import GenericVariant
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import (
@@ -3912,10 +3913,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         module_name: str,
         call_function_name: str,
         block_hash: Optional[str] = None,
-    ) -> Optional[list]:
+    ) -> Optional[GenericVariant]:
         """
-        Retrieves a list of all call functions in metadata active for given block_hash (or chaintip if block_hash
-        is omitted)
+        Retrieves specified call from the metadata at the block specified, or the chain tip if omitted.
 
         Args:
             module_name: name of the module
@@ -3923,7 +3923,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             block_hash: optional block hash
 
         Returns:
-            list of call functions
+            The dict-like call definition, if found. None otherwise.
         """
         runtime = await self.init_runtime(block_hash=block_hash)
 

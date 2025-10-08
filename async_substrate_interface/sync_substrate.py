@@ -13,6 +13,7 @@ from scalecodec import (
     GenericRuntimeCallDefinition,
     ss58_encode,
     MultiAccountId,
+    GenericVariant,
 )
 from scalecodec.base import ScaleBytes, ScaleType
 from websockets.sync.client import connect, ClientConnection
@@ -3290,10 +3291,9 @@ class SubstrateInterface(SubstrateMixin):
         module_name: str,
         call_function_name: str,
         block_hash: Optional[str] = None,
-    ) -> Optional[list]:
+    ) -> Optional[GenericVariant]:
         """
-        Retrieves a list of all call functions in metadata active for given block_hash (or chaintip if block_hash
-        is omitted)
+        Retrieves specified call from the metadata at the block specified, or the chain tip if omitted.
 
         Args:
             module_name: name of the module
@@ -3301,7 +3301,7 @@ class SubstrateInterface(SubstrateMixin):
             block_hash: optional block hash
 
         Returns:
-            list of call functions
+            The dict-like call definition, if found. None otherwise.
         """
         self.init_runtime(block_hash=block_hash)
 
