@@ -100,7 +100,7 @@ _TYPE_REGISTRY: dict[str, dict] = {
                     ],
                     "type": "Vec<u8>",
                     "encoder": lambda addr, reg: encode(
-                        "Vec<u8>", reg, list(bytes.fromhex(ss58_decode(addr)))
+                        "Vec<u8>", reg, list(bytes.fromhex(ss58_decode(addr[0] if isinstance(addr, list) else addr["coldkey"])))
                     ),
                     "decoder": StakeInfo.decode_vec,
                 },

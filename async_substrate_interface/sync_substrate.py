@@ -2541,8 +2541,7 @@ class SubstrateInterface(SubstrateMixin):
         param_data = b""
 
         if "encoder" in runtime_call_def:
-            if runtime is None:
-                runtime = self.init_runtime(block_hash=block_hash)
+            runtime = self.init_runtime(block_hash=block_hash)
             param_data = runtime_call_def["encoder"](params, runtime.registry)
         else:
             for idx, param in enumerate(runtime_call_def["params"]):
