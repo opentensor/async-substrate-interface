@@ -264,7 +264,7 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         _mock: bool = False,
         _log_raw_websockets: bool = False,
         archive_nodes: Optional[list[str]] = None,
-        ws_shutdown_timer: float = 5.0,
+        ws_shutdown_timer: Optional[float] = 5.0,
     ):
         fallback_chains = fallback_chains or []
         archive_nodes = archive_nodes or []
