@@ -661,6 +661,7 @@ class Websocket:
             return e
         elif isinstance(e := send_task.result(), Exception):
             return e
+        return None
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.shutdown_timer is not None:
