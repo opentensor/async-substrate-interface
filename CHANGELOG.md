@@ -1,4 +1,14 @@
 # Changelog
+## 1.5.6 /2025-10-08
+* Clean Up Error Handling by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/193
+* Avoids ID of 'None' in queries by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/196
+* Allows AsyncSubstrateInterface's Websocket connection to not automatically shut down by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/197
+* return type annotation for `get_metadata_call_function` by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/199
+* Change responses["results"] to deque by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/198
+* do not attempt to reconnect if there are open subscriptions by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/200
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.5...v1.5.6
+
 ## 1.5.5 /2025-10-06
 * Improve timeout task cancellation by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/190
 
