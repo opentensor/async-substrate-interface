@@ -526,9 +526,9 @@ class Websocket:
     def __init__(
         self,
         ws_url: str,
-        max_subscriptions=1024,
-        max_connections=100,
-        shutdown_timer=5,
+        max_subscriptions: int = 1024,
+        max_connections: int = 100,
+        shutdown_timer: Optional[float] = 5.0,
         options: Optional[dict] = None,
         _log_raw_websockets: bool = False,
         retry_timeout: float = 60.0,
@@ -542,7 +542,9 @@ class Websocket:
             ws_url: Websocket URL to connect to
             max_subscriptions: Maximum number of subscriptions per websocket connection
             max_connections: Maximum number of connections total
-            shutdown_timer: Number of seconds to shut down websocket connection after last use
+            shutdown_timer: Number of seconds to shut down websocket connection after last use. If set to `None`, the
+                connection will never be automatically shut down. Use this for very long-running processes, where you
+                will manually shut down the connection if ever you intend to close it.
             options: Options to pass to the websocket connection
             _log_raw_websockets: Whether to log raw websockets in the "raw_websocket" logger
             retry_timeout: Timeout in seconds to retry websocket connection
@@ -659,17 +661,19 @@ class Websocket:
             return e
         elif isinstance(e := send_task.result(), Exception):
             return e
+        return None
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if not self.state != State.CONNECTING:
-            if self._exit_task is not None:
-                self._exit_task.cancel()
-                try:
-                    await self._exit_task
-                except asyncio.CancelledError:
-                    pass
-            if self.ws is not None:
-                self._exit_task = asyncio.create_task(self._exit_with_timer())
+        if self.shutdown_timer is not None:
+            if not self.state != State.CONNECTING:
+                if self._exit_task is not None:
+                    self._exit_task.cancel()
+                    try:
+                        await self._exit_task
+                    except asyncio.CancelledError:
+                        pass
+                if self.ws is not None:
+                    self._exit_task = asyncio.create_task(self._exit_with_timer())
 
     async def _exit_with_timer(self):
         """
@@ -677,7 +681,8 @@ class Websocket:
         for reuse of the websocket connection.
         """
         try:
-            await asyncio.sleep(self.shutdown_timer)
+            if self.shutdown_timer is not None:
+                await asyncio.sleep(self.shutdown_timer)
             await self.shutdown()
         except asyncio.CancelledError:
             pass
