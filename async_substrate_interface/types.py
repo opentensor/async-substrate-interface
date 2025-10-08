@@ -1,6 +1,6 @@
 import logging
 from abc import ABC
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -374,7 +374,9 @@ class RequestManager:
 
     def __init__(self, payloads):
         self.response_map = {}
-        self.responses = defaultdict(lambda: {"complete": False, "results": []})
+        self.responses = defaultdict(
+            lambda: {"complete": False, "results": deque(maxlen=100)}
+        )
         self.payloads_count = len(payloads)
 
     def add_request(self, item_id: str, request_id: str):
