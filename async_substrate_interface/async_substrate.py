@@ -646,6 +646,10 @@ class Websocket:
                 self._attempts += 1
                 is_retry = True
         if should_reconnect is True:
+            if len(self._received_subscriptions) > 0:
+                return SubstrateRequestException(
+                    f"Unable to reconnect because there are currently open subscriptions."
+                )
             for original_id, payload in list(self._inflight.items()):
                 self._received[original_id] = loop.create_future()
                 to_send = json.loads(payload)
@@ -662,6 +666,11 @@ class Websocket:
             return e
         elif isinstance(e := send_task.result(), Exception):
             return e
+        elif len(self._received_subscriptions) > 0:
+            return SubstrateRequestException(
+                f"Currently open subscriptions while disconnecting. "
+                f"Ensure these are unsubscribed from before closing in the future."
+            )
         return None
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
