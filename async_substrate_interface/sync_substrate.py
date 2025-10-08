@@ -1820,8 +1820,13 @@ class SubstrateInterface(SubstrateMixin):
                 metadata=self.runtime.metadata,
             )
         method = "state_getStorageAt"
+        queryable = (
+            str(query_for)
+            if query_for is not None
+            else f"{method}{random.randint(0, 7000)}"
+        )
         return Preprocessed(
-            str(query_for),
+            queryable,
             method,
             [storage_key.to_hex(), block_hash],
             value_scale_type,
