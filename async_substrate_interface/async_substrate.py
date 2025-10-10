@@ -856,7 +856,7 @@ class Websocket:
                 pass
         if self._send_recv_task is not None and self._send_recv_task.done():
             if not self._send_recv_task.cancelled():
-                if isinstance((e := self._send_recv_task.result()), Exception):
+                if isinstance((e := self._send_recv_task.exception()), Exception):
                     logger.exception(f"Websocket sending exception: {e}")
                     raise e
                 elif isinstance((e := self._send_recv_task.result()), Exception):
