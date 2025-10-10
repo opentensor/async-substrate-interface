@@ -15,9 +15,17 @@ on:
       - staging
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
+  workflow_dispatch:
+    inputs:
+      bittensor_branch:
+        description: "Optional: Bittensor branch to use instead of staging"
+        required: false
+        default: "staging"
+
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
+  BITTENSOR_BRANCH: ${{ github.event.inputs.bittensor_branch || 'staging' }}
 
 jobs:
   apply-label-to-new-pr:
@@ -79,9 +87,15 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: git clone https://github.com/opentensor/bittensor.git
 
-      - name: Checkout
+      - name: Verify and checkout Bittensor branch
         working-directory: ${{ github.workspace }}/bittensor
-        run: git checkout staging
+        run: |
+          if ! git fetch origin $BITTENSOR_BRANCH; then
+            echo "❌ Error: Branch '$BITTENSOR_BRANCH' does not exist in opentensor/bittensor."
+            exit 1
+          fi
+          git checkout FETCH_HEAD
+          echo "✅ Using Bittensor branch: $BITTENSOR_BRANCH"
 
       - name: Install dependencies
         run: sudo apt-get install -y jq
@@ -90,11 +104,14 @@ jobs:
         id: get-tests
         run: |
           test_files=$(find ${{ github.workspace }}/bittensor/tests/e2e_tests -name "test*.py" | jq -R -s -c 'split("\n") | map(select(. != ""))')
-          echo "::set-output name=test-files::$test_files"
+          echo "test-files=$test_files" >> $GITHUB_OUTPUT
         shell: bash
 
   pull-docker-image:
-    needs: check-labels
+    needs:
+       - check-labels
+       - find-e2e-tests
+
     runs-on: ubuntu-latest
     if: always() && needs.check-labels.outputs.run-sdk-tests == 'true'
     steps:
@@ -163,8 +180,12 @@ jobs:
         working-directory: ${{ github.workspace }}/bittensor
         run: |
           source ${{ github.workspace }}/venv/bin/activate
-          git checkout staging
-          git fetch origin staging
+          if ! git fetch origin $BITTENSOR_BRANCH; then
+            echo "❌ Error: Branch '$BITTENSOR_BRANCH' does not exist in opentensor/bittensor."
+            exit 1
+          fi
+          git checkout FETCH_HEAD
+          echo "✅ Using Bittensor branch: $BITTENSOR_BRANCH"
           python3 -m pip install --upgrade pip
           python3 -m pip install '.[dev]'
 
@@ -225,8 +246,12 @@ jobs:
         working-directory: ${{ github.workspace }}/bittensor
         run: |
           source ${{ github.workspace }}/venv/bin/activate
-          git checkout staging
-          git fetch origin staging
+          if ! git fetch origin $BITTENSOR_BRANCH; then
+            echo "❌ Error: Branch '$BITTENSOR_BRANCH' does not exist in opentensor/bittensor."
+            exit 1
+          fi
+          git checkout FETCH_HEAD
+          echo "✅ Using Bittensor branch: $BITTENSOR_BRANCH"
           python3 -m pip install --upgrade pip
           python3 -m pip install '.[dev]'
 
