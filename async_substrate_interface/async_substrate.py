@@ -755,6 +755,7 @@ class Websocket:
         try:
             while True:
                 to_send_ = await self._sending.get()
+                self._sending.task_done()
                 send_id = to_send_["id"]
                 to_send = json.dumps(to_send_)
                 async with self._lock:
@@ -848,7 +849,9 @@ class Websocket:
                 return res
         else:
             try:
-                return self._received_subscriptions[item_id].get_nowait()
+                subscription = self._received_subscriptions[item_id].get_nowait()
+                self._received_subscriptions[item_id].task_done()
+                return subscription
             except asyncio.QueueEmpty:
                 pass
         if self._send_recv_task is not None and self._send_recv_task.done():
