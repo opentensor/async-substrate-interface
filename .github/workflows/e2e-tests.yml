@@ -1,4 +1,4 @@
-name: E2E Tests
+name: ASI E2E Tests
 
 concurrency:
   group: e2e-${{ github.event.pull_request.number || github.ref }}
