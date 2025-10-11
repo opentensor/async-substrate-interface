@@ -561,7 +561,7 @@ class Websocket:
         self._received: dict[str, asyncio.Future] = {}
         self._received_subscriptions: dict[str, asyncio.Queue] = {}
         self._sending: Optional[asyncio.Queue] = None
-        self._send_recv_task = None
+        self._send_recv_task: Optional[asyncio.Task] = None
         self._inflight: dict[str, str] = {}
         self._attempts = 0
         self._lock = asyncio.Lock()
@@ -747,7 +747,7 @@ class Websocket:
             elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
                 logger.debug("Websocket connection closed.")
             else:
-                logger.debug(f"Timeout occurred. Reconnecting.")
+                logger.debug(f"Timeout occurred.")
             return e
 
     async def _start_sending(self, ws) -> Exception:
@@ -780,7 +780,7 @@ class Websocket:
             elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
                 logger.debug("Websocket connection closed.")
             else:
-                logger.debug("Timeout occurred. Reconnecting.")
+                logger.debug("Timeout occurred.")
             return e
 
     async def send(self, payload: dict) -> str:
@@ -857,6 +857,9 @@ class Websocket:
         if self._send_recv_task is not None and self._send_recv_task.done():
             if not self._send_recv_task.cancelled():
                 if isinstance((e := self._send_recv_task.exception()), Exception):
+                    logger.exception(f"Websocket sending exception: {e}")
+                    raise e
+                elif isinstance((e := self._send_recv_task.result()), Exception):
                     logger.exception(f"Websocket sending exception: {e}")
                     raise e
         await asyncio.sleep(0.1)
