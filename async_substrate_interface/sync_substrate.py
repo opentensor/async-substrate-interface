@@ -34,6 +34,7 @@ from async_substrate_interface.types import (
     RequestManager,
     Preprocessed,
     ScaleObj,
+    RequestResults,
 )
 from async_substrate_interface.utils import (
     hex_to_bytes,
@@ -1892,7 +1893,7 @@ class SubstrateInterface(SubstrateMixin):
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
         force_legacy_decode: bool = False,
-    ) -> RequestManager.RequestResults:
+    ) -> RequestResults:
         request_manager = RequestManager(payloads)
         _received = {}
         subscription_added = False
