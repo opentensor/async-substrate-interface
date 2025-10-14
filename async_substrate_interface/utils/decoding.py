@@ -113,7 +113,9 @@ def decode_query_map(
 
     for item in result_group_changes:
         pre_decoded_keys.append(bytes.fromhex(item[0][len(prefix) :]))
-        pre_decoded_values.append(hex_to_bytes_(item[1]))
+        pre_decoded_values.append(
+            hex_to_bytes_(item[1]) if item[1] is not None else b""
+        )
     all_decoded = _decode_scale_list_with_runtime(
         pre_decoded_key_types + pre_decoded_value_types,
         pre_decoded_keys + pre_decoded_values,

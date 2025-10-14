@@ -3670,34 +3670,40 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         self.decode_ss58,
                     )
             else:
-                all_responses = []
                 page_batches = [
                     result_keys[i : i + page_size]
                     for i in range(0, len(result_keys), page_size)
                 ]
                 changes = []
-                for batch_group in [
-                    # run five concurrent batch pulls; could go higher, but it's good to be a good citizens
-                    # of the ecosystem
-                    page_batches[i : i + 5]
-                    for i in range(0, len(page_batches), 5)
-                ]:
-                    all_responses.extend(
-                        await asyncio.gather(
-                            *[
-                                self.rpc_request(
-                                    method="state_queryStorageAt",
-                                    params=[batch_keys, block_hash],
-                                    runtime=runtime,
-                                )
-                                for batch_keys in batch_group
-                            ]
+                payloads = []
+                for idx, page_batch in enumerate(page_batches):
+                    payloads.append(
+                        self.make_payload(
+                            str(idx), "state_queryStorageAt", [page_batch, block_hash]
                         )
                     )
-                for response in all_responses:
-                    for result_group in response["result"]:
-                        changes.extend(result_group["changes"])
-
+                results: RequestResults = await self._make_rpc_request(
+                    payloads, runtime=runtime
+                )
+                for result in results.values():
+                    res = result[0]
+                    if "error" in res:
+                        err_msg = res["error"]["message"]
+                        if (
+                            "Client error: Api called for an unknown Block: State already discarded"
+                            in err_msg
+                        ):
+                            bh = err_msg.split("State already discarded for ")[
+                                1
+                            ].strip()
+                            raise StateDiscardedError(bh)
+                        else:
+                            raise SubstrateRequestException(err_msg)
+                    elif "result" not in res:
+                        raise SubstrateRequestException(res)
+                    else:
+                        for result_group in res["result"]:
+                            changes.extend(result_group["changes"])
                 result = decode_query_map(
                     changes,
                     prefix,
