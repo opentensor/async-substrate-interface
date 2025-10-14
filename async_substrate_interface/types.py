@@ -369,9 +369,10 @@ class Runtime:
         self.type_id_to_name = type_id_to_name
 
 
-class RequestManager:
-    RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
+RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
 
+
+class RequestManager:
     def __init__(self, payloads):
         self.response_map = {}
         self.responses = defaultdict(

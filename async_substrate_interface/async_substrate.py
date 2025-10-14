@@ -55,6 +55,7 @@ from async_substrate_interface.types import (
     RuntimeCache,
     SubstrateMixin,
     Preprocessed,
+    RequestResults,
 )
 from async_substrate_interface.utils import (
     hex_to_bytes,
@@ -2391,7 +2392,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         attempt: int = 1,
         runtime: Optional[Runtime] = None,
         force_legacy_decode: bool = False,
-    ) -> RequestManager.RequestResults:
+    ) -> RequestResults:
         request_manager = RequestManager(payloads)
 
         subscription_added = False
