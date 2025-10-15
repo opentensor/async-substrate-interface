@@ -135,7 +135,10 @@ def decode_query_map(
             if len(param_types) - len(params) == 1:
                 item_key = dk[1]
                 if decode_ss58:
-                    if kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0":
+                    if (
+                        isinstance(item_key[0], (tuple, list))
+                        and kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0"
+                    ):
                         item_key = ss58_encode(bytes(item_key[0]), runtime.ss58_format)
             else:
                 try:
