@@ -1,4 +1,17 @@
 # Changelog
+## 1.5.7 /2025-10-15
+* Updates the type hint on ws_shutdown_timer in RetryAsyncSubstrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/203
+* correct type hint by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/204
+* Clear asyncio.Queue after retrieval by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/206
+* Add the option to manually specify the Bittensor branch when running with `workflow_dispatch` by @basfroman in https://github.com/opentensor/async-substrate-interface/pull/208
+* Subscription Exception Handling by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/207
+* more efficient query map by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/211
+* Unique keys in request manager by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/212
+* Adds type annotations for Runtime by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/214
+* Edge case ss58 decoding in decode_query_map by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/213
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.6...v1.5.7
+
 ## 1.5.6 /2025-10-08
 * Clean Up Error Handling by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/193
 * Avoids ID of 'None' in queries by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/196
