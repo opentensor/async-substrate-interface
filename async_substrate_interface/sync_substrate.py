@@ -1896,6 +1896,10 @@ class SubstrateInterface(SubstrateMixin):
     ) -> RequestResults:
         request_manager = RequestManager(payloads)
         _received = {}
+
+        if len(set(x["id"] for x in payloads)) != len(payloads):
+            raise ValueError("Payloads must have unique ids")
+
         subscription_added = False
 
         ws = self.connect(init=False if attempt == 1 else True)
