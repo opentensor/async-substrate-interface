@@ -2395,6 +2395,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
     ) -> RequestResults:
         request_manager = RequestManager(payloads)
 
+        if len(set(x["id"] for x in payloads)) != len(payloads):
+            raise ValueError("Payloads must have unique ids")
+
         subscription_added = False
 
         async with self.ws as ws:
@@ -3670,6 +3673,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         self.decode_ss58,
                     )
             else:
+                # storage item and value scale type are not included here because this is batch-decoded in rust
                 page_batches = [
                     result_keys[i : i + page_size]
                     for i in range(0, len(result_keys), page_size)
