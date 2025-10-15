@@ -7,6 +7,8 @@
 * Subscription Exception Handling by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/207
 * more efficient query map by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/211
 * Unique keys in request manager by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/212
+* Adds type annotations for Runtime by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/214
+* Edge case ss58 decoding in decode_query_map by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/213
 
 **Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.6...v1.5.7
 
