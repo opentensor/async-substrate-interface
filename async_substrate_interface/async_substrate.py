@@ -55,6 +55,7 @@ from async_substrate_interface.types import (
     RuntimeCache,
     SubstrateMixin,
     Preprocessed,
+    RequestResults,
 )
 from async_substrate_interface.utils import (
     hex_to_bytes,
@@ -561,7 +562,7 @@ class Websocket:
         self._received: dict[str, asyncio.Future] = {}
         self._received_subscriptions: dict[str, asyncio.Queue] = {}
         self._sending: Optional[asyncio.Queue] = None
-        self._send_recv_task = None
+        self._send_recv_task: Optional[asyncio.Task] = None
         self._inflight: dict[str, str] = {}
         self._attempts = 0
         self._lock = asyncio.Lock()
@@ -747,7 +748,7 @@ class Websocket:
             elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
                 logger.debug("Websocket connection closed.")
             else:
-                logger.debug(f"Timeout occurred. Reconnecting.")
+                logger.debug(f"Timeout occurred.")
             return e
 
     async def _start_sending(self, ws) -> Exception:
@@ -755,6 +756,7 @@ class Websocket:
         try:
             while True:
                 to_send_ = await self._sending.get()
+                self._sending.task_done()
                 send_id = to_send_["id"]
                 to_send = json.dumps(to_send_)
                 async with self._lock:
@@ -779,7 +781,7 @@ class Websocket:
             elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
                 logger.debug("Websocket connection closed.")
             else:
-                logger.debug("Timeout occurred. Reconnecting.")
+                logger.debug("Timeout occurred.")
             return e
 
     async def send(self, payload: dict) -> str:
@@ -848,12 +850,17 @@ class Websocket:
                 return res
         else:
             try:
-                return self._received_subscriptions[item_id].get_nowait()
+                subscription = self._received_subscriptions[item_id].get_nowait()
+                self._received_subscriptions[item_id].task_done()
+                return subscription
             except asyncio.QueueEmpty:
                 pass
         if self._send_recv_task is not None and self._send_recv_task.done():
             if not self._send_recv_task.cancelled():
                 if isinstance((e := self._send_recv_task.exception()), Exception):
+                    logger.exception(f"Websocket sending exception: {e}")
+                    raise e
+                elif isinstance((e := self._send_recv_task.result()), Exception):
                     logger.exception(f"Websocket sending exception: {e}")
                     raise e
         await asyncio.sleep(0.1)
@@ -874,7 +881,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         retry_timeout: float = 60.0,
         _mock: bool = False,
         _log_raw_websockets: bool = False,
-        ws_shutdown_timer: float = 5.0,
+        ws_shutdown_timer: Optional[float] = 5.0,
         decode_ss58: bool = False,
     ):
         """
@@ -2385,8 +2392,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         attempt: int = 1,
         runtime: Optional[Runtime] = None,
         force_legacy_decode: bool = False,
-    ) -> RequestManager.RequestResults:
+    ) -> RequestResults:
         request_manager = RequestManager(payloads)
+
+        if len(set(x["id"] for x in payloads)) != len(payloads):
+            raise ValueError("Payloads must have unique ids")
 
         subscription_added = False
 
@@ -3663,34 +3673,41 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         self.decode_ss58,
                     )
             else:
-                all_responses = []
+                # storage item and value scale type are not included here because this is batch-decoded in rust
                 page_batches = [
                     result_keys[i : i + page_size]
                     for i in range(0, len(result_keys), page_size)
                 ]
                 changes = []
-                for batch_group in [
-                    # run five concurrent batch pulls; could go higher, but it's good to be a good citizens
-                    # of the ecosystem
-                    page_batches[i : i + 5]
-                    for i in range(0, len(page_batches), 5)
-                ]:
-                    all_responses.extend(
-                        await asyncio.gather(
-                            *[
-                                self.rpc_request(
-                                    method="state_queryStorageAt",
-                                    params=[batch_keys, block_hash],
-                                    runtime=runtime,
-                                )
-                                for batch_keys in batch_group
-                            ]
+                payloads = []
+                for idx, page_batch in enumerate(page_batches):
+                    payloads.append(
+                        self.make_payload(
+                            str(idx), "state_queryStorageAt", [page_batch, block_hash]
                         )
                     )
-                for response in all_responses:
-                    for result_group in response["result"]:
-                        changes.extend(result_group["changes"])
-
+                results: RequestResults = await self._make_rpc_request(
+                    payloads, runtime=runtime
+                )
+                for result in results.values():
+                    res = result[0]
+                    if "error" in res:
+                        err_msg = res["error"]["message"]
+                        if (
+                            "Client error: Api called for an unknown Block: State already discarded"
+                            in err_msg
+                        ):
+                            bh = err_msg.split("State already discarded for ")[
+                                1
+                            ].strip()
+                            raise StateDiscardedError(bh)
+                        else:
+                            raise SubstrateRequestException(err_msg)
+                    elif "result" not in res:
+                        raise SubstrateRequestException(res)
+                    else:
+                        for result_group in res["result"]:
+                            changes.extend(result_group["changes"])
                 result = decode_query_map(
                     changes,
                     prefix,

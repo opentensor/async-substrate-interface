@@ -113,7 +113,9 @@ def decode_query_map(
 
     for item in result_group_changes:
         pre_decoded_keys.append(bytes.fromhex(item[0][len(prefix) :]))
-        pre_decoded_values.append(hex_to_bytes_(item[1]))
+        pre_decoded_values.append(
+            hex_to_bytes_(item[1]) if item[1] is not None else b""
+        )
     all_decoded = _decode_scale_list_with_runtime(
         pre_decoded_key_types + pre_decoded_value_types,
         pre_decoded_keys + pre_decoded_values,
@@ -133,7 +135,10 @@ def decode_query_map(
             if len(param_types) - len(params) == 1:
                 item_key = dk[1]
                 if decode_ss58:
-                    if kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0":
+                    if (
+                        isinstance(item_key[0], (tuple, list))
+                        and kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0"
+                    ):
                         item_key = ss58_encode(bytes(item_key[0]), runtime.ss58_format)
             else:
                 try:

@@ -34,6 +34,7 @@ from async_substrate_interface.types import (
     RequestManager,
     Preprocessed,
     ScaleObj,
+    RequestResults,
 )
 from async_substrate_interface.utils import (
     hex_to_bytes,
@@ -1892,9 +1893,13 @@ class SubstrateInterface(SubstrateMixin):
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
         force_legacy_decode: bool = False,
-    ) -> RequestManager.RequestResults:
+    ) -> RequestResults:
         request_manager = RequestManager(payloads)
         _received = {}
+
+        if len(set(x["id"] for x in payloads)) != len(payloads):
+            raise ValueError("Payloads must have unique ids")
+
         subscription_added = False
 
         ws = self.connect(init=False if attempt == 1 else True)

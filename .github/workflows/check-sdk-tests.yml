@@ -62,8 +62,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Get labels from PR
+      - name: Skip label check for manual runs
         id: get-labels
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "Manual workflow dispatch detected, skipping PR label check."
+          echo "run-sdk-tests=true" >> $GITHUB_OUTPUT
+
+      - name: Get labels from PR
+        id: get-labels-pr
+        if: ${{ github.event_name == 'pull_request' }}
         run: |
           sleep 5
           LABELS=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name')
