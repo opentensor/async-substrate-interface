@@ -571,6 +571,8 @@ class Websocket:
         self._log_raw_websockets = _log_raw_websockets
         self._in_use_ids = set()
         self._max_retries = max_retries
+        self._last_activity = asyncio.Event()
+        self._last_activity.set()
 
     @property
     def state(self):
@@ -587,6 +589,50 @@ class Websocket:
     @staticmethod
     async def loop_time() -> float:
         return asyncio.get_running_loop().time()
+
+    async def _reset_activity_timer(self):
+        """Reset the shared activity timeout"""
+        self._last_activity.set()
+        self._last_activity.clear()
+
+    async def _wait_with_activity_timeout(self, coro, timeout: float):
+        """
+        Wait for a coroutine with a shared activity timeout.
+        Returns the result or raises TimeoutError if no activity for timeout seconds.
+        """
+        activity_task = asyncio.create_task(self._last_activity.wait())
+
+        # Handle both coroutines and tasks
+        if isinstance(coro, asyncio.Task):
+            main_task = coro
+        else:
+            main_task = asyncio.create_task(coro)
+
+        try:
+            done, pending = await asyncio.wait(
+                [main_task, activity_task],
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            if not done:  # Timeout occurred
+                for task in pending:
+                    task.cancel()
+                raise asyncio.TimeoutError()
+
+            # Check which completed
+            if main_task in done:
+                activity_task.cancel()
+                return main_task.result()
+            else:  # activity_task completed (activity occurred elsewhere)
+                # Recursively wait again with fresh timeout
+                # main_task is already a Task, so pass it directly
+                return await self._wait_with_activity_timeout(main_task, timeout)
+
+        except asyncio.CancelledError:
+            main_task.cancel()
+            activity_task.cancel()
+            raise
 
     async def _cancel(self):
         try:
@@ -657,6 +703,8 @@ class Websocket:
                 await self._sending.put(to_send)
             if is_retry:
                 # Otherwise the connection was just closed due to no activity, which should not count against retries
+                if self._attempts >= self._max_retries:
+                    return TimeoutError("Max retries exceeded.")
                 logger.info(
                     f"Timeout occurred. Reconnecting. Attempt {self._attempts} of {self._max_retries}"
                 )
@@ -728,13 +776,16 @@ class Websocket:
     async def _start_receiving(self, ws: ClientConnection) -> Exception:
         try:
             while True:
-                recd = await asyncio.wait_for(
-                    ws.recv(decode=False), timeout=self.retry_timeout
+                recd = await self._wait_with_activity_timeout(
+                    ws.recv(decode=False),
+                    self.retry_timeout
                 )
+                await self._reset_activity_timer()
                 # reset the counter once we successfully receive something back
                 self._attempts = 0
                 await self._recv(recd)
         except Exception as e:
+            logger.exception("Maybe timeout? 738", exc_info=e)
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             if not isinstance(
@@ -764,7 +815,9 @@ class Websocket:
                 if self._log_raw_websockets:
                     raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
                 await ws.send(to_send)
+                await self._reset_activity_timer()
         except Exception as e:
+            logger.exception("Maybe timeout? 769", exc_info=e)
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             if not isinstance(
