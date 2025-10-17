@@ -656,15 +656,19 @@ class Websocket:
                 self._sending = asyncio.Queue()
             if self._exit_task:
                 self._exit_task.cancel()
+            logger.debug(f"self.state={self.state}")
             if self.state not in (State.OPEN, State.CONNECTING) or force:
                 try:
                     await asyncio.wait_for(self._cancel(), timeout=10.0)
                 except asyncio.TimeoutError:
                     logger.debug(f"Timed out waiting for cancellation")
                     pass
-                self.ws = await asyncio.wait_for(
+                logger.debug("Attempting connection")
+                connection = await asyncio.wait_for(
                     connect(self.ws_url, **self._options), timeout=10.0
                 )
+                logger.debug("Connection established")
+                self.ws = connection
                 if self._send_recv_task is None or self._send_recv_task.done():
                     self._send_recv_task = asyncio.get_running_loop().create_task(
                         self._handler(self.ws)
@@ -700,6 +704,7 @@ class Websocket:
             for original_id, payload in list(self._inflight.items()):
                 self._received[original_id] = loop.create_future()
                 to_send = json.loads(payload)
+                logger.debug(f"Resubmitting {to_send}")
                 await self._sending.put(to_send)
             if is_retry:
                 # Otherwise the connection was just closed due to no activity, which should not count against retries
@@ -710,6 +715,7 @@ class Websocket:
                 )
             await self.connect(True)
             await self._handler(ws=self.ws)
+            logger.debug(f"Current send queue size: {self._sending.qsize()}")
             return None
         elif isinstance(e := recv_task.result(), Exception):
             return e
