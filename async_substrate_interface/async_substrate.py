@@ -607,7 +607,6 @@ class Websocket:
         """
         activity_task = asyncio.create_task(self._last_activity.wait())
 
-        # Handle both coroutines and tasks
         if isinstance(coro, asyncio.Task):
             main_task = coro
         else:
@@ -620,25 +619,22 @@ class Websocket:
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
-            if not done:  # Timeout occurred
+            if not done:
                 logger.debug(f"Activity timeout after {timeout}s, no activity detected")
                 for task in pending:
                     task.cancel()
                 raise TimeoutError()
 
-            # Check which completed
             if main_task in done:
                 activity_task.cancel()
 
-                # Check if the task raised an exception
                 exc = main_task.exception()
                 if exc is not None:
                     raise exc
                 else:
                     return main_task.result()
-            else:  # activity_task completed (activity occurred elsewhere)
+            else:
                 logger.debug("Activity detected, resetting timeout")
-                # Recursively wait again with fresh timeout
                 return await self._wait_with_activity_timeout(main_task, timeout)
 
         except asyncio.CancelledError:
@@ -849,14 +845,12 @@ class Websocket:
                     ws.recv(decode=False), self.retry_timeout
                 )
                 await self._reset_activity_timer()
-                # reset the counter once we successfully receive something back
                 self._attempts = 0
                 await self._recv(recd)
         except websockets.exceptions.ConnectionClosedOK as e:
             logger.debug("ConnectionClosedOK")
             return e
         except Exception as e:
-            logger.exception("Receiving exception", exc_info=e)
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             if not isinstance(
@@ -890,7 +884,6 @@ class Websocket:
                 logger.debug("Sent to websocket")
                 await self._reset_activity_timer()
         except Exception as e:
-            logger.exception("Maybe timeout? 769", exc_info=e)
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             if not isinstance(
