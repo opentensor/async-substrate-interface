@@ -891,8 +891,9 @@ class Websocket:
             ):
                 logger.exception("Websocket sending exception", exc_info=e)
                 if to_send is not None:
-                    self._received[to_send["id"]].set_exception(e)
-                    self._received[to_send["id"]].cancel()
+                    to_send_ = json.loads(to_send)
+                    self._received[to_send_["id"]].set_exception(e)
+                    self._received[to_send_["id"]].cancel()
                 else:
                     for i in self._received.keys():
                         self._received[i].set_exception(e)
