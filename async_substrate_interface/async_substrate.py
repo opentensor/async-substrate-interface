@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import logging
 import os
+import socket
 import ssl
 import warnings
 from contextlib import suppress
@@ -34,6 +35,7 @@ from scalecodec.types import (
     ss58_encode,
     MultiAccountId,
 )
+from websockets import CloseCode
 from websockets.asyncio.client import connect, ClientConnection
 from websockets.exceptions import (
     ConnectionClosed,
@@ -592,8 +594,11 @@ class Websocket:
 
     async def _reset_activity_timer(self):
         """Reset the shared activity timeout"""
-        self._last_activity.set()
-        self._last_activity.clear()
+        # Create a NEW event instead of reusing the same one
+        old_event = self._last_activity
+        self._last_activity = asyncio.Event()
+        self._last_activity.clear()  # Start fresh
+        old_event.set()  # Wake up anyone waiting on the old event
 
     async def _wait_with_activity_timeout(self, coro, timeout: float):
         """
@@ -612,21 +617,28 @@ class Websocket:
             done, pending = await asyncio.wait(
                 [main_task, activity_task],
                 timeout=timeout,
-                return_when=asyncio.FIRST_COMPLETED
+                return_when=asyncio.FIRST_COMPLETED,
             )
 
             if not done:  # Timeout occurred
+                logger.debug(f"Activity timeout after {timeout}s, no activity detected")
                 for task in pending:
                     task.cancel()
-                raise asyncio.TimeoutError()
+                raise TimeoutError()
 
             # Check which completed
             if main_task in done:
                 activity_task.cancel()
-                return main_task.result()
+
+                # Check if the task raised an exception
+                exc = main_task.exception()
+                if exc is not None:
+                    raise exc
+                else:
+                    return main_task.result()
             else:  # activity_task completed (activity occurred elsewhere)
+                logger.debug("Activity detected, resetting timeout")
                 # Recursively wait again with fresh timeout
-                # main_task is already a Task, so pass it directly
                 return await self._wait_with_activity_timeout(main_task, timeout)
 
         except asyncio.CancelledError:
@@ -636,46 +648,72 @@ class Websocket:
 
     async def _cancel(self):
         try:
-            self._send_recv_task.cancel()
-            await self.ws.close()
-        except (
-            AttributeError,
-            asyncio.CancelledError,
-            WebSocketException,
-        ):
+            logger.debug("Cancelling send/recv tasks")
+            if self._send_recv_task is not None:
+                self._send_recv_task.cancel()
+        except asyncio.CancelledError:
             pass
+        except Exception as e:
+            logger.warning(
+                f"{e} encountered while trying to close websocket connection."
+            )
+        try:
+            logger.debug("Closing websocket connection")
+            if self.ws is not None:
+                await self.ws.close()
         except Exception as e:
             logger.warning(
                 f"{e} encountered while trying to close websocket connection."
             )
 
     async def connect(self, force=False):
-        async with self._lock:
-            logger.debug(f"Websocket connecting to {self.ws_url}")
-            if self._sending is None or self._sending.empty():
-                self._sending = asyncio.Queue()
-            if self._exit_task:
-                self._exit_task.cancel()
-            logger.debug(f"self.state={self.state}")
-            if self.state not in (State.OPEN, State.CONNECTING) or force:
+        if not force:
+            await self._lock.acquire()
+        else:
+            logger.debug("Proceeding without acquiring lock.")
+        logger.debug(f"Websocket connecting to {self.ws_url}")
+        if self._sending is None or self._sending.empty():
+            self._sending = asyncio.Queue()
+        if self._exit_task:
+            self._exit_task.cancel()
+        logger.debug(f"self.state={self.state}")
+        if force and self.state == State.OPEN:
+            logger.debug(f"Attempting to reconnect while already connected.")
+            if self.ws is not None:
+                self.ws.protocol.fail(CloseCode.SERVICE_RESTART)
+            logger.debug(f"Open connection cancelled.")
+            await asyncio.sleep(1)
+        if self.state not in (State.OPEN, State.CONNECTING) or force:
+            if not force:
                 try:
+                    logger.debug("Attempting cancellation")
                     await asyncio.wait_for(self._cancel(), timeout=10.0)
                 except asyncio.TimeoutError:
                     logger.debug(f"Timed out waiting for cancellation")
                     pass
-                logger.debug("Attempting connection")
+            logger.debug("Attempting connection")
+            try:
                 connection = await asyncio.wait_for(
                     connect(self.ws_url, **self._options), timeout=10.0
                 )
-                logger.debug("Connection established")
-                self.ws = connection
-                if self._send_recv_task is None or self._send_recv_task.done():
-                    self._send_recv_task = asyncio.get_running_loop().create_task(
-                        self._handler(self.ws)
-                    )
-                logger.debug("Websocket handler attached.")
+            except socket.gaierror:
+                logger.debug(f"Hostname not known (this is just for testing")
+                await asyncio.sleep(10)
+                if self._lock.locked():
+                    self._lock.release()
+                return await self.connect(force=force)
+            logger.debug("Connection established")
+            self.ws = connection
+            if self._send_recv_task is None or self._send_recv_task.done():
+                self._send_recv_task = asyncio.get_running_loop().create_task(
+                    self._handler(self.ws)
+                )
+        if self._lock.locked():
+            self._lock.release()
+        return None
 
     async def _handler(self, ws: ClientConnection) -> Union[None, Exception]:
+        logger.debug("WS handler attached")
         recv_task = asyncio.create_task(self._start_receiving(ws))
         send_task = asyncio.create_task(self._start_sending(ws))
         done, pending = await asyncio.wait(
@@ -685,38 +723,54 @@ class Websocket:
         loop = asyncio.get_running_loop()
         should_reconnect = False
         is_retry = False
+
         for task in pending:
             task.cancel()
+
         for task in done:
             task_res = task.result()
-            if isinstance(
-                task_res, (asyncio.TimeoutError, ConnectionClosed, TimeoutError)
-            ):
+
+            # If ConnectionClosedOK, graceful shutdown - don't reconnect
+            if isinstance(task_res, websockets.exceptions.ConnectionClosedOK):
+                logger.debug("Graceful shutdown detected, not reconnecting")
+                return None  # Clean exit
+
+            # Check for timeout/connection errors that should trigger reconnect
+            if isinstance(task_res, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)):
                 should_reconnect = True
+                logger.debug(f"Reconnection triggered by: {type(task_res).__name__}")
+
             if isinstance(task_res, (asyncio.TimeoutError, TimeoutError)):
                 self._attempts += 1
                 is_retry = True
+
         if should_reconnect is True:
             if len(self._received_subscriptions) > 0:
                 return SubstrateRequestException(
                     f"Unable to reconnect because there are currently open subscriptions."
                 )
-            for original_id, payload in list(self._inflight.items()):
-                self._received[original_id] = loop.create_future()
-                to_send = json.loads(payload)
-                logger.debug(f"Resubmitting {to_send}")
-                await self._sending.put(to_send)
+
             if is_retry:
-                # Otherwise the connection was just closed due to no activity, which should not count against retries
                 if self._attempts >= self._max_retries:
+                    logger.error("Max retries exceeded.")
                     return TimeoutError("Max retries exceeded.")
                 logger.info(
                     f"Timeout occurred. Reconnecting. Attempt {self._attempts} of {self._max_retries}"
                 )
+
+            async with self._lock:
+                for original_id in list(self._inflight.keys()):
+                    payload = self._inflight.pop(original_id)
+                    self._received[original_id] = loop.create_future()
+                    to_send = json.loads(payload)
+                    logger.debug(f"Resubmitting {to_send['id']}")
+                    await self._sending.put(to_send)
+
+            logger.debug("Attempting reconnection...")
             await self.connect(True)
-            await self._handler(ws=self.ws)
-            logger.debug(f"Current send queue size: {self._sending.qsize()}")
-            return None
+            logger.debug(f"Reconnected. Send queue size: {self._sending.qsize()}")
+            # Recursively call handler
+            return await self._handler(self.ws)
         elif isinstance(e := recv_task.result(), Exception):
             return e
         elif isinstance(e := send_task.result(), Exception):
@@ -753,6 +807,7 @@ class Websocket:
             pass
 
     async def shutdown(self):
+        logger.debug("Shutdown requested")
         try:
             await asyncio.wait_for(self._cancel(), timeout=10.0)
         except asyncio.TimeoutError:
@@ -766,11 +821,16 @@ class Websocket:
         response = json.loads(recd)
         if "id" in response:
             async with self._lock:
-                self._inflight.pop(response["id"])
-            with suppress(KeyError):
-                # These would be subscriptions that were unsubscribed
+                inflight_item = self._inflight.pop(response["id"], None)
+                if inflight_item is not None:
+                    logger.debug(f"Popped {response['id']} from inflight")
+                else:
+                    logger.debug(
+                        f"Received response for {response['id']} which is no longer inflight (likely reconnection)"
+                    )
+            if self._received.get(response["id"]) is not None:
                 self._received[response["id"]].set_result(response)
-                self._in_use_ids.remove(response["id"])
+            self._in_use_ids.discard(response["id"])
         elif "params" in response:
             sub_id = response["params"]["subscription"]
             if sub_id not in self._received_subscriptions:
@@ -780,39 +840,43 @@ class Websocket:
             raise KeyError(response)
 
     async def _start_receiving(self, ws: ClientConnection) -> Exception:
+        logger.debug("Starting receiving task")
         try:
             while True:
                 recd = await self._wait_with_activity_timeout(
-                    ws.recv(decode=False),
-                    self.retry_timeout
+                    ws.recv(decode=False), self.retry_timeout
                 )
                 await self._reset_activity_timer()
                 # reset the counter once we successfully receive something back
                 self._attempts = 0
                 await self._recv(recd)
+        except websockets.exceptions.ConnectionClosedOK as e:
+            logger.debug("ConnectionClosedOK")
+            return e
         except Exception as e:
-            logger.exception("Maybe timeout? 738", exc_info=e)
+            logger.exception("Receiving exception", exc_info=e)
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             if not isinstance(
-                e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
+                    e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
             ):
                 logger.exception("Websocket receiving exception", exc_info=e)
                 for fut in self._received.values():
                     if not fut.done():
                         fut.set_exception(e)
                         fut.cancel()
-            elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
-                logger.debug("Websocket connection closed.")
             else:
-                logger.debug(f"Timeout occurred.")
+                logger.debug(f"Timeout/ConnectionClosed occurred.")
             return e
 
     async def _start_sending(self, ws) -> Exception:
+        logger.debug("Starting sending task")
         to_send = None
         try:
             while True:
+                logger.debug(f"_sending, {self._sending.qsize()}")
                 to_send_ = await self._sending.get()
+                logger.debug("Retrieved item from sending queue")
                 self._sending.task_done()
                 send_id = to_send_["id"]
                 to_send = json.dumps(to_send_)
@@ -821,6 +885,7 @@ class Websocket:
                 if self._log_raw_websockets:
                     raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
                 await ws.send(to_send)
+                logger.debug("Sent to websocket")
                 await self._reset_activity_timer()
         except Exception as e:
             logger.exception("Maybe timeout? 769", exc_info=e)
@@ -2529,6 +2594,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                 if request_manager.is_complete:
                     break
+                else:
+                    await asyncio.sleep(0.2)
 
         return request_manager.get_results()
 
