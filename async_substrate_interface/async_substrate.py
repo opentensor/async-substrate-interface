@@ -736,7 +736,9 @@ class Websocket:
                 return None  # Clean exit
 
             # Check for timeout/connection errors that should trigger reconnect
-            if isinstance(task_res, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)):
+            if isinstance(
+                task_res, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
+            ):
                 should_reconnect = True
                 logger.debug(f"Reconnection triggered by: {type(task_res).__name__}")
 
@@ -858,7 +860,7 @@ class Websocket:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             if not isinstance(
-                    e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
+                e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
             ):
                 logger.exception("Websocket receiving exception", exc_info=e)
                 for fut in self._received.values():
