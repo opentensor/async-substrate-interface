@@ -1,12 +1,16 @@
 import asyncio
+import logging
+import os.path
 import time
+import threading
 
 import pytest
 from scalecodec import ss58_encode
 
-from async_substrate_interface.async_substrate import AsyncSubstrateInterface
+from async_substrate_interface.async_substrate import AsyncSubstrateInterface, logger
 from async_substrate_interface.types import ScaleObj
 from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
+from tests.helpers.proxy_server import ProxyServer
 
 
 @pytest.mark.asyncio
@@ -174,3 +178,60 @@ async def test_query_map_with_odd_number_of_params():
         first_record = qm.records[0]
         assert len(first_record) == 2
         assert len(first_record[0]) == 4
+
+
+@pytest.mark.asyncio
+async def test_improved_reconnection():
+    ws_logger_path = "/tmp/websockets-proxy-test"
+    ws_logger = logging.getLogger("websockets.proxy")
+    if os.path.exists(ws_logger_path):
+        os.remove(ws_logger_path)
+    ws_logger.setLevel(logging.INFO)
+    ws_logger.addHandler(logging.FileHandler(ws_logger_path))
+
+    asi_logger_path = "/tmp/async-substrate-interface-test"
+    if os.path.exists(asi_logger_path):
+        os.remove(asi_logger_path)
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(logging.FileHandler(asi_logger_path))
+
+    proxy = ProxyServer("wss://archive.sub.latent.to", 10, 20)
+
+    server_thread = threading.Thread(target=proxy.connect_and_serve)
+    server_thread.start()
+    await asyncio.sleep(3)  # give the server start up time
+    async with AsyncSubstrateInterface(
+        "ws://localhost:8080",
+        ss58_format=42,
+        chain_name="Bittensor",
+        retry_timeout=10.0,
+        ws_shutdown_timer=None,
+    ) as substrate:
+        blocks_to_check = [
+            5215000,
+            5215001,
+            5215002,
+            5215003,
+            5215004,
+            5215005,
+            5215006,
+        ]
+        tasks = []
+        for block in blocks_to_check:
+            block_hash = await substrate.get_block_hash(block_id=block)
+            tasks.append(
+                substrate.query_map(
+                    "SubtensorModule", "TotalHotkeyShares", block_hash=block_hash
+                )
+            )
+        records = await asyncio.gather(*tasks)
+        assert len(records) == len(blocks_to_check)
+        await substrate.close()
+        with open(ws_logger_path, "r") as f:
+            assert "Pausing" in f.read()
+        with open(asi_logger_path, "r") as f:
+            assert "Timeout/ConnectionClosed occurred." in f.read()
+    shutdown_thread = threading.Thread(target=proxy.close)
+    shutdown_thread.start()
+    shutdown_thread.join(timeout=5)
+    server_thread.join(timeout=5)
