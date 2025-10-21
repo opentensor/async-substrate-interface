@@ -985,6 +985,12 @@ class Websocket:
                 return subscription
             except asyncio.QueueEmpty:
                 pass
+            except KeyError:
+                logger.debug(
+                    f"Received item {item_id} not in received subscriptions. "
+                    f"This indicates the response of the subscription was inflight when sending "
+                    f"the unsubscribe request."
+                )
         if self._send_recv_task is not None and self._send_recv_task.done():
             if not self._send_recv_task.cancelled():
                 if isinstance((e := self._send_recv_task.exception()), Exception):
@@ -1071,7 +1077,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             "strict_scale_decode": True,
         }
         self.initialized = False
-        self._forgettable_task = None
+        self._forgettable_tasks = set()
         self.type_registry = type_registry
         self.type_registry_preset = type_registry_preset
         self.runtime_cache = RuntimeCache()
@@ -1531,11 +1537,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                     if subscription_result is not None:
                         # Handler returned end result: unsubscribe from further updates
-                        self._forgettable_task = asyncio.create_task(
+                        unsub_task = asyncio.create_task(
                             self.rpc_request(
                                 "state_unsubscribeStorage", [subscription_id]
                             )
                         )
+                        self._forgettable_tasks.add(unsub_task)
+                        unsub_task.add_done_callback(self._forgettable_tasks.discard)
 
             return result_found, subscription_result
 
@@ -1560,7 +1568,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         result_data = await self.rpc_request("author_pendingExtrinsics", [])
         if "error" in result_data:
-            logger.error(f"Error in retrieving pending extrinsics: {result_data['error']}")
+            logger.error(
+                f"Error in retrieving pending extrinsics: {result_data['error']}"
+            )
             raise SubstrateRequestException(result_data["error"]["message"])
         extrinsics = []
 
