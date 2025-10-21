@@ -1,4 +1,14 @@
 # Changelog
+## 1.5.8 /2025-10-21
+* Fix parameter name conflict in retry substrate _retry() methods by @Arthurdw in https://github.com/opentensor/async-substrate-interface/pull/218
+* Use uv for test dependencies by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/219
+* Reconnection/Resubmission Logic Improved by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/217
+
+## New Contributors
+* @Arthurdw made their first contribution in https://github.com/opentensor/async-substrate-interface/pull/218
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.7...v1.5.8
+
 ## 1.5.7 /2025-10-15
 * Updates the type hint on ws_shutdown_timer in RetryAsyncSubstrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/203
 * correct type hint by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/204
