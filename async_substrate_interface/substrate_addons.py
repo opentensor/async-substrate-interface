@@ -321,11 +321,11 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             await self.ws.shutdown()
         except AttributeError:
             pass
-        if self._forgettable_task is not None:
-            self._forgettable_task: asyncio.Task
-            self._forgettable_task.cancel()
+        _forgettable_task: asyncio.Task
+        for _forgettable_task in self._forgettable_tasks:
+            _forgettable_task.cancel()
             try:
-                await self._forgettable_task
+                await _forgettable_task
             except asyncio.CancelledError:
                 pass
         self.chain_endpoint = next_network
