@@ -171,8 +171,8 @@ class RetrySyncSubstrate(SubstrateInterface):
         for method in retry_methods:
             setattr(self, method, partial(self._retry, method))
 
-    def _retry(self, method, *args, **kwargs):
-        method_ = self._original_methods[method]
+    def _retry(self, method_name, *args, **kwargs):
+        method_ = self._original_methods[method_name]
         try:
             return method_(*args, **kwargs)
         except (
@@ -321,11 +321,11 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
             await self.ws.shutdown()
         except AttributeError:
             pass
-        if self._forgettable_task is not None:
-            self._forgettable_task: asyncio.Task
-            self._forgettable_task.cancel()
+        _forgettable_task: asyncio.Task
+        for _forgettable_task in self._forgettable_tasks:
+            _forgettable_task.cancel()
             try:
-                await self._forgettable_task
+                await _forgettable_task
             except asyncio.CancelledError:
                 pass
         self.chain_endpoint = next_network
@@ -341,8 +341,8 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         self._initializing = False
         await self.initialize()
 
-    async def _retry(self, method, *args, **kwargs):
-        method_ = self._original_methods[method]
+    async def _retry(self, method_name, *args, **kwargs):
+        method_ = self._original_methods[method_name]
         try:
             return await method_(*args, **kwargs)
         except (
