@@ -132,6 +132,16 @@ class AsyncExtrinsicReceipt:
         self.__weight = None
         self.__total_fee_amount = None
 
+    def __str__(self):
+        return (
+            f"AsyncExtrinsicReceipt({self.extrinsic_hash}), "
+            f"block_hash={self.block_hash}, block_number={self.block_number}), "
+            f"finalized={self.finalized})"
+        )
+
+    def __repr__(self):
+        return self.__str__()
+
     async def get_extrinsic_identifier(self) -> str:
         """
         Returns the on-chain identifier for this extrinsic in format "[block_number]-[extrinsic_idx]" e.g. 134324-2
@@ -983,7 +993,7 @@ class Websocket:
                 elif isinstance((e := self._send_recv_task.result()), Exception):
                     logger.exception(f"Websocket sending exception: {e}")
                     raise e
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.01)
         return None
 
 
@@ -1550,6 +1560,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         result_data = await self.rpc_request("author_pendingExtrinsics", [])
         if "error" in result_data:
+            logger.error(f"Error in retrieving pending extrinsics: {result_data['error']}")
             raise SubstrateRequestException(result_data["error"]["message"])
         extrinsics = []
 
@@ -2591,7 +2602,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 if request_manager.is_complete:
                     break
                 else:
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.01)
 
         return request_manager.get_results()
 
@@ -2675,10 +2686,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 bh = err_msg.split("State already discarded for ")[1].strip()
                 raise StateDiscardedError(bh)
             else:
+                logger.error(f"Substrate Request Exception: {result[payload_id]}")
                 raise SubstrateRequestException(err_msg)
         if "result" in result[payload_id][0]:
             return result[payload_id][0]
         else:
+            logger.error(f"Substrate Request Exception: {result[payload_id]}")
             raise SubstrateRequestException(result[payload_id][0])
 
     @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
