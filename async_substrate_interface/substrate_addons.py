@@ -171,8 +171,8 @@ class RetrySyncSubstrate(SubstrateInterface):
         for method in retry_methods:
             setattr(self, method, partial(self._retry, method))
 
-    def _retry(self, method, *args, **kwargs):
-        method_ = self._original_methods[method]
+    def _retry(self, method_name, *args, **kwargs):
+        method_ = self._original_methods[method_name]
         try:
             return method_(*args, **kwargs)
         except (
@@ -341,8 +341,8 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         self._initializing = False
         await self.initialize()
 
-    async def _retry(self, method, *args, **kwargs):
-        method_ = self._original_methods[method]
+    async def _retry(self, method_name, *args, **kwargs):
+        method_ = self._original_methods[method_name]
         try:
             return await method_(*args, **kwargs)
         except (
