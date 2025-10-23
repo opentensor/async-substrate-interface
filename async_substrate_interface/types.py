@@ -1002,3 +1002,21 @@ class SubstrateMixin(ABC):
         )
 
         return multi_sig_account
+
+    @staticmethod
+    def _get_metadata_call_functions(runtime: Runtime):
+        """
+        See subclass `get_metadata_call_functions` for documentation.
+        """
+        data = {}
+        for pallet in runtime.metadata.pallets:
+            data[pallet.name] = {}
+            for call in pallet.calls:
+                data[pallet.name][call.name] = {}
+                data[pallet.name][call.name]["_docs"] = " ".join(call["docs"].value)
+                for idx, field in enumerate(call.value.get("fields", [])):
+                    field["index"] = idx
+                    field_docs = field["docs"]
+                    field["_docs"] = " ".join(field_docs)
+                    data[pallet.name][call.name][field["name"]] = field
+        return data

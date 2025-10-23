@@ -1587,11 +1587,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return extrinsics
 
     async def get_metadata_storage_functions(
-        self, block_hash=None, runtime: Optional[Runtime] = None
+        self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
     ) -> list:
         """
-        Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if block_hash is
-        omitted)
+        Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if
+        block_hash and runtime are omitted)
 
         Args:
             block_hash: hash of the blockchain block whose runtime to use
@@ -4078,6 +4078,41 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
 
         return result
+
+    async def get_metadata_call_functions(
+        self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
+    ):
+        """
+        Retrieves calls functions for the metadata at the specified block_hash or runtime. If neither are specified,
+        the metadata at chaintip is used.
+
+        Args:
+            block_hash: block hash to retrieve metadata for, unused if supplying runtime
+            runtime: Runtime object containing the metadata you wish to parse
+
+        Returns:
+            dict mapping {pallet name: {call name: {param name: param definition}}}
+            e.g.
+            {
+                "Sudo":{
+                    "sudo": {
+                        "_docs": "Authenticates the sudo key and dispatches a function call with `Root` origin.",
+                        "call": {
+                            "name": "call",
+                            "type": 227,
+                            "typeName": "Box<<T as Config>::RuntimeCall>",
+                            "index": 0,
+                            "_docs": ""
+                        }
+                    },
+                    ...
+                },
+                ...
+            }
+        """
+        if runtime is None:
+            runtime = await self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_call_functions(runtime)
 
     async def get_metadata_call_function(
         self,
