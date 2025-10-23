@@ -1603,21 +1603,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
-        storage_list = []
-
-        for module_idx, module in enumerate(runtime.metadata.pallets):
-            if module.storage:
-                for storage in module.storage:
-                    storage_list.append(
-                        self.serialize_storage_item(
-                            storage_item=storage,
-                            module=module,
-                            spec_version_id=runtime.runtime_version,
-                            runtime=runtime,
-                        )
-                    )
-
-        return storage_list
+        return self._get_metadata_storage_functions(runtime=runtime)
 
     async def get_metadata_storage_function(
         self,
@@ -1662,20 +1648,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
-        error_list = []
-
-        for module_idx, module in enumerate(runtime.metadata.pallets):
-            if module.errors:
-                for error in module.errors:
-                    error_list.append(
-                        self.serialize_module_error(
-                            module=module,
-                            error=error,
-                            spec_version=runtime.runtime_version,
-                        )
-                    )
-
-        return error_list
+        return self._get_metadata_errors(runtime=runtime)
 
     async def get_metadata_error(
         self,
@@ -1699,16 +1672,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
-
-        for module_idx, module in enumerate(runtime.metadata.pallets):
-            if module.name == module_name and module.errors:
-                for error in module.errors:
-                    if error_name == error.name:
-                        return error
+        return self._get_metadata_error(
+            module_name=module_name, error_name=error_name, runtime=runtime
+        )
 
     async def get_metadata_runtime_call_functions(
         self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
-    ) -> list[GenericRuntimeCallDefinition]:
+    ) -> list[ScaleType]:
         """
         Get a list of available runtime API calls
 
@@ -1717,17 +1687,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
-        call_functions = []
-
-        for api, methods in runtime.runtime_config.type_registry["runtime_api"].items():
-            for method in methods["methods"].keys():
-                call_functions.append(
-                    await self.get_metadata_runtime_call_function(
-                        api, method, runtime=runtime
-                    )
-                )
-
-        return call_functions
+        return self._get_metadata_runtime_call_functions(runtime=runtime)
 
     async def get_metadata_runtime_call_function(
         self,
@@ -1735,7 +1695,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         method: str,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ) -> GenericRuntimeCallDefinition:
+    ) -> ScaleType:
         """
         Get details of a runtime API call. If not supplying `block_hash` or `runtime`, the runtime of the current block
         will be used.
@@ -1751,28 +1711,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
-
-        try:
-            runtime_call_def = runtime.runtime_config.type_registry["runtime_api"][api][
-                "methods"
-            ][method]
-            runtime_call_def["api"] = api
-            runtime_call_def["method"] = method
-            runtime_api_types = runtime.runtime_config.type_registry["runtime_api"][
-                api
-            ].get("types", {})
-        except KeyError:
-            raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
-
-        # Add runtime API types to registry
-        runtime.runtime_config.update_type_registry_types(runtime_api_types)
-
-        runtime_call_def_obj = await self.create_scale_object(
-            "RuntimeCallDefinition", runtime=runtime
-        )
-        runtime_call_def_obj.encode(runtime_call_def)
-
-        return runtime_call_def_obj
+        return self._get_metadata_runtime_call_function(api, method, runtime)
 
     async def _get_block_handler(
         self,
@@ -3422,16 +3361,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
 
         runtime = await self.init_runtime(block_hash=block_hash)
-
-        constant_list = []
-
-        for module_idx, module in enumerate(runtime.metadata.pallets):
-            for constant in module.constants or []:
-                constant_list.append(
-                    self.serialize_constant(constant, module, runtime.runtime_version)
-                )
-
-        return constant_list
+        return self._get_metadata_constants(runtime)
 
     async def get_metadata_constant(
         self,
@@ -3455,12 +3385,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
-
-        for module in runtime.metadata.pallets:
-            if module_name == module.name and module.constants:
-                for constant in module.constants:
-                    if constant_name == constant.value["name"]:
-                        return constant
+        return self._get_metadata_constant(module_name, constant_name, runtime)
 
     async def get_constant(
         self,
@@ -3604,21 +3529,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             List of metadata modules
         """
         runtime = await self.init_runtime(block_hash=block_hash)
-
-        return [
-            {
-                "metadata_index": idx,
-                "module_id": module.get_identifier(),
-                "name": module.name,
-                "spec_version": runtime.runtime_version,
-                "count_call_functions": len(module.calls or []),
-                "count_storage_functions": len(module.storage or []),
-                "count_events": len(module.events or []),
-                "count_constants": len(module.constants or []),
-                "count_errors": len(module.errors or []),
-            }
-            for idx, module in enumerate(runtime.metadata.pallets)
-        ]
+        return self._get_metadata_modules(runtime)
 
     async def get_metadata_module(self, name, block_hash=None) -> ScaleType:
         """
@@ -4081,7 +3992,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def get_metadata_call_functions(
         self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
-    ):
+    ) -> dict[str, dict[str, dict[str, dict[str, Union[str, int, list]]]]]:
         """
         Retrieves calls functions for the metadata at the specified block_hash or runtime. If neither are specified,
         the metadata at chaintip is used.
@@ -4133,12 +4044,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         runtime = await self.init_runtime(block_hash=block_hash)
 
-        for pallet in runtime.metadata.pallets:
-            if pallet.name == module_name and pallet.calls:
-                for call in pallet.calls:
-                    if call.name == call_function_name:
-                        return call
-        return None
+        return self._get_metadata_call_function(
+            module_name, call_function_name, runtime
+        )
 
     async def get_metadata_events(self, block_hash=None) -> list[dict]:
         """
@@ -4152,17 +4060,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
 
         runtime = await self.init_runtime(block_hash=block_hash)
-
-        event_list = []
-
-        for event_index, (module, event) in runtime.metadata.event_index.items():
-            event_list.append(
-                self.serialize_module_event(
-                    module, event, runtime.runtime_version, event_index
-                )
-            )
-
-        return event_list
+        return self._get_metadata_events(runtime)
 
     async def get_metadata_event(
         self, module_name, event_name, block_hash=None
@@ -4182,12 +4080,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
 
         runtime = await self.init_runtime(block_hash=block_hash)
-
-        for pallet in runtime.metadata.pallets:
-            if pallet.name == module_name and pallet.events:
-                for event in pallet.events:
-                    if event.name == event_name:
-                        return event
+        return self._get_metadata_event(runtime)
 
     async def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""
