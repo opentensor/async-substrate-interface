@@ -6,6 +6,7 @@ from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 from unittest.mock import MagicMock
 
+import scalecodec
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec import (
     GenericCall,
@@ -1031,7 +1032,7 @@ class SubstrateInterface(SubstrateMixin):
 
         return extrinsics
 
-    def get_metadata_storage_functions(self, block_hash=None) -> list:
+    def get_metadata_storage_functions(self, block_hash=None) -> list[dict[str, Any]]:
         """
         Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if block_hash is
         omitted)
@@ -1078,7 +1079,9 @@ class SubstrateInterface(SubstrateMixin):
 
         return self._get_metadata_errors(runtime=runtime)
 
-    def get_metadata_error(self, module_name: str, error_name: str, block_hash=None):
+    def get_metadata_error(
+        self, module_name: str, error_name: str, block_hash=None
+    ) -> Optional[scalecodec.GenericVariant]:
         """
         Retrieves the details of an error for given module name, call function name and block_hash
 
@@ -1098,7 +1101,7 @@ class SubstrateInterface(SubstrateMixin):
 
     def get_metadata_runtime_call_functions(
         self, block_hash: Optional[str] = None
-    ) -> list[ScaleType]:
+    ) -> list[scalecodec.GenericRuntimeCallDefinition]:
         """
         Get a list of available runtime API calls
 
@@ -1110,7 +1113,7 @@ class SubstrateInterface(SubstrateMixin):
 
     def get_metadata_runtime_call_function(
         self, api: str, method: str, block_hash: Optional[str] = None
-    ) -> ScaleType:
+    ) -> scalecodec.GenericRuntimeCallDefinition:
         """
         Get details of a runtime API call
 
@@ -2662,7 +2665,9 @@ class SubstrateInterface(SubstrateMixin):
 
         return self._get_metadata_constants(runtime)
 
-    def get_metadata_constant(self, module_name, constant_name, block_hash=None):
+    def get_metadata_constant(
+        self, module_name, constant_name, block_hash=None
+    ) -> Optional[scalecodec.ScaleInfoModuleConstantMetadata]:
         """
         Retrieves the details of a constant for given module name, call function name and block_hash
         (or chaintip if block_hash is omitted)
@@ -3279,7 +3284,7 @@ class SubstrateInterface(SubstrateMixin):
         return self._get_metadata_events(runtime)
 
     def get_metadata_event(
-        self, module_name, event_name, block_hash=None
+        self, module_name: str, event_name: str, block_hash=None
     ) -> Optional[Any]:
         """
         Retrieves the details of an event for given module name, call function name and block_hash
@@ -3296,7 +3301,7 @@ class SubstrateInterface(SubstrateMixin):
         """
 
         runtime = self.init_runtime(block_hash=block_hash)
-        return self._get_metadata_event(runtime)
+        return self._get_metadata_event(module_name, event_name, runtime)
 
     def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""

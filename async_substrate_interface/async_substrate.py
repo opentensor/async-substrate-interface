@@ -23,6 +23,7 @@ from typing import (
     cast,
 )
 
+import scalecodec
 import websockets.exceptions
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec import GenericVariant
@@ -1588,7 +1589,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def get_metadata_storage_functions(
         self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
-    ) -> list:
+    ) -> list[dict[str, Any]]:
         """
         Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if
         block_hash and runtime are omitted)
@@ -1656,7 +1657,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         error_name: str,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ):
+    ) -> Optional[scalecodec.GenericVariant]:
         """
         Retrieves the details of an error for given module name, call function name and block_hash
 
@@ -1678,7 +1679,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def get_metadata_runtime_call_functions(
         self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
-    ) -> list[ScaleType]:
+    ) -> list[scalecodec.GenericRuntimeCallDefinition]:
         """
         Get a list of available runtime API calls
 
@@ -1695,7 +1696,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         method: str,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ) -> ScaleType:
+    ) -> scalecodec.GenericRuntimeCallDefinition:
         """
         Get details of a runtime API call. If not supplying `block_hash` or `runtime`, the runtime of the current block
         will be used.
@@ -3369,7 +3370,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         constant_name: str,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ):
+    ) -> Optional[scalecodec.ScaleInfoModuleConstantMetadata]:
         """
         Retrieves the details of a constant for given module name, call function name and block_hash
         (or chaintip if block_hash is omitted)
@@ -4080,7 +4081,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
 
         runtime = await self.init_runtime(block_hash=block_hash)
-        return self._get_metadata_event(runtime)
+        return self._get_metadata_event(module_name, event_name, runtime)
 
     async def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""

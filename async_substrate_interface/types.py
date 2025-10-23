@@ -676,8 +676,8 @@ class SubstrateMixin(ABC):
 
     def serialize_storage_item(
         self,
-        storage_item: ScaleType,
-        module: str,
+        storage_item: scalecodec.ScaleInfoStorageEntryMetadata,
+        module: scalecodec.ScaleInfoPalletMetadata,
         spec_version_id: int,
         runtime: Optional[Runtime] = None,
     ) -> dict:
@@ -1026,7 +1026,7 @@ class SubstrateMixin(ABC):
     @staticmethod
     def _get_metadata_call_function(
         module_name: str, call_function_name: str, runtime: Runtime
-    ):
+    ) -> Optional[scalecodec.GenericVariant]:
         """
         See subclass `get_metadata_call_function` for documentation.
         """
@@ -1037,8 +1037,7 @@ class SubstrateMixin(ABC):
                         return call
         return None
 
-    @staticmethod
-    def _get_metadata_events(runtime: Runtime) -> list[dict]:
+    def _get_metadata_events(self, runtime: Runtime) -> list[dict]:
         """
         See subclass `get_metadata_events` for documentation.
         """
@@ -1054,7 +1053,9 @@ class SubstrateMixin(ABC):
         return event_list
 
     @staticmethod
-    def _get_metadata_event(runtime: Runtime) -> Optional[Any]:
+    def _get_metadata_event(
+        module_name: str, event_name: str, runtime: Runtime
+    ) -> Optional[scalecodec.GenericScaleInfoEvent]:
         """
         See subclass `get_metadata_event` for documentation.
         """
@@ -1065,8 +1066,7 @@ class SubstrateMixin(ABC):
                         return event
         return None
 
-    @staticmethod
-    def _get_metadata_constants(runtime: Runtime) -> list[dict]:
+    def _get_metadata_constants(self, runtime: Runtime) -> list[dict]:
         """
         See subclass `get_metadata_constants` for documentation.
         """
@@ -1083,7 +1083,7 @@ class SubstrateMixin(ABC):
     @staticmethod
     def _get_metadata_constant(
         module_name: str, constant_name: str, runtime: Runtime
-    ) -> Optional[dict]:
+    ) -> Optional[scalecodec.ScaleInfoModuleConstantMetadata]:
         """
         See subclass `get_metadata_constant` for documentation.
         """
@@ -1114,8 +1114,7 @@ class SubstrateMixin(ABC):
             for idx, module in enumerate(runtime.metadata.pallets)
         ]
 
-    @staticmethod
-    def _get_metadata_storage_functions(runtime: Runtime) -> list:
+    def _get_metadata_storage_functions(self, runtime: Runtime) -> list[dict[str, Any]]:
         """
         See subclass `get_metadata_storage_functions` for documentation.
         """
@@ -1129,13 +1128,13 @@ class SubstrateMixin(ABC):
                             storage_item=storage,
                             module=module,
                             spec_version_id=self.runtime.runtime_version,
+                            runtime=runtime,
                         )
                     )
 
         return storage_list
 
-    @staticmethod
-    def _get_metadata_errors(runtime: Runtime) -> list[dict[str, Optional[str]]]:
+    def _get_metadata_errors(self, runtime: Runtime) -> list[dict[str, Optional[str]]]:
         """
         See subclass `get_metadata_errors` for documentation.
         """
@@ -1157,7 +1156,7 @@ class SubstrateMixin(ABC):
     @staticmethod
     def _get_metadata_error(
         module_name: str, error_name: str, runtime: Runtime
-    ) -> Optional[ScaleType]:
+    ) -> Optional[scalecodec.GenericVariant]:
         """
         See subclass `get_metadata_error` for documentation.
         """
@@ -1171,7 +1170,7 @@ class SubstrateMixin(ABC):
     @staticmethod
     def _get_metadata_runtime_call_function(
         api: str, method: str, runtime: Runtime
-    ) -> scalecodec.ScaleType:
+    ) -> scalecodec.GenericRuntimeCallDefinition:
         """
         See subclass `get_metadata_runtime_call_function` for documentation.
         """
@@ -1198,7 +1197,7 @@ class SubstrateMixin(ABC):
 
     def _get_metadata_runtime_call_functions(
         self, runtime: Runtime
-    ) -> list[scalecodec.ScaleType]:
+    ) -> list[scalecodec.GenericRuntimeCallDefinition]:
         """
         See subclass `get_metadata_runtime_call_functions` for documentation.
         """
