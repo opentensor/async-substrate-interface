@@ -126,9 +126,7 @@ async def test_retry_async_substrate_runtime_call_with_keyword_args():
 
 def test_retry_sync_substrate_runtime_call_with_keyword_args():
     """Test that runtime_call works with keyword arguments (parameter name conflict fix)."""
-    with RetrySyncSubstrate(
-        LATENT_LITE_ENTRYPOINT, retry_forever=True
-    ) as substrate:
+    with RetrySyncSubstrate(LATENT_LITE_ENTRYPOINT, retry_forever=True) as substrate:
         # This should not raise TypeError due to parameter name conflict
         # The 'method' kwarg should not conflict with _retry's parameter
         result = substrate.runtime_call(
