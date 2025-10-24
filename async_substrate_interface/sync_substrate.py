@@ -34,6 +34,7 @@ from async_substrate_interface.types import (
     RequestManager,
     Preprocessed,
     ScaleObj,
+    RequestResults,
 )
 from async_substrate_interface.utils import (
     hex_to_bytes,
@@ -1892,9 +1893,13 @@ class SubstrateInterface(SubstrateMixin):
         result_handler: Optional[ResultHandler] = None,
         attempt: int = 1,
         force_legacy_decode: bool = False,
-    ) -> RequestManager.RequestResults:
+    ) -> RequestResults:
         request_manager = RequestManager(payloads)
         _received = {}
+
+        if len(set(x["id"] for x in payloads)) != len(payloads):
+            raise ValueError("Payloads must have unique ids")
+
         subscription_added = False
 
         ws = self.connect(init=False if attempt == 1 else True)
@@ -3285,6 +3290,37 @@ class SubstrateInterface(SubstrateMixin):
             result = ExtrinsicReceipt(substrate=self, extrinsic_hash=response["result"])
 
         return result
+
+    def get_metadata_call_functions(self, block_hash: Optional[str] = None):
+        """
+        Retrieves calls functions for the metadata at the specified block_hash. If not specified, the metadata at
+        chaintip is used.
+
+        Args:
+            block_hash: block hash to retrieve metadata for
+
+        Returns:
+            dict mapping {pallet name: {call name: {param name: param definition}}}
+            e.g.
+            {
+                "Sudo":{
+                    "sudo": {
+                        "_docs": "Authenticates the sudo key and dispatches a function call with `Root` origin.",
+                        "call": {
+                            "name": "call",
+                            "type": 227,
+                            "typeName": "Box<<T as Config>::RuntimeCall>",
+                            "index": 0,
+                            "_docs": ""
+                        }
+                    },
+                    ...
+                },
+                ...
+            }
+        """
+        runtime = self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_call_functions(runtime)
 
     def get_metadata_call_function(
         self,

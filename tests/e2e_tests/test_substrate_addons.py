@@ -105,3 +105,34 @@ def test_retry_sync_subtensor_archive_node():
         LATENT_LITE_ENTRYPOINT, archive_nodes=[ARCHIVE_ENTRYPOINT]
     ) as substrate:
         assert isinstance((substrate.get_block(block_number=old_block)), dict)
+
+
+@pytest.mark.asyncio
+async def test_retry_async_substrate_runtime_call_with_keyword_args():
+    """Test that runtime_call works with keyword arguments (parameter name conflict fix)."""
+    async with RetryAsyncSubstrate(
+        LATENT_LITE_ENTRYPOINT, retry_forever=True
+    ) as substrate:
+        # This should not raise TypeError due to parameter name conflict
+        # The 'method' kwarg should not conflict with _retry's parameter
+        result = await substrate.runtime_call(
+            api="SwapRuntimeApi",
+            method="current_alpha_price",
+            params=[1],
+            block_hash=None,
+        )
+        assert result is not None
+
+
+def test_retry_sync_substrate_runtime_call_with_keyword_args():
+    """Test that runtime_call works with keyword arguments (parameter name conflict fix)."""
+    with RetrySyncSubstrate(LATENT_LITE_ENTRYPOINT, retry_forever=True) as substrate:
+        # This should not raise TypeError due to parameter name conflict
+        # The 'method' kwarg should not conflict with _retry's parameter
+        result = substrate.runtime_call(
+            api="SwapRuntimeApi",
+            method="current_alpha_price",
+            params=[1],
+            block_hash=None,
+        )
+        assert result is not None

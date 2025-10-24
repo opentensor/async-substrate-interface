@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Union, Any
 
+import scalecodec.types
 from bt_decode import PortableRegistry, encode as encode_by_type_string
+from bt_decode.bt_decode import MetadataV15
 from scalecodec import ss58_encode, ss58_decode, is_valid_ss58_address
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes
 from scalecodec.type_registry import load_type_registry_preset
@@ -121,13 +123,13 @@ class Runtime:
     def __init__(
         self,
         chain: str,
-        metadata,
-        type_registry,
+        metadata: scalecodec.types.GenericMetadataVersioned,
+        type_registry: dict,
         runtime_config: Optional[RuntimeConfigurationObject] = None,
-        metadata_v15=None,
-        runtime_info=None,
-        registry=None,
-        ss58_format=SS58_FORMAT,
+        metadata_v15: Optional[MetadataV15] = None,
+        runtime_info: Optional[dict] = None,
+        registry: Optional[PortableRegistry] = None,
+        ss58_format: int = SS58_FORMAT,
     ):
         self.ss58_format = ss58_format
         self.config = {}
@@ -369,9 +371,10 @@ class Runtime:
         self.type_id_to_name = type_id_to_name
 
 
-class RequestManager:
-    RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
+RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
 
+
+class RequestManager:
     def __init__(self, payloads):
         self.response_map = {}
         self.responses = defaultdict(
@@ -999,3 +1002,21 @@ class SubstrateMixin(ABC):
         )
 
         return multi_sig_account
+
+    @staticmethod
+    def _get_metadata_call_functions(runtime: Runtime):
+        """
+        See subclass `get_metadata_call_functions` for documentation.
+        """
+        data = {}
+        for pallet in runtime.metadata.pallets:
+            data[pallet.name] = {}
+            for call in pallet.calls:
+                data[pallet.name][call.name] = {}
+                data[pallet.name][call.name]["_docs"] = " ".join(call["docs"].value)
+                for idx, field in enumerate(call.value.get("fields", [])):
+                    field["index"] = idx
+                    field_docs = field["docs"]
+                    field["_docs"] = " ".join(field_docs)
+                    data[pallet.name][call.name][field["name"]] = field
+        return data

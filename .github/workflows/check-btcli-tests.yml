@@ -166,9 +166,9 @@ jobs:
           source ${{ github.workspace }}/venv/bin/activate
           git checkout staging
           git fetch origin staging
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
-          python3 -m pip install pytest
+          python3 -m pip install --upgrade pip uv
+          uv pip install '.[dev]'
+          uv pip install pytest
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
@@ -185,7 +185,7 @@ jobs:
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           python3 -m pip uninstall async-substrate-interface -y
-          python3 -m pip install .
+          uv pip install .
 
       - name: Download Cached Docker Image
         uses: actions/download-artifact@v4
@@ -229,8 +229,8 @@ jobs:
           source ${{ github.workspace }}/venv/bin/activate
           git checkout staging
           git fetch origin staging
-          python3 -m pip install --upgrade pip
-          python3 -m pip install '.[dev]'
+          python3 -m pip install --upgrade pip uv
+          uv pip install '.[dev]'
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
@@ -247,7 +247,7 @@ jobs:
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           pip uninstall async-substrate-interface -y
-          pip install .
+          uv pip install .
 
       - name: Run SDK unit tests
         run: |
