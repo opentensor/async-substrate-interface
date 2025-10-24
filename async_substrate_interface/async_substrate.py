@@ -3500,7 +3500,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return None
 
     async def get_payment_info(
-        self, call: GenericCall, keypair: Keypair
+        self,
+        call: GenericCall,
+        keypair: Keypair,
+        era: Optional[Union[dict, str]] = None,
+        nonce: Optional[int] = None,
+        tip: int = 0,
+        tip_asset_id: Optional[int] = None,
     ) -> dict[str, Any]:
         """
         Retrieves fee estimation via RPC for given extrinsic
@@ -3509,6 +3515,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
             call: Call object to estimate fees for
             keypair: Keypair of the sender, does not have to include private key because no valid signature is
                      required
+            era: Specify mortality in blocks in follow format:
+                {'period': [amount_blocks]} If omitted the extrinsic is immortal
+            nonce: nonce to include in extrinsics, if omitted the current nonce is retrieved on-chain
+            tip: The tip for the block author to gain priority during network congestion
+            tip_asset_id: Optional asset ID with which to pay the tip
 
         Returns:
             Dict with payment info
@@ -3528,7 +3539,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         # Create extrinsic
         extrinsic = await self.create_signed_extrinsic(
-            call=call, keypair=keypair, signature=signature
+            call=call,
+            keypair=keypair,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            signature=signature,
         )
         extrinsic_len = len(extrinsic.data)
 
