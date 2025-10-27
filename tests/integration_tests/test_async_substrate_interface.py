@@ -4,6 +4,7 @@ import os.path
 import time
 import threading
 
+import bittensor_wallet
 import pytest
 from scalecodec import ss58_encode
 
@@ -235,3 +236,42 @@ async def test_improved_reconnection():
     shutdown_thread.start()
     shutdown_thread.join(timeout=5)
     server_thread.join(timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_get_payment_info():
+    alice_coldkey = bittensor_wallet.Keypair.create_from_uri("//Alice")
+    bob_coldkey = bittensor_wallet.Keypair.create_from_uri("//Bob")
+    async with AsyncSubstrateInterface(
+        LATENT_LITE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
+    ) as substrate:
+        block_hash = await substrate.get_chain_head()
+        call = await substrate.compose_call(
+            "Balances",
+            "transfer_keep_alive",
+            {"dest": bob_coldkey.ss58_address, "value": 100_000},
+            block_hash,
+        )
+        payment_info = await substrate.get_payment_info(
+            call=call,
+            keypair=alice_coldkey,
+        )
+        partial_fee_no_era = payment_info["partial_fee"]
+        assert partial_fee_no_era > 0
+        payment_info_era = await substrate.get_payment_info(
+            call=call, keypair=alice_coldkey, era={"period": 64}
+        )
+        partial_fee_era = payment_info_era["partial_fee"]
+        assert partial_fee_era > partial_fee_no_era
+
+        payment_info_all_options = await substrate.get_payment_info(
+            call=call,
+            keypair=alice_coldkey,
+            era={"period": 64},
+            nonce=await substrate.get_account_nonce(alice_coldkey.ss58_address),
+            tip=5_000_000,
+            tip_asset_id=64,
+        )
+        partial_fee_all_options = payment_info_all_options["partial_fee"]
+        assert partial_fee_all_options > partial_fee_no_era
+        assert partial_fee_all_options > partial_fee_era
