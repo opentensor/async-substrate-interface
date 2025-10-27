@@ -16,6 +16,7 @@ from scalecodec.types import GenericCall, ScaleType, MultiAccountId
 
 from .const import SS58_FORMAT
 from .utils import json
+from .utils.cache import AsyncSqliteDB
 
 logger = logging.getLogger("async_substrate_interface")
 
@@ -101,6 +102,21 @@ class RuntimeCache:
                 return runtime
         return None
 
+    async def load_from_disk(self, chain_endpoint: str):
+        db = AsyncSqliteDB(chain_endpoint=chain_endpoint)
+        block_mapping, block_hash_mapping, runtime_version_mapping = await db.load_runtime_cache(chain_endpoint)
+        if not any([block_mapping, block_hash_mapping, runtime_version_mapping]):
+            logger.debug("No runtime mappings in disk cache")
+        else:
+            logger.debug("Found runtime mappings in disk cache")
+        self.blocks = {x: Runtime.deserialize(y) for x, y in block_mapping.items()}
+        self.block_hashes = {x: Runtime.deserialize(y) for x, y in block_hash_mapping.items()}
+        self.versions = {x: Runtime.deserialize(y) for x, y in runtime_version_mapping.items()}
+
+    async def dump_to_disk(self, chain_endpoint: str):
+        db = AsyncSqliteDB(chain_endpoint=chain_endpoint)
+        await db.dump_runtime_cache(chain_endpoint, self.blocks, self.block_hashes, self.versions)
+
 
 class Runtime:
     """
@@ -148,6 +164,33 @@ class Runtime:
         self.load_runtime()
         if registry is not None:
             self.load_registry_type_map()
+
+    def serialize(self):
+        return {
+            "chain": self.chain,
+            "type_registry": self.type_registry,
+            "metadata": self.metadata,
+            "metadata_v15": self.metadata_v15.to_json() if self.metadata_v15 is not None else None,
+            "runtime_info": self.runtime_info,
+            "registry": None,  # gets loaded from metadata_v15
+            "ss58_format": self.ss58_format,
+            "runtime_config": self.runtime_config,
+        }
+
+    @classmethod
+    def deserialize(cls, serialized: dict) -> "Runtime":
+        mdv15 = MetadataV15
+        registry = PortableRegistry.from_metadata_v15(mdv15) if (mdv15 := serialized["metadata_v15"]) else None
+        return cls(
+            chain=serialized["chain"],
+            metadata=serialized["metadata"],
+            type_registry=serialized["type_registry"],
+            runtime_config=serialized["runtime_config"],
+            metadata_v15=mdv15 if mdv15 is not None else None,
+            registry=registry,
+            ss58_format=serialized["ss58_format"],
+            runtime_info=serialized["runtime_info"]
+        )
 
     def load_runtime(self):
         """

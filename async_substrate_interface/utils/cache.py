@@ -4,12 +4,12 @@ from collections import OrderedDict
 import functools
 import logging
 import os
-import pickle
 import sqlite3
 from pathlib import Path
 from typing import Callable, Any, Awaitable, Hashable, Optional
 
 import aiosqlite
+import dill as pickle
 
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
@@ -38,13 +38,11 @@ class AsyncSqliteDB:
             cls._instances[chain_endpoint] = instance
             return instance
 
-    async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
+    async def _create_if_not_exists(self, chain: str, table_name: str):
         async with self._lock:
             if not self._db:
                 _ensure_dir()
                 self._db = await aiosqlite.connect(CACHE_LOCATION)
-        table_name = _get_table_name(func)
-        key = None
         if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
             await self._db.execute(
                 f"""
@@ -72,19 +70,24 @@ class AsyncSqliteDB:
                 """
             )
             await self._db.commit()
-            key = pickle.dumps((args, kwargs or None))
-            try:
-                cursor: aiosqlite.Cursor = await self._db.execute(
-                    f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
-                    (key, chain),
-                )
-                result = await cursor.fetchone()
-                await cursor.close()
-                if result is not None:
-                    return pickle.loads(result[0])
-            except (pickle.PickleError, sqlite3.Error) as e:
-                logger.exception("Cache error", exc_info=e)
-                pass
+        return local_chain
+
+    async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
+        table_name = _get_table_name(func)
+        local_chain = await self._create_if_not_exists(chain, table_name)
+        key = pickle.dumps((args, kwargs or None))
+        try:
+            cursor: aiosqlite.Cursor = await self._db.execute(
+                f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
+                (key, chain),
+            )
+            result = await cursor.fetchone()
+            await cursor.close()
+            if result is not None:
+                return pickle.loads(result[0])
+        except (pickle.PickleError, sqlite3.Error) as e:
+            logger.exception("Cache error", exc_info=e)
+            pass
         result = await func(other_self, *args, **kwargs)
         if not local_chain or not USE_CACHE:
             # TODO use a task here
@@ -94,6 +97,59 @@ class AsyncSqliteDB:
             )
             await self._db.commit()
         return result
+
+    async def load_runtime_cache(self, chain: str) -> tuple[dict, dict, dict]:
+        block_mapping = {}
+        block_hash_mapping = {}
+        version_mapping = {}
+        tables = {
+            "rt_cache_block": block_mapping,
+            "rt_cache_block_hash": block_hash_mapping,
+            "rt_cache_version": version_mapping
+        }
+        for table in tables.keys():
+            local_chain = await self._create_if_not_exists(chain, table)
+            if local_chain:
+                return {}, {}, {}
+        for table_name, mapping in tables.items():
+            try:
+                cursor: aiosqlite.Cursor = await self._db.execute(
+                    f"SELECT key, value FROM {table_name} WHERE chain=?",
+                    (chain,),
+                )
+                results = await cursor.fetchall()
+                await cursor.close()
+                if results is None:
+                    continue
+                for row in results:
+                    key, value = row
+                    runtime = pickle.loads(value)
+                    mapping[key] = runtime
+            except (pickle.PickleError, sqlite3.Error) as e:
+                logger.exception("Cache error", exc_info=e)
+                return {}, {}, {}
+        return block_mapping, block_hash_mapping, version_mapping
+
+    async def dump_runtime_cache(self, chain: str, block_mapping: dict, block_hash_mapping: dict, version_mapping: dict) -> None:
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
+        tables = {
+            "rt_cache_block": block_mapping,
+            "rt_cache_block_hash": block_hash_mapping,
+            "rt_cache_version": version_mapping
+        }
+        for table, mapping in tables.items():
+            local_chain = await self._create_if_not_exists(chain, table)
+            if local_chain:
+                return None
+            await self._db.executemany(
+                f"INSERT OR REPLACE INTO {table} (key, value, chain) VALUES (?,?,?)",
+                [(key, pickle.dumps(runtime.serialize()), chain) for key, runtime in mapping.items()],
+            )
+            await self._db.commit()
+        return None
 
 
 def _ensure_dir():
