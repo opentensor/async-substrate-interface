@@ -57,5 +57,5 @@ dev = [
     "pytest-xdist==3.6.1",
     "pytest-rerunfailures==10.2",
     "substrate-interface",
-    "bittensor-wallet>=0.6"
+    "bittensor-wallet>=4.0.0"
 ]
