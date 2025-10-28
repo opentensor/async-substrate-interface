@@ -72,13 +72,15 @@ def test_runtime_cache():
     # cache does not yet know that new_fake_block has the same runtime
     assert runtime_cache.retrieve(new_fake_block) is None
     assert (
-        runtime_cache.retrieve(new_fake_block, runtime_version=fake_version) is not None
+        runtime_cache.retrieve(
+            new_fake_block, new_fake_hash, runtime_version=fake_version
+        )
+        is not None
     )
     # after checking the runtime with the new block, it now knows this runtime should also map to this block
     assert runtime_cache.retrieve(new_fake_block) is not None
     assert runtime_cache.retrieve(newer_fake_block) is None
     assert runtime_cache.retrieve(newer_fake_block, fake_hash) is not None
     assert runtime_cache.retrieve(newer_fake_block) is not None
-    assert runtime_cache.retrieve(block_hash=new_fake_hash) is None
     assert runtime_cache.retrieve(fake_block, block_hash=new_fake_hash) is not None
     assert runtime_cache.retrieve(block_hash=new_fake_hash) is not None
