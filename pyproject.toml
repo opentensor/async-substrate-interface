@@ -8,7 +8,7 @@ keywords = ["substrate", "development", "bittensor"]
 
 dependencies = [
   "wheel",
-  "bt-decode==v0.6.0",
+  "bt-decode==v0.8.0",
   "scalecodec~=1.2.11",
   "websockets>=14.1",
   "xxhash",
