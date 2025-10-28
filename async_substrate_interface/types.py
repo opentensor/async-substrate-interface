@@ -101,18 +101,26 @@ class RuntimeCache:
 
     async def load_from_disk(self, chain_endpoint: str):
         db = AsyncSqliteDB(chain_endpoint=chain_endpoint)
-        block_mapping, block_hash_mapping, runtime_version_mapping = await db.load_runtime_cache(chain_endpoint)
+        (
+            block_mapping,
+            block_hash_mapping,
+            runtime_version_mapping,
+        ) = await db.load_runtime_cache(chain_endpoint)
         if not any([block_mapping, block_hash_mapping, runtime_version_mapping]):
             logger.debug("No runtime mappings in disk cache")
         else:
             logger.debug("Found runtime mappings in disk cache")
-        self.blocks = {x: Runtime.deserialize(y) for x, y in block_mapping.items()}
-        self.block_hashes = {x: Runtime.deserialize(y) for x, y in block_hash_mapping.items()}
-        self.versions = {x: Runtime.deserialize(y) for x, y in runtime_version_mapping.items()}
+        self.blocks = block_mapping
+        self.block_hashes = block_hash_mapping
+        self.versions = {
+            x: Runtime.deserialize(y) for x, y in runtime_version_mapping.items()
+        }
 
     async def dump_to_disk(self, chain_endpoint: str):
         db = AsyncSqliteDB(chain_endpoint=chain_endpoint)
-        await db.dump_runtime_cache(chain_endpoint, self.blocks, self.block_hashes, self.versions)
+        await db.dump_runtime_cache(
+            chain_endpoint, self.blocks, self.block_hashes, self.versions
+        )
 
 
 class Runtime:
@@ -163,30 +171,40 @@ class Runtime:
             self.load_registry_type_map()
 
     def serialize(self):
+        metadata_value = self.metadata.data.data
         return {
             "chain": self.chain,
             "type_registry": self.type_registry,
-            "metadata": self.metadata,
-            "metadata_v15": self.metadata_v15.to_json() if self.metadata_v15 is not None else None,
-            "runtime_info": self.runtime_info,
-            "registry": None,  # gets loaded from metadata_v15
+            "metadata_value": metadata_value,
+            "metadata_v15": None,  # TODO new bt-decode
+            "runtime_info": {
+                "specVersion": self.runtime_version,
+                "transactionVersion": self.transaction_version,
+            },
+            "registry": self.registry.registry if self.registry is not None else None,
             "ss58_format": self.ss58_format,
-            "runtime_config": self.runtime_config,
         }
 
     @classmethod
     def deserialize(cls, serialized: dict) -> "Runtime":
-        mdv15 = MetadataV15
-        registry = PortableRegistry.from_metadata_v15(mdv15) if (mdv15 := serialized["metadata_v15"]) else None
+        ss58_format = serialized["ss58_format"]
+        runtime_config = RuntimeConfigurationObject(ss58_format=ss58_format)
+        runtime_config.clear_type_registry()
+        runtime_config.update_type_registry(load_type_registry_preset(name="core"))
+        metadata = runtime_config.create_scale_object(
+            "MetadataVersioned", data=ScaleBytes(serialized["metadata_value"])
+        )
+        metadata.decode()
+        registry = PortableRegistry.from_json(serialized["registry"])
         return cls(
             chain=serialized["chain"],
-            metadata=serialized["metadata"],
+            metadata=metadata,
             type_registry=serialized["type_registry"],
-            runtime_config=serialized["runtime_config"],
-            metadata_v15=mdv15 if mdv15 is not None else None,
+            runtime_config=runtime_config,
+            metadata_v15=None,
             registry=registry,
-            ss58_format=serialized["ss58_format"],
-            runtime_info=serialized["runtime_info"]
+            ss58_format=ss58_format,
+            runtime_info=serialized["runtime_info"],
         )
 
     def load_runtime(self):
