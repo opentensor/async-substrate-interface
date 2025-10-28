@@ -38,11 +38,13 @@ class AsyncSqliteDB:
             cls._instances[chain_endpoint] = instance
             return instance
 
-    async def _create_if_not_exists(self, chain: str, table_name: str):
+    async def close(self):
         async with self._lock:
-            if not self._db:
-                _ensure_dir()
-                self._db = await aiosqlite.connect(CACHE_LOCATION)
+            if self._db:
+                print(44)
+                await self._db.close()
+
+    async def _create_if_not_exists(self, chain: str, table_name: str):
         if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
             await self._db.execute(
                 f"""
@@ -73,6 +75,10 @@ class AsyncSqliteDB:
         return local_chain
 
     async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
         table_name = _get_table_name(func)
         local_chain = await self._create_if_not_exists(chain, table_name)
         key = pickle.dumps((args, kwargs or None))
@@ -99,26 +105,32 @@ class AsyncSqliteDB:
         return result
 
     async def load_runtime_cache(self, chain: str) -> tuple[dict, dict, dict]:
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
         block_mapping = {}
         block_hash_mapping = {}
         version_mapping = {}
         tables = {
-            "rt_cache_block": block_mapping,
-            "rt_cache_block_hash": block_hash_mapping,
-            "rt_cache_version": version_mapping
+            "RuntimeCache_blocks": block_mapping,
+            "RuntimeCache_block_hashes": block_hash_mapping,
+            "RuntimeCache_versions": version_mapping,
         }
         for table in tables.keys():
-            local_chain = await self._create_if_not_exists(chain, table)
+            async with self._lock:
+                local_chain = await self._create_if_not_exists(chain, table)
             if local_chain:
                 return {}, {}, {}
         for table_name, mapping in tables.items():
             try:
-                cursor: aiosqlite.Cursor = await self._db.execute(
-                    f"SELECT key, value FROM {table_name} WHERE chain=?",
-                    (chain,),
-                )
-                results = await cursor.fetchall()
-                await cursor.close()
+                async with self._lock:
+                    cursor: aiosqlite.Cursor = await self._db.execute(
+                        f"SELECT key, value FROM {table_name} WHERE chain=?",
+                        (chain,),
+                    )
+                    results = await cursor.fetchall()
+                    await cursor.close()
                 if results is None:
                     continue
                 for row in results:
@@ -130,26 +142,47 @@ class AsyncSqliteDB:
                 return {}, {}, {}
         return block_mapping, block_hash_mapping, version_mapping
 
-    async def dump_runtime_cache(self, chain: str, block_mapping: dict, block_hash_mapping: dict, version_mapping: dict) -> None:
+    async def dump_runtime_cache(
+        self,
+        chain: str,
+        block_mapping: dict,
+        block_hash_mapping: dict,
+        version_mapping: dict,
+    ) -> None:
         async with self._lock:
             if not self._db:
                 _ensure_dir()
                 self._db = await aiosqlite.connect(CACHE_LOCATION)
-        tables = {
-            "rt_cache_block": block_mapping,
-            "rt_cache_block_hash": block_hash_mapping,
-            "rt_cache_version": version_mapping
-        }
-        for table, mapping in tables.items():
-            local_chain = await self._create_if_not_exists(chain, table)
-            if local_chain:
-                return None
-            await self._db.executemany(
-                f"INSERT OR REPLACE INTO {table} (key, value, chain) VALUES (?,?,?)",
-                [(key, pickle.dumps(runtime.serialize()), chain) for key, runtime in mapping.items()],
-            )
+
+            tables = {
+                "RuntimeCache_blocks": block_mapping,
+                "RuntimeCache_block_hashes": block_hash_mapping,
+                "RuntimeCache_versions": version_mapping,
+            }
+            for table, mapping in tables.items():
+                local_chain = await self._create_if_not_exists(chain, table)
+                if local_chain:
+                    return None
+
+                for key, value in mapping.items():
+                    if not isinstance(value, (str, int)):
+                        serialized_runtime = pickle.dumps(value.serialize())
+                    else:
+                        serialized_runtime = pickle.dumps(value)
+
+                    await self._db.execute(
+                        f"INSERT OR REPLACE INTO {table} (key, value, chain) VALUES (?,?,?)",
+                        (key, serialized_runtime, chain),
+                    )
+
+                # await self._db.executemany(
+                #     f"INSERT OR REPLACE INTO {table} (key, value, chain) VALUES (?,?,?)",
+                #     [(key, pickle.dumps(runtime.serialize()), chain) for key, runtime in mapping.items()],
+                # )
+
             await self._db.commit()
-        return None
+
+            return None
 
 
 def _ensure_dir():

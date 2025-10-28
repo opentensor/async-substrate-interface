@@ -2402,7 +2402,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "MetadataVersioned", data=ScaleBytes(result)
             )
             metadata_decoder.decode()
-
             return metadata_decoder
         else:
             return result
