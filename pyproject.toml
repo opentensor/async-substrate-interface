@@ -56,4 +56,5 @@ dev = [
     "pytest-split==0.10.0",
     "pytest-xdist==3.6.1",
     "pytest-rerunfailures==10.2",
+    "bittensor-wallet>=4.0.0"
 ]
