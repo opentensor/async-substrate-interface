@@ -4,12 +4,12 @@ from collections import OrderedDict
 import functools
 import logging
 import os
+import pickle
 import sqlite3
 from pathlib import Path
 from typing import Callable, Any, Awaitable, Hashable, Optional
 
 import aiosqlite
-import dill as pickle
 
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
