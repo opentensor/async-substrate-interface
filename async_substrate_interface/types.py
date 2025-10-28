@@ -176,7 +176,7 @@ class Runtime:
             "chain": self.chain,
             "type_registry": self.type_registry,
             "metadata_value": metadata_value,
-            "metadata_v15": None,  # TODO new bt-decode
+            "metadata_v15": self.metadata_v15.encode_to_metadata_option(),
             "runtime_info": {
                 "specVersion": self.runtime_version,
                 "transactionVersion": self.transaction_version,
@@ -201,7 +201,7 @@ class Runtime:
             metadata=metadata,
             type_registry=serialized["type_registry"],
             runtime_config=runtime_config,
-            metadata_v15=None,
+            metadata_v15=MetadataV15.decode_from_metadata_option(serialized["metadata_v15"]),
             registry=registry,
             ss58_format=ss58_format,
             runtime_info=serialized["runtime_info"],

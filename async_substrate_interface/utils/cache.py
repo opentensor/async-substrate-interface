@@ -54,7 +54,8 @@ class AsyncSqliteDB:
                        key BLOB,
                        value BLOB,
                        chain TEXT,
-                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       UNIQUE(key, chain)
                     );
                 """
             )
@@ -208,7 +209,8 @@ def _create_table(c, conn, table_name):
            key BLOB,
            value BLOB,
            chain TEXT,
-           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+           UNIQUE(key, chain)
         );
         """
     )
