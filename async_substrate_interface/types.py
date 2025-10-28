@@ -2,6 +2,7 @@ import logging
 from abc import ABC
 from collections import defaultdict, deque
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Union, Any
@@ -35,8 +36,8 @@ class RuntimeCache:
     is important you are utilizing the correct version.
     """
 
-    blocks: dict[int, "Runtime"]
-    block_hashes: dict[str, "Runtime"]
+    blocks: dict[int, str]
+    block_hashes: dict[str, int]
     versions: dict[int, "Runtime"]
     last_used: Optional["Runtime"]
 
@@ -57,10 +58,10 @@ class RuntimeCache:
         Adds a Runtime object to the cache mapped to its version, block number, and/or block hash.
         """
         self.last_used = runtime
-        if block is not None:
-            self.blocks[block] = runtime
-        if block_hash is not None:
-            self.block_hashes[block_hash] = runtime
+        if block is not None and block_hash is not None:
+            self.blocks[block] = block_hash
+        if block_hash is not None and runtime_version is not None:
+            self.block_hashes[block_hash] = runtime_version
         if runtime_version is not None:
             self.versions[runtime_version] = runtime
 
@@ -74,33 +75,29 @@ class RuntimeCache:
         Retrieves a Runtime object from the cache, using the key of its block number, block hash, or runtime version.
         Retrieval happens in this order. If no Runtime is found mapped to any of your supplied keys, returns `None`.
         """
+        runtime = None
         if block is not None:
-            runtime = self.blocks.get(block)
-            if runtime is not None:
-                if block_hash is not None:
-                    # if lookup occurs for block_hash and block, but only block matches, also map to block_hash
-                    self.add_item(runtime, block_hash=block_hash)
+            if block_hash is not None:
+                self.blocks[block] = block_hash
+                if runtime_version is not None:
+                    self.block_hashes[block_hash] = runtime_version
+            with suppress(KeyError):
+                runtime = self.versions[self.block_hashes[self.blocks[block]]]
                 self.last_used = runtime
                 return runtime
         if block_hash is not None:
-            runtime = self.block_hashes.get(block_hash)
-            if runtime is not None:
-                if block is not None:
-                    # if lookup occurs for block_hash and block, but only block_hash matches, also map to block
-                    self.add_item(runtime, block=block)
+            if runtime_version is not None:
+                self.block_hashes[block_hash] = runtime_version
+            with suppress(KeyError):
+                runtime = self.versions[self.block_hashes[block_hash]]
                 self.last_used = runtime
                 return runtime
         if runtime_version is not None:
-            runtime = self.versions.get(runtime_version)
-            if runtime is not None:
-                # if runtime_version matches, also map to block and block_hash (if supplied)
-                if block is not None:
-                    self.add_item(runtime, block=block)
-                if block_hash is not None:
-                    self.add_item(runtime, block_hash=block_hash)
+            with suppress(KeyError):
+                runtime = self.versions[runtime_version]
                 self.last_used = runtime
                 return runtime
-        return None
+        return runtime
 
     async def load_from_disk(self, chain_endpoint: str):
         db = AsyncSqliteDB(chain_endpoint=chain_endpoint)
