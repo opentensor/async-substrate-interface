@@ -201,7 +201,9 @@ class Runtime:
             metadata=metadata,
             type_registry=serialized["type_registry"],
             runtime_config=runtime_config,
-            metadata_v15=MetadataV15.decode_from_metadata_option(serialized["metadata_v15"]),
+            metadata_v15=MetadataV15.decode_from_metadata_option(
+                serialized["metadata_v15"]
+            ),
             registry=registry,
             ss58_format=ss58_format,
             runtime_info=serialized["runtime_info"],
