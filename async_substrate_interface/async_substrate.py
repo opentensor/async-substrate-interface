@@ -4183,12 +4183,11 @@ class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
         """
         try:
             await self.runtime_cache.dump_to_disk(self.url)
-            print(4276)
             await self.ws.shutdown()
         except AttributeError:
             pass
-        for db in AsyncSqliteDB._instances.values():
-            await db.close()
+        db = AsyncSqliteDB(self.url)
+        await db.close()
 
     @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_parent_block_hash(self, block_hash):

@@ -41,7 +41,6 @@ class AsyncSqliteDB:
     async def close(self):
         async with self._lock:
             if self._db:
-                print(44)
                 await self._db.close()
 
     async def _create_if_not_exists(self, chain: str, table_name: str):
@@ -164,22 +163,21 @@ class AsyncSqliteDB:
                 local_chain = await self._create_if_not_exists(chain, table)
                 if local_chain:
                     return None
-
+                serialized_mapping = {}
                 for key, value in mapping.items():
                     if not isinstance(value, (str, int)):
-                        serialized_runtime = pickle.dumps(value.serialize())
+                        serialized_value = pickle.dumps(value.serialize())
                     else:
-                        serialized_runtime = pickle.dumps(value)
+                        serialized_value = pickle.dumps(value)
+                    serialized_mapping[key] = serialized_value
 
-                    await self._db.execute(
-                        f"INSERT OR REPLACE INTO {table} (key, value, chain) VALUES (?,?,?)",
-                        (key, serialized_runtime, chain),
-                    )
-
-                # await self._db.executemany(
-                #     f"INSERT OR REPLACE INTO {table} (key, value, chain) VALUES (?,?,?)",
-                #     [(key, pickle.dumps(runtime.serialize()), chain) for key, runtime in mapping.items()],
-                # )
+                await self._db.executemany(
+                    f"INSERT OR REPLACE INTO {table} (key, value, chain) VALUES (?,?,?)",
+                    [
+                        (key, serialized_value_, chain)
+                        for key, serialized_value_ in serialized_mapping.items()
+                    ],
+                )
 
             await self._db.commit()
 
