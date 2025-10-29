@@ -1,4 +1,16 @@
 # Changelog
+## 1.5.9 /2025-10-29
+* Adds metadata call functions retrieval by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/223
+* move metadata methods to SubstrateMixin by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/224
+* Update get_payment_info to include addl params by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/226
+* Python 3.14 by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/228
+* Support python 3.14 by @Moisan in https://github.com/opentensor/async-substrate-interface/pull/210
+
+## New Contributors
+* @Moisan made their first contribution in https://github.com/opentensor/async-substrate-interface/pull/210
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.8...v1.5.9
+
 ## 1.5.8 /2025-10-21
 * Fix parameter name conflict in retry substrate _retry() methods by @Arthurdw in https://github.com/opentensor/async-substrate-interface/pull/218
 * Use uv for test dependencies by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/219
