@@ -20,6 +20,7 @@ CACHE_LOCATION = (
     if USE_CACHE
     else ":memory:"
 )
+SUBSTRATE_CACHE_METHOD_SIZE = int(os.getenv("SUBSTRATE_CACHE_METHOD_SIZE", "512"))
 
 logger = logging.getLogger("async_substrate_interface")
 
@@ -66,7 +67,7 @@ class AsyncSqliteDB:
                           WHERE rowid IN (
                             SELECT rowid FROM {table_name}
                             ORDER BY created_at DESC
-                            LIMIT -1 OFFSET 500
+                            LIMIT -1 OFFSET {SUBSTRATE_CACHE_METHOD_SIZE}
                           );
                         END;
                 """
@@ -219,7 +220,7 @@ def _create_table(c, conn, table_name):
               WHERE rowid IN (
                 SELECT rowid FROM {table_name}
                 ORDER BY created_at DESC
-                LIMIT -1 OFFSET 500
+                LIMIT -1 OFFSET {SUBSTRATE_CACHE_METHOD_SIZE}
               );
             END;"""
     )
@@ -294,7 +295,7 @@ def sql_lru_cache(maxsize=None):
 
 def async_sql_lru_cache(maxsize: Optional[int] = None):
     def decorator(func):
-        @cached_fetcher(max_size=maxsize)
+        @cached_fetcher(max_size=maxsize, cache_key_index=None)
         async def inner(self, *args, **kwargs):
             async_sql_db = AsyncSqliteDB(self.url)
             result = await async_sql_db(self.url, self, func, args, kwargs)
@@ -442,7 +443,7 @@ class _CachedFetcherMethod:
         return self._instances[instance]
 
 
-def cached_fetcher(max_size: Optional[int] = None, cache_key_index: int = 0):
+def cached_fetcher(max_size: Optional[int] = None, cache_key_index: Optional[int] = 0):
     """Wrapper for CachedFetcher. See example in CachedFetcher docstring."""
 
     def wrapper(method):
