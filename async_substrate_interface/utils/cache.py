@@ -43,6 +43,7 @@ class AsyncSqliteDB:
         async with self._lock:
             if self._db:
                 await self._db.close()
+                self._db = None
 
     async def _create_if_not_exists(self, chain: str, table_name: str):
         if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
