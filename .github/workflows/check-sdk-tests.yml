@@ -263,15 +263,12 @@ jobs:
           python3 -m pip install --upgrade pip uv
           uv pip install '.[dev]'
 
-      - name: Clone async-substrate-interface repo
-        run: git clone https://github.com/opentensor/async-substrate-interface.git
-
       - name: Checkout PR branch in async-substrate-interface repo
-        working-directory: ${{ github.workspace }}/async-substrate-interface
-        run: |
-          git fetch origin ${{ github.event.pull_request.head.ref }}
-          git checkout ${{ github.event.pull_request.head.ref }}
-          echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: async-substrate-interface
 
       - name: Install /async-substrate-interface package
         working-directory: ${{ github.workspace }}/async-substrate-interface

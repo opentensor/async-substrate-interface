@@ -6,6 +6,7 @@ from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 from unittest.mock import MagicMock
 
+import scalecodec
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
 from scalecodec import (
     GenericCall,
@@ -1031,7 +1032,7 @@ class SubstrateInterface(SubstrateMixin):
 
         return extrinsics
 
-    def get_metadata_storage_functions(self, block_hash=None) -> list:
+    def get_metadata_storage_functions(self, block_hash=None) -> list[dict[str, Any]]:
         """
         Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if block_hash is
         omitted)
@@ -1042,22 +1043,8 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             list of storage functions
         """
-        self.init_runtime(block_hash=block_hash)
-
-        storage_list = []
-
-        for module_idx, module in enumerate(self.metadata.pallets):
-            if module.storage:
-                for storage in module.storage:
-                    storage_list.append(
-                        self.serialize_storage_item(
-                            storage_item=storage,
-                            module=module,
-                            spec_version_id=self.runtime.runtime_version,
-                        )
-                    )
-
-        return storage_list
+        runtime = self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_storage_functions(runtime=runtime)
 
     def get_metadata_storage_function(self, module_name, storage_name, block_hash=None):
         """
@@ -1088,24 +1075,13 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             list of errors in the metadata
         """
-        self.init_runtime(block_hash=block_hash)
+        runtime = self.init_runtime(block_hash=block_hash)
 
-        error_list = []
+        return self._get_metadata_errors(runtime=runtime)
 
-        for module_idx, module in enumerate(self.runtime.metadata.pallets):
-            if module.errors:
-                for error in module.errors:
-                    error_list.append(
-                        self.serialize_module_error(
-                            module=module,
-                            error=error,
-                            spec_version=self.runtime.runtime_version,
-                        )
-                    )
-
-        return error_list
-
-    def get_metadata_error(self, module_name, error_name, block_hash=None):
+    def get_metadata_error(
+        self, module_name: str, error_name: str, block_hash=None
+    ) -> Optional[scalecodec.GenericVariant]:
         """
         Retrieves the details of an error for given module name, call function name and block_hash
 
@@ -1118,37 +1094,26 @@ class SubstrateInterface(SubstrateMixin):
             error
 
         """
-        self.init_runtime(block_hash=block_hash)
-
-        for module_idx, module in enumerate(self.runtime.metadata.pallets):
-            if module.name == module_name and module.errors:
-                for error in module.errors:
-                    if error_name == error.name:
-                        return error
+        runtime = self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_error(
+            module_name=module_name, error_name=error_name, runtime=runtime
+        )
 
     def get_metadata_runtime_call_functions(
         self, block_hash: Optional[str] = None
-    ) -> list[GenericRuntimeCallDefinition]:
+    ) -> list[scalecodec.GenericRuntimeCallDefinition]:
         """
         Get a list of available runtime API calls
 
         Returns:
             list of runtime call functions
         """
-        self.init_runtime(block_hash=block_hash)
-        call_functions = []
-
-        for api, methods in self.runtime_config.type_registry["runtime_api"].items():
-            for method in methods["methods"].keys():
-                call_functions.append(
-                    self.get_metadata_runtime_call_function(api, method)
-                )
-
-        return call_functions
+        runtime = self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_runtime_call_functions(runtime=runtime)
 
     def get_metadata_runtime_call_function(
         self, api: str, method: str, block_hash: Optional[str] = None
-    ) -> GenericRuntimeCallDefinition:
+    ) -> scalecodec.GenericRuntimeCallDefinition:
         """
         Get details of a runtime API call
 
@@ -1160,27 +1125,9 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             runtime call function
         """
-        self.init_runtime(block_hash=block_hash)
+        runtime = self.init_runtime(block_hash=block_hash)
 
-        try:
-            runtime_call_def = self.runtime_config.type_registry["runtime_api"][api][
-                "methods"
-            ][method]
-            runtime_call_def["api"] = api
-            runtime_call_def["method"] = method
-            runtime_api_types = self.runtime_config.type_registry["runtime_api"][
-                api
-            ].get("types", {})
-        except KeyError:
-            raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
-
-        # Add runtime API types to registry
-        self.runtime_config.update_type_registry_types(runtime_api_types)
-
-        runtime_call_def_obj = self.create_scale_object("RuntimeCallDefinition")
-        runtime_call_def_obj.encode(runtime_call_def)
-
-        return runtime_call_def_obj
+        return self._get_metadata_runtime_call_function(api, method, runtime)
 
     def _get_block_handler(
         self,
@@ -2716,17 +2663,11 @@ class SubstrateInterface(SubstrateMixin):
 
         runtime = self.init_runtime(block_hash=block_hash)
 
-        constant_list = []
+        return self._get_metadata_constants(runtime)
 
-        for module_idx, module in enumerate(self.metadata.pallets):
-            for constant in module.constants or []:
-                constant_list.append(
-                    self.serialize_constant(constant, module, runtime.runtime_version)
-                )
-
-        return constant_list
-
-    def get_metadata_constant(self, module_name, constant_name, block_hash=None):
+    def get_metadata_constant(
+        self, module_name, constant_name, block_hash=None
+    ) -> Optional[scalecodec.ScaleInfoModuleConstantMetadata]:
         """
         Retrieves the details of a constant for given module name, call function name and block_hash
         (or chaintip if block_hash is omitted)
@@ -2739,13 +2680,8 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             MetadataModuleConstants
         """
-        self.init_runtime(block_hash=block_hash)
-
-        for module in self.runtime.metadata.pallets:
-            if module_name == module.name and module.constants:
-                for constant in module.constants:
-                    if constant_name == constant.value["name"]:
-                        return constant
+        runtime = self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_constant(module_name, constant_name, runtime)
 
     def get_constant(
         self,
@@ -2779,7 +2715,15 @@ class SubstrateInterface(SubstrateMixin):
         else:
             return None
 
-    def get_payment_info(self, call: GenericCall, keypair: Keypair) -> dict[str, Any]:
+    def get_payment_info(
+        self,
+        call: GenericCall,
+        keypair: Keypair,
+        era: Optional[Union[dict, str]] = None,
+        nonce: Optional[int] = None,
+        tip: int = 0,
+        tip_asset_id: Optional[int] = None,
+    ) -> dict[str, Any]:
         """
         Retrieves fee estimation via RPC for given extrinsic
 
@@ -2787,6 +2731,11 @@ class SubstrateInterface(SubstrateMixin):
             call: Call object to estimate fees for
             keypair: Keypair of the sender, does not have to include private key because no valid signature is
                      required
+            era: Specify mortality in blocks in follow format:
+                {'period': [amount_blocks]} If omitted the extrinsic is immortal
+            nonce: nonce to include in extrinsics, if omitted the current nonce is retrieved on-chain
+            tip: The tip for the block author to gain priority during network congestion
+            tip_asset_id: Optional asset ID with which to pay the tip
 
         Returns:
             Dict with payment info
@@ -2806,7 +2755,13 @@ class SubstrateInterface(SubstrateMixin):
 
         # Create extrinsic
         extrinsic = self.create_signed_extrinsic(
-            call=call, keypair=keypair, signature=signature
+            call=call,
+            keypair=keypair,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            signature=signature,
         )
         extrinsic_len = len(extrinsic.data)
 
@@ -2881,22 +2836,8 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             List of metadata modules
         """
-        self.init_runtime(block_hash=block_hash)
-
-        return [
-            {
-                "metadata_index": idx,
-                "module_id": module.get_identifier(),
-                "name": module.name,
-                "spec_version": self.runtime.runtime_version,
-                "count_call_functions": len(module.calls or []),
-                "count_storage_functions": len(module.storage or []),
-                "count_events": len(module.events or []),
-                "count_constants": len(module.constants or []),
-                "count_errors": len(module.errors or []),
-            }
-            for idx, module in enumerate(self.metadata.pallets)
-        ]
+        runtime = self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_modules(runtime)
 
     def get_metadata_module(self, name, block_hash=None) -> ScaleType:
         """
@@ -3291,6 +3232,39 @@ class SubstrateInterface(SubstrateMixin):
 
         return result
 
+    def get_metadata_call_functions(
+        self, block_hash: Optional[str] = None
+    ) -> dict[str, dict[str, dict[str, dict[str, Union[str, int, list]]]]]:
+        """
+        Retrieves calls functions for the metadata at the specified block_hash. If not specified, the metadata at
+        chaintip is used.
+
+        Args:
+            block_hash: block hash to retrieve metadata for
+
+        Returns:
+            dict mapping {pallet name: {call name: {param name: param definition}}}
+            e.g.
+            {
+                "Sudo":{
+                    "sudo": {
+                        "_docs": "Authenticates the sudo key and dispatches a function call with `Root` origin.",
+                        "call": {
+                            "name": "call",
+                            "type": 227,
+                            "typeName": "Box<<T as Config>::RuntimeCall>",
+                            "index": 0,
+                            "_docs": ""
+                        }
+                    },
+                    ...
+                },
+                ...
+            }
+        """
+        runtime = self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_call_functions(runtime)
+
     def get_metadata_call_function(
         self,
         module_name: str,
@@ -3308,14 +3282,11 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             The dict-like call definition, if found. None otherwise.
         """
-        self.init_runtime(block_hash=block_hash)
+        runtime = self.init_runtime(block_hash=block_hash)
 
-        for pallet in self.runtime.metadata.pallets:
-            if pallet.name == module_name and pallet.calls:
-                for call in pallet.calls:
-                    if call.name == call_function_name:
-                        return call
-        return None
+        return self._get_metadata_call_function(
+            module_name, call_function_name, runtime
+        )
 
     def get_metadata_events(self, block_hash=None) -> list[dict]:
         """
@@ -3329,20 +3300,10 @@ class SubstrateInterface(SubstrateMixin):
         """
 
         runtime = self.init_runtime(block_hash=block_hash)
-
-        event_list = []
-
-        for event_index, (module, event) in self.metadata.event_index.items():
-            event_list.append(
-                self.serialize_module_event(
-                    module, event, runtime.runtime_version, event_index
-                )
-            )
-
-        return event_list
+        return self._get_metadata_events(runtime)
 
     def get_metadata_event(
-        self, module_name, event_name, block_hash=None
+        self, module_name: str, event_name: str, block_hash=None
     ) -> Optional[Any]:
         """
         Retrieves the details of an event for given module name, call function name and block_hash
@@ -3359,12 +3320,7 @@ class SubstrateInterface(SubstrateMixin):
         """
 
         runtime = self.init_runtime(block_hash=block_hash)
-
-        for pallet in runtime.metadata.pallets:
-            if pallet.name == module_name and pallet.events:
-                for event in pallet.events:
-                    if event.name == event_name:
-                        return event
+        return self._get_metadata_event(module_name, event_name, runtime)
 
     def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""

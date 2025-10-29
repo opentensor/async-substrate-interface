@@ -1,6 +1,6 @@
 [project]
 name = "async-substrate-interface"
-version = "1.5.8"
+version = "1.5.9"
 description = "Asyncio library for interacting with substrate. Mostly API-compatible with py-substrate-interface"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -8,14 +8,14 @@ keywords = ["substrate", "development", "bittensor"]
 
 dependencies = [
   "wheel",
-  "bt-decode==v0.6.0",
+  "bt-decode==v0.8.0",
   "scalecodec~=1.2.11",
   "websockets>=14.1",
   "xxhash",
   "aiosqlite>=0.21.0,<1.0.0"
 ]
 
-requires-python = ">=3.9,<3.14"
+requires-python = ">=3.9,<3.15"
 
 authors = [
   { name = "Opentensor Foundation" },
@@ -56,5 +56,5 @@ dev = [
     "pytest-split==0.10.0",
     "pytest-xdist==3.6.1",
     "pytest-rerunfailures==10.2",
-    "substrate-interface"
+    "bittensor-wallet>=4.0.0"
 ]
