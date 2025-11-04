@@ -952,7 +952,7 @@ class Websocket:
             original_id = get_next_id()
             while original_id in self._in_use_ids:
                 original_id = get_next_id()
-            del self._received_subscriptions[subscription_id]
+            self._received_subscriptions.pop(subscription_id, None)
 
         to_send = {
             "jsonrpc": "2.0",
