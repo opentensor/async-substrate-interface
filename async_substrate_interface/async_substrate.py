@@ -974,11 +974,13 @@ class Websocket:
         """
         item: Optional[asyncio.Future] = self._received.get(item_id)
         if item is not None:
-            if item.done():
-                self.max_subscriptions.release()
-                res = item.result()
-                del self._received[item_id]
-                return res
+            # For regular requests, await the Future directly instead of polling
+            if not item.done():
+                await item
+            self.max_subscriptions.release()
+            res = item.result()
+            del self._received[item_id]
+            return res
         else:
             try:
                 subscription = self._received_subscriptions[item_id].get_nowait()
