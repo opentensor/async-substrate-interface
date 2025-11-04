@@ -793,7 +793,7 @@ class Websocket:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.shutdown_timer is not None:
-            if not self.state != State.CONNECTING:
+            if self.state != State.CONNECTING:
                 if self._exit_task is not None:
                     self._exit_task.cancel()
                     try:
@@ -1005,6 +1005,8 @@ class Websocket:
 
 
 class AsyncSubstrateInterface(SubstrateMixin):
+    ws: "Websocket"
+
     def __init__(
         self,
         url: str,
