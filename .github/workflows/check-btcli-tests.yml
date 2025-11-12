@@ -174,7 +174,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --extras dev --dev
+          uv sync --extra dev --dev
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
