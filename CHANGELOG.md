@@ -1,4 +1,13 @@
 # Changelog
+## 1.5.10 /2025-11-12
+* bug fixes 1.5.10 by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/231
+  * no double-sleep in async-substrate-interface websocket querying
+  * KeyError catching on websocket race conditions
+  * corrected state check on disconnecting
+  * reset ws attempts on close
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.9...v1.5.10
+
 ## 1.5.9 /2025-10-29
 * Adds metadata call functions retrieval by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/223
 * move metadata methods to SubstrateMixin by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/224
