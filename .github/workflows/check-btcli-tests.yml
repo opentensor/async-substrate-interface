@@ -253,7 +253,7 @@ jobs:
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           pip uninstall async-substrate-interface -y
-          uv pip install .
+          uv pip install ".[dev]"
 
       - name: Run BTCLI unit tests
         run: |
