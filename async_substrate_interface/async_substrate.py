@@ -1000,7 +1000,6 @@ class Websocket:
                 elif isinstance((e := self._send_recv_task.result()), Exception):
                     logger.exception(f"Websocket sending exception: {e}")
                     raise e
-        await asyncio.sleep(0.01)
         return None
 
 
