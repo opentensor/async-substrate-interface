@@ -166,9 +166,15 @@ jobs:
           source ${{ github.workspace }}/venv/bin/activate
           git checkout staging
           git fetch origin staging
-          python3 -m pip install --upgrade pip uv
-          uv pip install '.[dev]'
-          uv pip install pytest
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: 3.13
+
+      - name: Install dependencies
+        run: |
+          uv sync --extras dev --dev
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
@@ -249,7 +255,7 @@ jobs:
           pip uninstall async-substrate-interface -y
           uv pip install .
 
-      - name: Run SDK unit tests
+      - name: Run BTCLI unit tests
         run: |
           source ${{ github.workspace }}/venv/bin/activate
           pytest ${{ github.workspace }}/btcli/tests/unit_tests
