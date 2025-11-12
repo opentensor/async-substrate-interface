@@ -802,6 +802,7 @@ class Websocket:
                         pass
                 if self.ws is not None:
                     self._exit_task = asyncio.create_task(self._exit_with_timer())
+                self._attempts = 0
 
     async def _exit_with_timer(self):
         """
