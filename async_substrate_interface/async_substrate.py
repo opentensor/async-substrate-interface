@@ -586,6 +586,7 @@ class Websocket:
         self._max_retries = max_retries
         self._last_activity = asyncio.Event()
         self._last_activity.set()
+        self._waiting_for_response = 0
 
     @property
     def state(self):
@@ -598,6 +599,24 @@ class Websocket:
         if self.state not in (State.CONNECTING, State.OPEN):
             await self.connect()
         return self
+
+    async def mark_waiting_for_response(self):
+        """
+        Mark that a response is expected. This will cause the websocket to not automatically close.
+
+        Note: you must mark as response received once you have received the response.
+        """
+        async with self._lock:
+            self._waiting_for_response += 1
+
+    async def mark_response_received(self):
+        """
+        Mark that the expected response has been received. Automatic shutdown of websocket will proceed normally.
+
+        Note: only do this if you have previously marked as waiting for response
+        """
+        async with self._lock:
+            self._waiting_for_response -= 1
 
     @staticmethod
     async def loop_time() -> float:
@@ -738,7 +757,10 @@ class Websocket:
             task_res = task.result()
 
             # If ConnectionClosedOK, graceful shutdown - don't reconnect
-            if isinstance(task_res, websockets.exceptions.ConnectionClosedOK):
+            if (
+                isinstance(task_res, websockets.exceptions.ConnectionClosedOK)
+                and self._waiting_for_response <= 0
+            ):
                 logger.debug("Graceful shutdown detected, not reconnecting")
                 return None  # Clean exit
 
@@ -793,7 +815,12 @@ class Websocket:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.shutdown_timer is not None:
-            if self.state != State.CONNECTING:
+            if (
+                self.state != State.CONNECTING
+                and self._sending.qsize() == 0
+                and not self._received_subscriptions
+                and self._waiting_for_response <= 0
+            ):
                 if self._exit_task is not None:
                     self._exit_task.cancel()
                     try:
@@ -812,6 +839,7 @@ class Websocket:
         try:
             if self.shutdown_timer is not None:
                 await asyncio.sleep(self.shutdown_timer)
+            logger.debug("Exiting with timer")
             await self.shutdown()
         except asyncio.CancelledError:
             pass
@@ -2495,6 +2523,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 logger.debug(
                     f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {output_payload}"
                 )
+            await ws.mark_waiting_for_response()
 
             while True:
                 for item_id in request_manager.unresponded():
@@ -2552,6 +2581,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             )
 
                 if request_manager.is_complete:
+                    await ws.mark_response_received()
                     break
                 else:
                     await asyncio.sleep(0.01)
@@ -3948,6 +3978,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 }
 
                 if "finalized" in message_result and wait_for_finalization:
+                    logger.debug("Extrinsic finalized. Unsubscribing.")
                     async with self.ws as ws:
                         await ws.unsubscribe(subscription_id)
                     return {
@@ -3956,14 +3987,17 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         "finalized": True,
                     }, True
                 elif (
-                    "inblock" in message_result
+                    any(x in message_result for x in ["inblock", "inBlock"])
                     and wait_for_inclusion
                     and not wait_for_finalization
                 ):
+                    logger.debug("Extrinsic included. Unsubscribing.")
                     async with self.ws as ws:
                         await ws.unsubscribe(subscription_id)
                     return {
-                        "block_hash": message_result["inblock"],
+                        "block_hash": message_result.get(
+                            "inblock", message_result.get("inBlock")
+                        ),
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
                         "finalized": False,
                     }, True
