@@ -1,4 +1,9 @@
 # Changelog
+## 1.5.11 /2025-11-14
+* Race Condition Bug fixes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/234
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.10...v1.5.11
+
 ## 1.5.10 /2025-11-12
 * bug fixes 1.5.10 by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/231
   * no double-sleep in async-substrate-interface websocket querying
