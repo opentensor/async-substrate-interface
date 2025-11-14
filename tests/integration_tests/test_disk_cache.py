@@ -9,6 +9,7 @@ from async_substrate_interface.sync_substrate import SubstrateInterface
 
 @pytest.mark.asyncio
 async def test_disk_cache():
+    print("Testing test_disk_cache")
     entrypoint = "wss://entrypoint-finney.opentensor.ai:443"
     async with DiskCachedAsyncSubstrateInterface(entrypoint) as disk_cached_substrate:
         current_block = await disk_cached_substrate.get_block_number(None)
@@ -72,3 +73,4 @@ async def test_disk_cache():
     assert parent_block_hash == parent_block_hash_sync
     assert block_runtime_info == block_runtime_info_sync
     assert block_runtime_version_for == block_runtime_version_for_sync
+    print("test_disk_cache succeeded")

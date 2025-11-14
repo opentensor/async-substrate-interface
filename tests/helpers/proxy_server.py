@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import time
 
@@ -26,7 +27,8 @@ class ProxyServer:
     def close(self):
         if self.upstream_connection:
             self.upstream_connection.close()
-        self.server.shutdown()
+        with contextlib.suppress(AttributeError):
+            self.server.shutdown()
 
     def proxy_request(self, websocket: ServerConnection):
         for message in websocket:
