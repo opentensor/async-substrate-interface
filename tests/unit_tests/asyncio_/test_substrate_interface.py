@@ -19,9 +19,7 @@ async def test_invalid_url_raises_exception():
         await async_substrate.initialize()
 
     with pytest.raises(InvalidURI):
-        async with AsyncSubstrateInterface(
-            "non_existent_entry_point"
-        ) as _:
+        async with AsyncSubstrateInterface("non_existent_entry_point") as _:
             pass
     print("test_invalid_url_raises_exception succeeded")
 
