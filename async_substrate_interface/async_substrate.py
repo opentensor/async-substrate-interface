@@ -747,7 +747,10 @@ class Websocket:
             task_res = task.result()
 
             # If ConnectionClosedOK, graceful shutdown - don't reconnect
-            if isinstance(task_res, websockets.exceptions.ConnectionClosedOK):
+            if (
+                isinstance(task_res, websockets.exceptions.ConnectionClosedOK)
+                and self._waiting_for_response <= 0
+            ):
                 logger.debug("Graceful shutdown detected, not reconnecting")
                 return None  # Clean exit
 
