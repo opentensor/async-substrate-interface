@@ -601,10 +601,20 @@ class Websocket:
         return self
 
     async def mark_waiting_for_response(self):
+        """
+        Mark that a response is expected. This will cause the websocket to not automatically close.
+
+        Note: you must mark as response received once you have received the response.
+        """
         async with self._lock:
             self._waiting_for_response += 1
 
     async def mark_response_received(self):
+        """
+        Mark that the expected response has been received. Automatic shutdown of websocket will proceed normally.
+
+        Note: only do this if you have previously marked as waiting for response
+        """
         async with self._lock:
             self._waiting_for_response -= 1
 
