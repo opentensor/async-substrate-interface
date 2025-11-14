@@ -16,6 +16,7 @@ from tests.helpers.proxy_server import ProxyServer
 
 @pytest.mark.asyncio
 async def test_legacy_decoding():
+    print("Testing test_legacy_decoding")
     # roughly 4000 blocks before metadata v15 was added
     pre_metadata_v15_block = 3_010_611
 
@@ -39,10 +40,12 @@ async def test_legacy_decoding():
             block_hash=block_hash,
         )
         assert timestamp.value == 1716358476004
+    print("test_legacy_decoding succeeded")
 
 
 @pytest.mark.asyncio
 async def test_ss58_conversion():
+    print("Testing test_ss58_conversion")
     async with AsyncSubstrateInterface(
         LATENT_LITE_ENTRYPOINT, ss58_format=42, decode_ss58=False
     ) as substrate:
@@ -79,10 +82,12 @@ async def test_ss58_conversion():
             if len(value.value) > 0:
                 for decoded_key in value.value:
                     assert isinstance(decoded_key, str)
+    print("test_ss58_conversion succeeded")
 
 
 @pytest.mark.asyncio
 async def test_fully_exhaust_query_map():
+    print("Testing test_fully_exhaust_query_map")
     async with AsyncSubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
         block_hash = await substrate.get_chain_finalised_head()
         non_fully_exhauster_start = time.time()
@@ -121,10 +126,12 @@ async def test_fully_exhaust_query_map():
             fully_exhausted_records_count += 1
         assert fully_exhausted_records_count == initial_records_count_fully_exhaust
         assert initial_records_count_fully_exhaust == exhausted_records_count
+    print("test_fully_exhaust_query_map succeeded")
 
 
 @pytest.mark.asyncio
 async def test_get_events_proper_decoding():
+    print("Testing test_get_events_proper_decoding")
     # known block/hash pair that has the events we seek to decode
     block = 5846788
     block_hash = "0x0a1c45063a59b934bfee827caa25385e60d5ec1fd8566a58b5cc4affc4eec412"
@@ -137,10 +144,12 @@ async def test_get_events_proper_decoding():
             30,
             "0xa6b4e5c8241d60ece0c25056b19f7d21ae845269fc771ad46bf3e011865129a5",
         )
+    print("test_get_events_proper_decoding succeeded")
 
 
 @pytest.mark.asyncio
 async def test_query_multiple():
+    print("Testing test_query_multiple")
     block = 6153277
     cks = [
         "5FH9AQM4kqbkdC9jyV5FrdEWVYt41nkhFstop7Vhyfb9ZsXt",
@@ -155,10 +164,12 @@ async def test_query_multiple():
             storage_function="OwnedHotkeys",
             block_hash=block_hash,
         )
+    print("test_query_multiple succeeded")
 
 
 @pytest.mark.asyncio
 async def test_reconnection():
+    print("Testing test_reconnection")
     async with AsyncSubstrateInterface(
         ARCHIVE_ENTRYPOINT, ss58_format=42, retry_timeout=8.0
     ) as substrate:
@@ -166,10 +177,12 @@ async def test_reconnection():
         bh = await substrate.get_chain_finalised_head()
         assert isinstance(bh, str)
         assert isinstance(await substrate.get_block_number(bh), int)
+    print("test_reconnection succeeded")
 
 
 @pytest.mark.asyncio
 async def test_query_map_with_odd_number_of_params():
+    print("Testing test_query_map_with_odd_number_of_params")
     async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT, ss58_format=42) as substrate:
         qm = await substrate.query_map(
             "SubtensorModule",
@@ -179,10 +192,12 @@ async def test_query_map_with_odd_number_of_params():
         first_record = qm.records[0]
         assert len(first_record) == 2
         assert len(first_record[0]) == 4
+    print("test_query_map_with_odd_number_of_params succeeded")
 
 
 @pytest.mark.asyncio
 async def test_improved_reconnection():
+    print("Testing test_improved_reconnection")
     ws_logger_path = "/tmp/websockets-proxy-test"
     ws_logger = logging.getLogger("websockets.proxy")
     if os.path.exists(ws_logger_path):
@@ -236,10 +251,12 @@ async def test_improved_reconnection():
     shutdown_thread.start()
     shutdown_thread.join(timeout=5)
     server_thread.join(timeout=5)
+    print("test_improved_reconnection succeeded")
 
 
 @pytest.mark.asyncio
 async def test_get_payment_info():
+    print("Testing test_get_payment_info")
     alice_coldkey = bittensor_wallet.Keypair.create_from_uri("//Alice")
     bob_coldkey = bittensor_wallet.Keypair.create_from_uri("//Bob")
     async with AsyncSubstrateInterface(
@@ -275,3 +292,4 @@ async def test_get_payment_info():
         partial_fee_all_options = payment_info_all_options["partial_fee"]
         assert partial_fee_all_options > partial_fee_no_era
         assert partial_fee_all_options > partial_fee_era
+    print("test_get_payment_info succeeded")

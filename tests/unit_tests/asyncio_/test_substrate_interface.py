@@ -13,6 +13,7 @@ from tests.helpers.settings import ARCHIVE_ENTRYPOINT
 @pytest.mark.asyncio
 async def test_invalid_url_raises_exception():
     """Test that invalid URI raises an InvalidURI exception."""
+    print("Testing test_invalid_url_raises_exception")
     async_substrate = AsyncSubstrateInterface("non_existent_entry_point")
     with pytest.raises(InvalidURI):
         await async_substrate.initialize()
@@ -20,12 +21,14 @@ async def test_invalid_url_raises_exception():
     with pytest.raises(InvalidURI):
         async with AsyncSubstrateInterface(
             "non_existent_entry_point"
-        ) as async_substrate:
+        ) as _:
             pass
+    print("test_invalid_url_raises_exception succeeded")
 
 
 @pytest.mark.asyncio
 async def test_runtime_call(monkeypatch):
+    print("Testing test_runtime_call")
     substrate = AsyncSubstrateInterface("ws://localhost", _mock=True)
 
     fake_runtime = MagicMock()
@@ -96,10 +99,12 @@ async def test_runtime_call(monkeypatch):
     substrate.rpc_request.assert_any_call(
         "state_call", ["SubstrateApi_SubstrateMethod", "", None], runtime=ANY
     )
+    print("test_runtime_call succeeded")
 
 
 @pytest.mark.asyncio
 async def test_websocket_shutdown_timer():
+    print("Testing test_websocket_shutdown_timer")
     # using default ws shutdown timer of 5.0 seconds
     async with AsyncSubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
         await substrate.get_chain_head()
@@ -115,10 +120,12 @@ async def test_websocket_shutdown_timer():
         await substrate.get_chain_head()
         await asyncio.sleep(6)  # same sleep time as before
         assert substrate.ws.state is State.OPEN  # connection should still be open
+    print("test_websocket_shutdown_timer succeeded")
 
 
 @pytest.mark.asyncio
 async def test_runtime_switching():
+    print("Testing test_runtime_switching")
     block = 6067945  # block where a runtime switch happens
     async with AsyncSubstrateInterface(
         ARCHIVE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
@@ -133,3 +140,4 @@ async def test_runtime_switching():
         )
         assert one is not None
         assert two is not None
+    print("test_runtime_switching succeeded")
