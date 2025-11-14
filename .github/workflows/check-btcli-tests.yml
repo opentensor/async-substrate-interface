@@ -61,10 +61,10 @@ jobs:
           echo "Current labels: $LABELS"
           if echo "$LABELS" | grep -q "run-bittensor-cli-tests"; then
             echo "run-cli-tests=true" >> $GITHUB_ENV
-            echo "::set-output name=run-cli-tests::true"
+            echo "run-cli-tests=true" >> $GITHUB_OUTPUT
           else
             echo "run-cli-tests=false" >> $GITHUB_ENV
-            echo "::set-output name=run-cli-tests::false"
+            echo "run-cli-tests=false" >> $GITHUB_OUTPUT
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,7 +91,7 @@ jobs:
         id: get-tests
         run: |
           test_files=$(find ${{ github.workspace }}/btcli/tests/e2e_tests -name "test*.py" | jq -R -s -c 'split("\n") | map(select(. != ""))')
-          echo "::set-output name=test-files::$test_files"
+          echo "test-files=$test_files" >> $GITHUB_OUTPUT
         shell: bash
 
   pull-docker-image:
@@ -147,45 +147,47 @@ jobs:
       - name: Check-out repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update &&
           sudo apt-get install -y clang curl libssl-dev llvm libudev-dev protobuf-compiler
 
-      - name: Create Python virtual environment
-        working-directory: ${{ github.workspace }}
-        run: python3 -m venv ${{ github.workspace }}/venv
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Clone Bittensor CLI repo
-        working-directory: ${{ github.workspace }}
         run: git clone https://github.com/opentensor/btcli.git
 
-      - name: Setup Bittensor-cli from cloned repo
+      - name: Checkout btcli staging branch
         working-directory: ${{ github.workspace }}/btcli
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
           git checkout staging
           git fetch origin staging
-          python3 -m pip install --upgrade pip uv
-          uv pip install '.[dev]'
-          uv pip install pytest
+
+      - name: Install btcli dependencies
+        working-directory: ${{ github.workspace }}/btcli
+        run: uv pip install --system '.[dev]'
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
 
-      - name: Checkout PR async-substrate-interface repo
+      - name: Checkout PR branch in async-substrate-interface
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
           git fetch origin ${{ github.event.pull_request.head.ref }}
           git checkout ${{ github.event.pull_request.head.ref }}
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
-      - name: Install async-substrate-interface package
+      - name: Install async-substrate-interface with dev dependencies
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          python3 -m pip uninstall async-substrate-interface -y
-          uv pip install .
+          uv pip uninstall --system async-substrate-interface || true
+          uv pip install --system '.[dev]'
 
       - name: Download Cached Docker Image
         uses: actions/download-artifact@v4
@@ -195,10 +197,8 @@ jobs:
       - name: Load Docker Image
         run: docker load -i subtensor-localnet.tar
 
-      - name: Run tests
-        run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          pytest ${{ matrix.test-file }} -s
+      - name: Run e2e tests
+        run: pytest ${{ matrix.test-file }} -s
 
 
   run-unit-test:
@@ -210,46 +210,47 @@ jobs:
       - name: Check-out repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update &&
           sudo apt-get install -y clang curl libssl-dev llvm libudev-dev protobuf-compiler
 
-      - name: Create Python virtual environment
-        working-directory: ${{ github.workspace }}
-        run: python3 -m venv venv
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Clone Bittensor CLI repo
-        working-directory: ${{ github.workspace }}
         run: git clone https://github.com/opentensor/btcli.git
 
-      - name: Setup Bittensor SDK from cloned repo
+      - name: Checkout btcli staging branch
         working-directory: ${{ github.workspace }}/btcli
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
           git checkout staging
           git fetch origin staging
-          python3 -m pip install --upgrade pip uv
-          uv pip install '.[dev]'
+
+      - name: Install btcli dependencies
+        working-directory: ${{ github.workspace }}/btcli
+        run: uv pip install --system '.[dev]'
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
 
-      - name: Checkout PR branch in async-substrate-interface repo
+      - name: Checkout PR branch in async-substrate-interface
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
           git fetch origin ${{ github.event.pull_request.head.ref }}
           git checkout ${{ github.event.pull_request.head.ref }}
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
-      - name: Install /async-substrate-interface package
+      - name: Install async-substrate-interface with dev dependencies
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          pip uninstall async-substrate-interface -y
-          uv pip install .
+          uv pip uninstall --system async-substrate-interface || true
+          uv pip install --system '.[dev]'
 
-      - name: Run SDK unit tests
-        run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          pytest ${{ github.workspace }}/btcli/tests/unit_tests
+      - name: Run BTCLI unit tests
+        run: pytest ${{ github.workspace }}/btcli/tests/unit_tests

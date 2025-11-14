@@ -793,7 +793,7 @@ class Websocket:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.shutdown_timer is not None:
-            if not self.state != State.CONNECTING:
+            if self.state != State.CONNECTING:
                 if self._exit_task is not None:
                     self._exit_task.cancel()
                     try:
@@ -802,6 +802,7 @@ class Websocket:
                         pass
                 if self.ws is not None:
                     self._exit_task = asyncio.create_task(self._exit_with_timer())
+                self._attempts = 0
 
     async def _exit_with_timer(self):
         """
@@ -952,7 +953,7 @@ class Websocket:
             original_id = get_next_id()
             while original_id in self._in_use_ids:
                 original_id = get_next_id()
-            del self._received_subscriptions[subscription_id]
+            self._received_subscriptions.pop(subscription_id, None)
 
         to_send = {
             "jsonrpc": "2.0",
@@ -1000,11 +1001,12 @@ class Websocket:
                 elif isinstance((e := self._send_recv_task.result()), Exception):
                     logger.exception(f"Websocket sending exception: {e}")
                     raise e
-        await asyncio.sleep(0.01)
         return None
 
 
 class AsyncSubstrateInterface(SubstrateMixin):
+    ws: "Websocket"
+
     def __init__(
         self,
         url: str,
