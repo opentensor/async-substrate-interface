@@ -328,3 +328,19 @@ async def test_concurrent_rpc_requests():
         await asyncio.gather(*tasks)
 
     print("test_concurrent_rpc_requests succeeded")
+
+
+@pytest.mark.asyncio
+async def test_wait_for_block():
+    async def handler(_):
+        return True
+
+    substrate = AsyncSubstrateInterface(
+        LATENT_LITE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
+    )
+    await substrate.initialize()
+    current_block = await substrate.get_block_number(None)
+    result = await substrate.wait_for_block(
+        current_block + 3, result_handler=handler, task_return=False
+    )
+    assert result is True
