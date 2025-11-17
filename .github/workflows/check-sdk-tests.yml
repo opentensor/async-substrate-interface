@@ -209,8 +209,9 @@ jobs:
       - name: Checkout PR branch in async-substrate-interface
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
-          git fetch origin ${{ github.event.pull_request.head.ref }}
-          git checkout ${{ github.event.pull_request.head.ref }}
+          BRANCH="${{ github.event.pull_request.head.ref || github.ref_name }}"
+          git fetch origin $BRANCH
+          git checkout $BRANCH
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
       - name: Install async-substrate-interface with dev dependencies
