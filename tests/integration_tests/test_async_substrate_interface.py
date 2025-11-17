@@ -213,7 +213,7 @@ async def test_improved_reconnection():
 
     proxy = ProxyServer("wss://archive.sub.latent.to", 10, 20)
 
-    server_thread = threading.Thread(target=proxy.connect_and_serve)
+    server_thread = threading.Thread(target=proxy.connect_and_serve, daemon=True)
     server_thread.start()
     await asyncio.sleep(3)  # give the server start up time
     async with AsyncSubstrateInterface(
@@ -250,7 +250,7 @@ async def test_improved_reconnection():
     shutdown_thread = threading.Thread(target=proxy.close)
     shutdown_thread.start()
     shutdown_thread.join(timeout=5)
-    server_thread.join(timeout=5)
+    # server_thread.join(timeout=5)
     print("test_improved_reconnection succeeded")
 
 
