@@ -1,4 +1,11 @@
 # Changelog
+## 1.5.12 /2025-11-167
+* RecursionError in `_wait_with_activity_timeout` with concurrent tasks by @Arthurdw in https://github.com/opentensor/async-substrate-interface/pull/238
+* Improved Test Running + Race Condition Catch by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/236
+
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.11...v1.5.12
+
 ## 1.5.11 /2025-11-14
 * Race Condition Bug fixes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/234
 

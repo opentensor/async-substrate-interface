@@ -694,9 +694,17 @@ class Websocket:
 
     async def connect(self, force=False):
         if not force:
-            await self._lock.acquire()
+            async with self._lock:
+                return await self._connect_internal(force)
         else:
             logger.debug("Proceeding without acquiring lock.")
+            return await self._connect_internal(force)
+
+    async def _connect_internal(self, force):
+        # Check state again after acquiring lock to avoid duplicate connections
+        if not force and self.state in (State.OPEN, State.CONNECTING):
+            return None
+
         logger.debug(f"Websocket connecting to {self.ws_url}")
         if self._sending is None or self._sending.empty():
             self._sending = asyncio.Queue()
@@ -725,8 +733,6 @@ class Websocket:
             except socket.gaierror:
                 logger.debug(f"Hostname not known (this is just for testing")
                 await asyncio.sleep(10)
-                if self._lock.locked():
-                    self._lock.release()
                 return await self.connect(force=force)
             logger.debug("Connection established")
             self.ws = connection
@@ -734,8 +740,6 @@ class Websocket:
                 self._send_recv_task = asyncio.get_running_loop().create_task(
                     self._handler(self.ws)
                 )
-        if self._lock.locked():
-            self._lock.release()
         return None
 
     async def _handler(self, ws: ClientConnection) -> Union[None, Exception]:
@@ -838,9 +842,15 @@ class Websocket:
         """
         try:
             if self.shutdown_timer is not None:
+                logger.debug("Exiting with timer")
                 await asyncio.sleep(self.shutdown_timer)
-            logger.debug("Exiting with timer")
-            await self.shutdown()
+            if (
+                self.state != State.CONNECTING
+                and self._sending.qsize() == 0
+                and not self._received_subscriptions
+                and self._waiting_for_response <= 0
+            ):
+                await self.shutdown()
         except asyncio.CancelledError:
             pass
 
@@ -981,6 +991,7 @@ class Websocket:
             original_id = get_next_id()
             while original_id in self._in_use_ids:
                 original_id = get_next_id()
+            logger.debug(f"Unwatched extrinsic subscription {subscription_id}")
             self._received_subscriptions.pop(subscription_id, None)
 
         to_send = {
@@ -2512,6 +2523,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         subscription_added = False
 
         async with self.ws as ws:
+            await ws.mark_waiting_for_response()
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
@@ -2523,7 +2535,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 logger.debug(
                     f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {output_payload}"
                 )
-            await ws.mark_waiting_for_response()
 
             while True:
                 for item_id in request_manager.unresponded():
