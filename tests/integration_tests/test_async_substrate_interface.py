@@ -222,7 +222,7 @@ async def test_improved_reconnection():
     print(f"Testing using server on port {port}")
     proxy = ProxyServer("wss://archive.sub.latent.to", 10, 20, port=port)
 
-    server_thread = threading.Thread(target=proxy.connect_and_serve)
+    server_thread = threading.Thread(target=proxy.connect_and_serve, daemon=True)
     server_thread.start()
     await asyncio.sleep(3)  # give the server start up time
     async with AsyncSubstrateInterface(
@@ -256,7 +256,7 @@ async def test_improved_reconnection():
             assert "Pausing" in f.read()
         with open(asi_logger_path, "r") as f:
             assert "Timeout/ConnectionClosed occurred." in f.read()
-    shutdown_thread = threading.Thread(target=proxy.close)
+    shutdown_thread = threading.Thread(target=proxy.close, daemon=True)
     shutdown_thread.start()
     shutdown_thread.join(timeout=5)
     server_thread.join(timeout=5)
