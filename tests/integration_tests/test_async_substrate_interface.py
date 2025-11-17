@@ -302,3 +302,29 @@ async def test_get_payment_info():
         assert partial_fee_all_options > partial_fee_no_era
         assert partial_fee_all_options > partial_fee_era
     print("test_get_payment_info succeeded")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_rpc_requests():
+    """
+    Test that multiple concurrent RPC requests on a shared connection work correctly.
+
+    This test verifies the fix for the issue where multiple concurrent tasks
+    re-initializing the WebSocket connection caused requests to hang.
+    """
+    print("Testing test_concurrent_rpc_requests")
+
+    async def concurrent_task(substrate, task_id):
+        """Make multiple RPC calls from a single task."""
+        for i in range(5):
+            result = await substrate.get_block_number(None)
+            assert isinstance(result, int)
+            assert result > 0
+
+    async with AsyncSubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
+        # Run 5 concurrent tasks, each making 5 RPC calls (25 total)
+        # This tests that the connection is properly shared without re-initialization
+        tasks = [concurrent_task(substrate, i) for i in range(5)]
+        await asyncio.gather(*tasks)
+
+    print("test_concurrent_rpc_requests succeeded")

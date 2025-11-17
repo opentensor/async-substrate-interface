@@ -694,9 +694,17 @@ class Websocket:
 
     async def connect(self, force=False):
         if not force:
-            await self._lock.acquire()
+            async with self._lock:
+                return await self._connect_internal(force)
         else:
             logger.debug("Proceeding without acquiring lock.")
+            return await self._connect_internal(force)
+
+    async def _connect_internal(self, force):
+        # Check state again after acquiring lock to avoid duplicate connections
+        if not force and self.state in (State.OPEN, State.CONNECTING):
+            return None
+
         logger.debug(f"Websocket connecting to {self.ws_url}")
         if self._sending is None or self._sending.empty():
             self._sending = asyncio.Queue()
@@ -725,8 +733,6 @@ class Websocket:
             except socket.gaierror:
                 logger.debug(f"Hostname not known (this is just for testing")
                 await asyncio.sleep(10)
-                if self._lock.locked():
-                    self._lock.release()
                 return await self.connect(force=force)
             logger.debug("Connection established")
             self.ws = connection
@@ -734,8 +740,6 @@ class Websocket:
                 self._send_recv_task = asyncio.get_running_loop().create_task(
                     self._handler(self.ws)
                 )
-        if self._lock.locked():
-            self._lock.release()
         return None
 
     async def _handler(self, ws: ClientConnection) -> Union[None, Exception]:
