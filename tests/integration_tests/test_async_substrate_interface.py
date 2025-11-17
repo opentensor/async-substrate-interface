@@ -222,7 +222,7 @@ async def test_improved_reconnection():
     print(f"Testing using server on port {port}")
     proxy = ProxyServer("wss://archive.sub.latent.to", 10, 20, port=port)
 
-    server_thread = threading.Thread(target=proxy.connect_and_serve, daemon=True)
+    server_thread = threading.Thread(target=proxy.connect_and_serve)
     server_thread.start()
     await asyncio.sleep(3)  # give the server start up time
     async with AsyncSubstrateInterface(
@@ -259,7 +259,7 @@ async def test_improved_reconnection():
     shutdown_thread = threading.Thread(target=proxy.close)
     shutdown_thread.start()
     shutdown_thread.join(timeout=5)
-    # server_thread.join(timeout=5)
+    server_thread.join(timeout=5)
     print("test_improved_reconnection succeeded")
 
 
@@ -314,10 +314,10 @@ async def test_concurrent_rpc_requests():
     """
     print("Testing test_concurrent_rpc_requests")
 
-    async def concurrent_task(substrate, task_id):
+    async def concurrent_task(substrate_, task_id):
         """Make multiple RPC calls from a single task."""
         for i in range(5):
-            result = await substrate.get_block_number(None)
+            result = await substrate_.get_block_number(None)
             assert isinstance(result, int)
             assert result > 0
 
