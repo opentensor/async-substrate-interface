@@ -3,6 +3,7 @@ import logging
 import os.path
 import time
 import threading
+import socket
 
 import bittensor_wallet
 import pytest
@@ -197,6 +198,13 @@ async def test_query_map_with_odd_number_of_params():
 
 @pytest.mark.asyncio
 async def test_improved_reconnection():
+    def get_free_port():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))  # Bind to port 0 = OS picks free port
+            s.listen(1)
+            port_ = s.getsockname()[1]
+        return port_
+
     print("Testing test_improved_reconnection")
     ws_logger_path = "/tmp/websockets-proxy-test"
     ws_logger = logging.getLogger("websockets.proxy")
@@ -210,7 +218,8 @@ async def test_improved_reconnection():
         os.remove(asi_logger_path)
     logger.setLevel(logging.DEBUG)
     logger.addHandler(logging.FileHandler(asi_logger_path))
-    port = 8079
+    port = get_free_port()
+    print(f"Testing using server on port {port}")
     proxy = ProxyServer("wss://archive.sub.latent.to", 10, 20, port=port)
 
     server_thread = threading.Thread(target=proxy.connect_and_serve, daemon=True)

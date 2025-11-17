@@ -48,7 +48,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           source venv/bin/activate
-          python -m uv run pytest tests/unit_tests/ --reruns 3
+          python -m uv run pytest tests/unit_tests/ --reruns 3 -s
 
       - name: Integration tests
         timeout-minutes: 20
@@ -56,4 +56,4 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           source venv/bin/activate
-          python -m uv run pytest tests/integration_tests/ --reruns 3
+          python -m uv run pytest tests/integration_tests/ --reruns 3 -s
