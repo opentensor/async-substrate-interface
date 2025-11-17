@@ -210,14 +210,14 @@ async def test_improved_reconnection():
         os.remove(asi_logger_path)
     logger.setLevel(logging.DEBUG)
     logger.addHandler(logging.FileHandler(asi_logger_path))
-
-    proxy = ProxyServer("wss://archive.sub.latent.to", 10, 20)
+    port = 8079
+    proxy = ProxyServer("wss://archive.sub.latent.to", 10, 20, port=port)
 
     server_thread = threading.Thread(target=proxy.connect_and_serve, daemon=True)
     server_thread.start()
     await asyncio.sleep(3)  # give the server start up time
     async with AsyncSubstrateInterface(
-        "ws://localhost:8080",
+        f"ws://localhost:{port}",
         ss58_format=42,
         chain_name="Bittensor",
         retry_timeout=10.0,
