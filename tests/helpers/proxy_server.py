@@ -9,7 +9,13 @@ logger = logging.getLogger("websockets.proxy")
 
 
 class ProxyServer:
-    def __init__(self, upstream: str, time_til_pause: float, time_til_resume: float, port: int = 8080):
+    def __init__(
+        self,
+        upstream: str,
+        time_til_pause: float,
+        time_til_resume: float,
+        port: int = 8080,
+    ):
         self.upstream_server = upstream
         self.time_til_pause = time_til_pause
         self.time_til_resume = time_til_resume

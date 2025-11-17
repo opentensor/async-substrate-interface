@@ -842,9 +842,15 @@ class Websocket:
         """
         try:
             if self.shutdown_timer is not None:
+                logger.debug("Exiting with timer")
                 await asyncio.sleep(self.shutdown_timer)
-            logger.debug("Exiting with timer")
-            await self.shutdown()
+            if (
+                self.state != State.CONNECTING
+                and self._sending.qsize() == 0
+                and not self._received_subscriptions
+                and self._waiting_for_response <= 0
+            ):
+                await self.shutdown()
         except asyncio.CancelledError:
             pass
 
@@ -985,6 +991,7 @@ class Websocket:
             original_id = get_next_id()
             while original_id in self._in_use_ids:
                 original_id = get_next_id()
+            logger.debug(f"Unwatched extrinsic subscription {subscription_id}")
             self._received_subscriptions.pop(subscription_id, None)
 
         to_send = {

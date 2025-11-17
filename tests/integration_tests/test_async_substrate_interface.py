@@ -200,7 +200,7 @@ async def test_query_map_with_odd_number_of_params():
 async def test_improved_reconnection():
     def get_free_port():
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('', 0))  # Bind to port 0 = OS picks free port
+            s.bind(("", 0))  # Bind to port 0 = OS picks free port
             s.listen(1)
             port_ = s.getsockname()[1]
         return port_
