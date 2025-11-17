@@ -2512,6 +2512,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         subscription_added = False
 
         async with self.ws as ws:
+            await ws.mark_waiting_for_response()
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
@@ -2523,7 +2524,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 logger.debug(
                     f"Submitted payload ID {payload['id']} with websocket ID {item_id}: {output_payload}"
                 )
-            await ws.mark_waiting_for_response()
 
             while True:
                 for item_id in request_manager.unresponded():
