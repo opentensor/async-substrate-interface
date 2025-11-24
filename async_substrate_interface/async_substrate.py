@@ -833,7 +833,7 @@ class Websocket:
                         pass
                 if self.ws is not None:
                     self._exit_task = asyncio.create_task(self._exit_with_timer())
-                self._attempts = 0
+        self._attempts = 0
 
     async def _exit_with_timer(self):
         """
@@ -891,12 +891,22 @@ class Websocket:
         logger.debug("Starting receiving task")
         try:
             while True:
-                recd = await self._wait_with_activity_timeout(
-                    ws.recv(decode=False), self.retry_timeout
-                )
-                await self._reset_activity_timer()
-                self._attempts = 0
-                await self._recv(recd)
+                try:
+                    recd = await self._wait_with_activity_timeout(
+                        ws.recv(decode=False), self.retry_timeout
+                    )
+                    await self._reset_activity_timer()
+                    self._attempts = 0
+                    await self._recv(recd)
+                except TimeoutError:
+                    if (
+                        self._waiting_for_response <= 0
+                        or self._sending.qsize() == 0
+                        or len(self._inflight) == 0
+                        or len(self._received_subscriptions) == 0
+                    ):
+                        # if there's nothing in a queue, we really have no reason to have this, so we continue to wait
+                        continue
         except websockets.exceptions.ConnectionClosedOK as e:
             logger.debug("ConnectionClosedOK")
             return e
@@ -939,7 +949,14 @@ class Websocket:
             if not isinstance(
                 e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
             ):
-                logger.exception("Websocket sending exception", exc_info=e)
+                logger.exception(
+                    f"Websocket sending exception; "
+                    f"sending: {self._sending.qsize()}; "
+                    f"waiting_for_response: {self._waiting_for_response}; "
+                    f"inflight: {len(self._inflight)}; "
+                    f"subscriptions: {len(self._received_subscriptions)};",
+                    exc_info=e,
+                )
                 if to_send is not None:
                     to_send_ = json.loads(to_send)
                     self._received[to_send_["id"]].set_exception(e)
