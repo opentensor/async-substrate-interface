@@ -3987,15 +3987,32 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 message_result = {
                     k.lower(): v for k, v in message["params"]["result"].items()
                 }
+                # check for any subscription indicators of failure
+                failure_message = None
                 if "usurped" in message_result:
-                    logger.error(
+                    failure_message = (
                         f"Subscription {subscription_id} usurped: {message_result}"
                     )
+                if "retracted" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} retracted: {message_result}"
+                    )
+                if "finalitytimeout" in message_result:
+                    failure_message = f"Subscription {subscription_id} finalityTimeout: {message_result}"
+                if "dropped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} dropped: {message_result}"
+                    )
+                if "invalid" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} invalid: {message_result}"
+                    )
+
+                if failure_message is not None:
                     async with self.ws as ws:
                         await ws.unsubscribe(subscription_id)
-                    raise SubstrateRequestException(
-                        f"Subscription {subscription_id} usurped: {message_result}"
-                    )
+                    logger.error(failure_message)
+                    raise SubstrateRequestException(failure_message)
 
                 if "finalized" in message_result and wait_for_finalization:
                     logger.debug("Extrinsic finalized. Unsubscribing.")
