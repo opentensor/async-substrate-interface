@@ -274,15 +274,14 @@ class AsyncExtrinsicReceipt:
                     has_transaction_fee_paid_event = True
 
             # Process other events
+            possible_success = False
             for event in await self.triggered_events:
                 # Check events
                 if (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicSuccess"
                 ):
-                    if self.__error_message is None:
-                        self.__is_success = True
-                        self.__error_message = None
+                    possible_success = True
 
                     if "dispatch_info" in event["event"]["attributes"]:
                         self.__weight = event["event"]["attributes"]["dispatch_info"][
@@ -299,6 +298,7 @@ class AsyncExtrinsicReceipt:
                     event["event"]["module_id"] == "MevShield"
                     and event["event"]["event_id"] == "DecryptedRejected"
                 ):
+                    possible_success = False
                     self.__is_success = False
 
                     if event["event"]["module_id"] == "System":
@@ -307,9 +307,13 @@ class AsyncExtrinsicReceipt:
                         self.__weight = dispatch_info["weight"]
                     else:
                         # MEV shield extrinsics
-                        dispatch_info = event["event"]["attributes"]["reason"]["post_info"]
+                        dispatch_info = event["event"]["attributes"]["reason"][
+                            "post_info"
+                        ]
                         dispatch_error = event["event"]["attributes"]["reason"]["error"]
-                        self.__weight = event["event"]["attributes"]["reason"]["post_info"]["actual_weight"]
+                        self.__weight = event["event"]["attributes"]["reason"][
+                            "post_info"
+                        ]["actual_weight"]
 
                     if "Module" in dispatch_error:
                         if isinstance(dispatch_error["Module"], tuple):
@@ -375,6 +379,10 @@ class AsyncExtrinsicReceipt:
                         and event["event"]["event_id"] == "Deposit"
                     ):
                         self.__total_fee_amount += event.value["attributes"]["amount"]
+            if possible_success is True and self.__error_message is None:
+                # we delay the positive setting of the __is_success flag until we have finished iteration of the
+                # events and have ensured nothing has set an error message
+                self.__is_success = True
 
     @property
     async def is_success(self) -> bool:
