@@ -3170,6 +3170,15 @@ class SubstrateInterface(SubstrateMixin):
                     k.lower(): v for k, v in message["params"]["result"].items()
                 }
 
+                if "usurped" in message_result:
+                    logger.error(
+                        f"Subscription {subscription_id} usurped: {message_result}"
+                    )
+                    self.rpc_request("author_unwatchExtrinsic", [subscription_id])
+                    raise SubstrateRequestException(
+                        f"Subscription {subscription_id} usurped: {message_result}"
+                    )
+
                 if "finalized" in message_result and wait_for_finalization:
                     # Created as a task because we don't actually care about the result
                     # TODO change this logic

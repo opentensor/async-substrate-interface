@@ -3987,6 +3987,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 message_result = {
                     k.lower(): v for k, v in message["params"]["result"].items()
                 }
+                if "usurped" in message_result:
+                    logger.error(
+                        f"Subscription {subscription_id} usurped: {message_result}"
+                    )
+                    async with self.ws as ws:
+                        await ws.unsubscribe(subscription_id)
+                    raise SubstrateRequestException(
+                        f"Subscription {subscription_id} usurped: {message_result}"
+                    )
 
                 if "finalized" in message_result and wait_for_finalization:
                     logger.debug("Extrinsic finalized. Unsubscribing.")
@@ -3998,7 +4007,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         "finalized": True,
                     }, True
                 elif (
-                    any(x in message_result for x in ["inblock", "inBlock"])
+                    "inblock" in message_result
                     and wait_for_inclusion
                     and not wait_for_finalization
                 ):
