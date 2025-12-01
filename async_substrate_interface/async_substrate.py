@@ -276,6 +276,7 @@ class AsyncExtrinsicReceipt:
             # Process other events
             possible_success = False
             for event in await self.triggered_events:
+                # TODO make this more readable
                 # Check events
                 if (
                     event["event"]["module_id"] == "System"
@@ -378,7 +379,9 @@ class AsyncExtrinsicReceipt:
                         event["event"]["module_id"] == "Balances"
                         and event["event"]["event_id"] == "Deposit"
                     ):
-                        self.__total_fee_amount += event.value["attributes"]["amount"]
+                        self.__total_fee_amount += event["event"]["attributes"][
+                            "amount"
+                        ]
             if possible_success is True and self.__error_message is None:
                 # we delay the positive setting of the __is_success flag until we have finished iteration of the
                 # events and have ensured nothing has set an error message
