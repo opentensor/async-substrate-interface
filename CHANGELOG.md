@@ -1,5 +1,14 @@
 # Changelog
-## 1.5.12 /2025-11-167
+## 1.5.13 /2025-12-01
+* Update `Checkout PR branch in async-substrate-interface` step by @basfroman in https://github.com/opentensor/async-substrate-interface/pull/240
+* No continual reconnection without cause by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/241
+* Feat: Add support for MeV shield extrinsics  by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/242
+* Handle subscription failures from substrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/243
+
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.12...v1.5.13
+
+## 1.5.12 /2025-11-17
 * RecursionError in `_wait_with_activity_timeout` with concurrent tasks by @Arthurdw in https://github.com/opentensor/async-substrate-interface/pull/238
 * Improved Test Running + Race Condition Catch by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/236
 

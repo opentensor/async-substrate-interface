@@ -274,14 +274,15 @@ class AsyncExtrinsicReceipt:
                     has_transaction_fee_paid_event = True
 
             # Process other events
+            possible_success = False
             for event in await self.triggered_events:
+                # TODO make this more readable
                 # Check events
                 if (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicSuccess"
                 ):
-                    self.__is_success = True
-                    self.__error_message = None
+                    possible_success = True
 
                     if "dispatch_info" in event["event"]["attributes"]:
                         self.__weight = event["event"]["attributes"]["dispatch_info"][
@@ -294,13 +295,26 @@ class AsyncExtrinsicReceipt:
                 elif (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicFailed"
+                ) or (
+                    event["event"]["module_id"] == "MevShield"
+                    and event["event"]["event_id"] == "DecryptedRejected"
                 ):
+                    possible_success = False
                     self.__is_success = False
 
-                    dispatch_info = event["event"]["attributes"]["dispatch_info"]
-                    dispatch_error = event["event"]["attributes"]["dispatch_error"]
-
-                    self.__weight = dispatch_info["weight"]
+                    if event["event"]["module_id"] == "System":
+                        dispatch_info = event["event"]["attributes"]["dispatch_info"]
+                        dispatch_error = event["event"]["attributes"]["dispatch_error"]
+                        self.__weight = dispatch_info["weight"]
+                    else:
+                        # MEV shield extrinsics
+                        dispatch_info = event["event"]["attributes"]["reason"][
+                            "post_info"
+                        ]
+                        dispatch_error = event["event"]["attributes"]["reason"]["error"]
+                        self.__weight = event["event"]["attributes"]["reason"][
+                            "post_info"
+                        ]["actual_weight"]
 
                     if "Module" in dispatch_error:
                         if isinstance(dispatch_error["Module"], tuple):
@@ -365,7 +379,13 @@ class AsyncExtrinsicReceipt:
                         event["event"]["module_id"] == "Balances"
                         and event["event"]["event_id"] == "Deposit"
                     ):
-                        self.__total_fee_amount += event.value["attributes"]["amount"]
+                        self.__total_fee_amount += event["event"]["attributes"][
+                            "amount"
+                        ]
+            if possible_success is True and self.__error_message is None:
+                # we delay the positive setting of the __is_success flag until we have finished iteration of the
+                # events and have ensured nothing has set an error message
+                self.__is_success = True
 
     @property
     async def is_success(self) -> bool:
@@ -833,7 +853,7 @@ class Websocket:
                         pass
                 if self.ws is not None:
                     self._exit_task = asyncio.create_task(self._exit_with_timer())
-                self._attempts = 0
+        self._attempts = 0
 
     async def _exit_with_timer(self):
         """
@@ -891,12 +911,22 @@ class Websocket:
         logger.debug("Starting receiving task")
         try:
             while True:
-                recd = await self._wait_with_activity_timeout(
-                    ws.recv(decode=False), self.retry_timeout
-                )
-                await self._reset_activity_timer()
-                self._attempts = 0
-                await self._recv(recd)
+                try:
+                    recd = await self._wait_with_activity_timeout(
+                        ws.recv(decode=False), self.retry_timeout
+                    )
+                    await self._reset_activity_timer()
+                    self._attempts = 0
+                    await self._recv(recd)
+                except TimeoutError:
+                    if (
+                        self._waiting_for_response <= 0
+                        or self._sending.qsize() == 0
+                        or len(self._inflight) == 0
+                        or len(self._received_subscriptions) == 0
+                    ):
+                        # if there's nothing in a queue, we really have no reason to have this, so we continue to wait
+                        continue
         except websockets.exceptions.ConnectionClosedOK as e:
             logger.debug("ConnectionClosedOK")
             return e
@@ -939,7 +969,14 @@ class Websocket:
             if not isinstance(
                 e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
             ):
-                logger.exception("Websocket sending exception", exc_info=e)
+                logger.exception(
+                    f"Websocket sending exception; "
+                    f"sending: {self._sending.qsize()}; "
+                    f"waiting_for_response: {self._waiting_for_response}; "
+                    f"inflight: {len(self._inflight)}; "
+                    f"subscriptions: {len(self._received_subscriptions)};",
+                    exc_info=e,
+                )
                 if to_send is not None:
                     to_send_ = json.loads(to_send)
                     self._received[to_send_["id"]].set_exception(e)
@@ -3987,6 +4024,32 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 message_result = {
                     k.lower(): v for k, v in message["params"]["result"].items()
                 }
+                # check for any subscription indicators of failure
+                failure_message = None
+                if "usurped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} usurped: {message_result}"
+                    )
+                if "retracted" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} retracted: {message_result}"
+                    )
+                if "finalitytimeout" in message_result:
+                    failure_message = f"Subscription {subscription_id} finalityTimeout: {message_result}"
+                if "dropped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} dropped: {message_result}"
+                    )
+                if "invalid" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} invalid: {message_result}"
+                    )
+
+                if failure_message is not None:
+                    async with self.ws as ws:
+                        await ws.unsubscribe(subscription_id)
+                    logger.error(failure_message)
+                    raise SubstrateRequestException(failure_message)
 
                 if "finalized" in message_result and wait_for_finalization:
                     logger.debug("Extrinsic finalized. Unsubscribing.")
@@ -3998,7 +4061,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         "finalized": True,
                     }, True
                 elif (
-                    any(x in message_result for x in ["inblock", "inBlock"])
+                    "inblock" in message_result
                     and wait_for_inclusion
                     and not wait_for_finalization
                 ):
