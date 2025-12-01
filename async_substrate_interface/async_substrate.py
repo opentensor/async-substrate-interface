@@ -276,6 +276,7 @@ class AsyncExtrinsicReceipt:
             # Process other events
             possible_success = False
             for event in await self.triggered_events:
+                # TODO make this more readable
                 # Check events
                 if (
                     event["event"]["module_id"] == "System"

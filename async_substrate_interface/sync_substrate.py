@@ -237,6 +237,7 @@ class ExtrinsicReceipt:
             # Process other events
             possible_success = False
             for event in self.triggered_events:
+                # TODO make this more readable
                 # Check events
                 if (
                     event["event"]["module_id"] == "System"
