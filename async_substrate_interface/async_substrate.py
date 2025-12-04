@@ -297,7 +297,8 @@ class AsyncExtrinsicReceipt:
                     and event["event"]["event_id"] == "ExtrinsicFailed"
                 ) or (
                     event["event"]["module_id"] == "MevShield"
-                    and event["event"]["event_id"] == "DecryptedRejected"
+                    and event["event"]["event_id"]
+                    in ("DecryptedRejected", "DecryptionFailed")
                 ):
                     possible_success = False
                     self.__is_success = False
@@ -308,13 +309,23 @@ class AsyncExtrinsicReceipt:
                         self.__weight = dispatch_info["weight"]
                     else:
                         # MEV shield extrinsics
-                        dispatch_info = event["event"]["attributes"]["reason"][
-                            "post_info"
-                        ]
-                        dispatch_error = event["event"]["attributes"]["reason"]["error"]
-                        self.__weight = event["event"]["attributes"]["reason"][
-                            "post_info"
-                        ]["actual_weight"]
+                        if event["event"]["event_id"] == "DecryptedRejected":
+                            dispatch_info = event["event"]["attributes"]["reason"][
+                                "post_info"
+                            ]
+                            dispatch_error = event["event"]["attributes"]["reason"][
+                                "error"
+                            ]
+                            self.__weight = event["event"]["attributes"]["reason"][
+                                "post_info"
+                            ]["actual_weight"]
+                        else:
+                            self.__error_message = {
+                                "type": "MevShield",
+                                "name": "DecryptionFailed",
+                                "docs": event["event"]["attributes"]["reason"],
+                            }
+                            continue
 
                     if "Module" in dispatch_error:
                         if isinstance(dispatch_error["Module"], tuple):
