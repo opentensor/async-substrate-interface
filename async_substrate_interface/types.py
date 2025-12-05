@@ -1127,7 +1127,7 @@ class SubstrateMixin(ABC):
                         self.serialize_storage_item(
                             storage_item=storage,
                             module=module,
-                            spec_version_id=self.runtime.runtime_version,
+                            spec_version_id=runtime.runtime_version,
                             runtime=runtime,
                         )
                     )
