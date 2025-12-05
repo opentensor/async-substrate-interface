@@ -1,4 +1,10 @@
 # Changelog
+
+## 1.5.14 /2025-12-04
+* Update: Adds support for custom extrinsic `DecryptionFailed` by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/247
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.13...v1.5.14
+
 ## 1.5.13 /2025-12-01
 * Update `Checkout PR branch in async-substrate-interface` step by @basfroman in https://github.com/opentensor/async-substrate-interface/pull/240
 * No continual reconnection without cause by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/241
