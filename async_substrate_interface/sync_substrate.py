@@ -2,6 +2,7 @@ import functools
 import logging
 import os
 import socket
+from threading import Lock
 from hashlib import blake2b
 from typing import Optional, Union, Callable, Any
 from unittest.mock import MagicMock
@@ -578,6 +579,8 @@ class SubstrateInterface(SubstrateMixin):
         self.runtime_cache = RuntimeCache()
         self.metadata_version_hex = "0x0f000000"  # v15
         self._mock = _mock
+        self._nonces: dict[str, int] = {}
+        self._nonce_lock = Lock()
         self.log_raw_websockets = _log_raw_websockets
         if not _mock:
             self.ws = self.connect(init=True)
@@ -2678,8 +2681,13 @@ class SubstrateInterface(SubstrateMixin):
             # Unlikely to happen, this is a common RPC method
             raise Exception("account_nextIndex not supported")
 
-        nonce_obj = self.rpc_request("account_nextIndex", [account_address])
-        return nonce_obj["result"]
+        with self._nonce_lock:
+            if self._nonces.get(account_address) is None:
+                nonce_obj = self.rpc_request("account_nextIndex", [account_address])
+                self._nonces[account_address] = nonce_obj["result"]
+            else:
+                self._nonces[account_address] += 1
+            return self._nonces[account_address]
 
     def get_metadata_constants(self, block_hash=None) -> list[dict]:
         """
