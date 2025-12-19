@@ -269,7 +269,7 @@ jobs:
 
       - name: Install Bittensor SDK dependencies
         working-directory: ${{ github.workspace }}/bittensor
-        run: uv pip install --system '.[dev]'
+        run: uv pip install --system '.[dev]' torch
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
