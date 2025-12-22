@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.15 /2025-12-22
+* Modifies the CachedFetcher to not keep pending exceptions by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/253
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.14...v1.5.15
+
 ## 1.5.14 /2025-12-04
 * Update: Adds support for custom extrinsic `DecryptionFailed` by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/247
 
