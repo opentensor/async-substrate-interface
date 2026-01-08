@@ -321,7 +321,8 @@ class CachedFetcher:
             future.set_result(result)
             return result
         except Exception as e:
-            future.set_exception(e)
+            self._inflight.pop(key, None)
+            future.cancel()
             raise
         finally:
             self._inflight.pop(key, None)

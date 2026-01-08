@@ -1,4 +1,90 @@
 # Changelog
+
+## 1.5.15 /2025-12-22
+* Modifies the CachedFetcher to not keep pending exceptions by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/253
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.14...v1.5.15
+
+## 1.5.14 /2025-12-04
+* Update: Adds support for custom extrinsic `DecryptionFailed` by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/247
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.13...v1.5.14
+
+## 1.5.13 /2025-12-01
+* Update `Checkout PR branch in async-substrate-interface` step by @basfroman in https://github.com/opentensor/async-substrate-interface/pull/240
+* No continual reconnection without cause by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/241
+* Feat: Add support for MeV shield extrinsics  by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/242
+* Handle subscription failures from substrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/243
+
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.12...v1.5.13
+
+## 1.5.12 /2025-11-17
+* RecursionError in `_wait_with_activity_timeout` with concurrent tasks by @Arthurdw in https://github.com/opentensor/async-substrate-interface/pull/238
+* Improved Test Running + Race Condition Catch by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/236
+
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.11...v1.5.12
+
+## 1.5.11 /2025-11-14
+* Race Condition Bug fixes by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/234
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.10...v1.5.11
+
+## 1.5.10 /2025-11-12
+* bug fixes 1.5.10 by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/231
+  * no double-sleep in async-substrate-interface websocket querying
+  * KeyError catching on websocket race conditions
+  * corrected state check on disconnecting
+  * reset ws attempts on close
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.9...v1.5.10
+
+## 1.5.9 /2025-10-29
+* Adds metadata call functions retrieval by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/223
+* move metadata methods to SubstrateMixin by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/224
+* Update get_payment_info to include addl params by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/226
+* Python 3.14 by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/228
+* Support python 3.14 by @Moisan in https://github.com/opentensor/async-substrate-interface/pull/210
+
+## New Contributors
+* @Moisan made their first contribution in https://github.com/opentensor/async-substrate-interface/pull/210
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.8...v1.5.9
+
+## 1.5.8 /2025-10-21
+* Fix parameter name conflict in retry substrate _retry() methods by @Arthurdw in https://github.com/opentensor/async-substrate-interface/pull/218
+* Use uv for test dependencies by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/219
+* Reconnection/Resubmission Logic Improved by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/217
+
+## New Contributors
+* @Arthurdw made their first contribution in https://github.com/opentensor/async-substrate-interface/pull/218
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.7...v1.5.8
+
+## 1.5.7 /2025-10-15
+* Updates the type hint on ws_shutdown_timer in RetryAsyncSubstrate by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/203
+* correct type hint by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/204
+* Clear asyncio.Queue after retrieval by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/206
+* Add the option to manually specify the Bittensor branch when running with `workflow_dispatch` by @basfroman in https://github.com/opentensor/async-substrate-interface/pull/208
+* Subscription Exception Handling by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/207
+* more efficient query map by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/211
+* Unique keys in request manager by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/212
+* Adds type annotations for Runtime by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/214
+* Edge case ss58 decoding in decode_query_map by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/213
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.6...v1.5.7
+
+## 1.5.6 /2025-10-08
+* Clean Up Error Handling by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/193
+* Avoids ID of 'None' in queries by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/196
+* Allows AsyncSubstrateInterface's Websocket connection to not automatically shut down by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/197
+* return type annotation for `get_metadata_call_function` by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/199
+* Change responses["results"] to deque by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/198
+* do not attempt to reconnect if there are open subscriptions by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/200
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.5...v1.5.6
+
 ## 1.5.5 /2025-10-06
 * Improve timeout task cancellation by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/190
 

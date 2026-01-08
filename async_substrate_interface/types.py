@@ -1,12 +1,14 @@
 import logging
 from abc import ABC
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Union, Any
 
+import scalecodec.types
 from bt_decode import PortableRegistry, encode as encode_by_type_string
+from bt_decode.bt_decode import MetadataV15
 from scalecodec import ss58_encode, ss58_decode, is_valid_ss58_address
 from scalecodec.base import RuntimeConfigurationObject, ScaleBytes
 from scalecodec.type_registry import load_type_registry_preset
@@ -121,13 +123,13 @@ class Runtime:
     def __init__(
         self,
         chain: str,
-        metadata,
-        type_registry,
+        metadata: scalecodec.types.GenericMetadataVersioned,
+        type_registry: dict,
         runtime_config: Optional[RuntimeConfigurationObject] = None,
-        metadata_v15=None,
-        runtime_info=None,
-        registry=None,
-        ss58_format=SS58_FORMAT,
+        metadata_v15: Optional[MetadataV15] = None,
+        runtime_info: Optional[dict] = None,
+        registry: Optional[PortableRegistry] = None,
+        ss58_format: int = SS58_FORMAT,
     ):
         self.ss58_format = ss58_format
         self.config = {}
@@ -369,12 +371,15 @@ class Runtime:
         self.type_id_to_name = type_id_to_name
 
 
-class RequestManager:
-    RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
+RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
 
+
+class RequestManager:
     def __init__(self, payloads):
         self.response_map = {}
-        self.responses = defaultdict(lambda: {"complete": False, "results": []})
+        self.responses = defaultdict(
+            lambda: {"complete": False, "results": deque(maxlen=100)}
+        )
         self.payloads_count = len(payloads)
 
     def add_request(self, item_id: str, request_id: str):
@@ -671,8 +676,8 @@ class SubstrateMixin(ABC):
 
     def serialize_storage_item(
         self,
-        storage_item: ScaleType,
-        module: str,
+        storage_item: scalecodec.ScaleInfoStorageEntryMetadata,
+        module: scalecodec.ScaleInfoPalletMetadata,
         spec_version_id: int,
         runtime: Optional[Runtime] = None,
     ) -> dict:
@@ -997,3 +1002,213 @@ class SubstrateMixin(ABC):
         )
 
         return multi_sig_account
+
+    @staticmethod
+    def _get_metadata_call_functions(
+        runtime: Runtime,
+    ) -> dict[str, dict[str, dict[str, dict[str, Union[str, int, list]]]]]:
+        """
+        See subclass `get_metadata_call_functions` for documentation.
+        """
+        data = {}
+        for pallet in runtime.metadata.pallets:
+            data[pallet.name] = {}
+            for call in pallet.calls:
+                data[pallet.name][call.name] = {}
+                data[pallet.name][call.name]["_docs"] = " ".join(call["docs"].value)
+                for idx, field in enumerate(call.value.get("fields", [])):
+                    field["index"] = idx
+                    field_docs = field["docs"]
+                    field["_docs"] = " ".join(field_docs)
+                    data[pallet.name][call.name][field["name"]] = field
+        return data
+
+    @staticmethod
+    def _get_metadata_call_function(
+        module_name: str, call_function_name: str, runtime: Runtime
+    ) -> Optional[scalecodec.GenericVariant]:
+        """
+        See subclass `get_metadata_call_function` for documentation.
+        """
+        for pallet in runtime.metadata.pallets:
+            if pallet.name == module_name and pallet.calls:
+                for call in pallet.calls:
+                    if call.name == call_function_name:
+                        return call
+        return None
+
+    def _get_metadata_events(self, runtime: Runtime) -> list[dict]:
+        """
+        See subclass `get_metadata_events` for documentation.
+        """
+        event_list = []
+
+        for event_index, (module, event) in runtime.metadata.event_index.items():
+            event_list.append(
+                self.serialize_module_event(
+                    module, event, runtime.runtime_version, event_index
+                )
+            )
+
+        return event_list
+
+    @staticmethod
+    def _get_metadata_event(
+        module_name: str, event_name: str, runtime: Runtime
+    ) -> Optional[scalecodec.GenericScaleInfoEvent]:
+        """
+        See subclass `get_metadata_event` for documentation.
+        """
+        for pallet in runtime.metadata.pallets:
+            if pallet.name == module_name and pallet.events:
+                for event in pallet.events:
+                    if event.name == event_name:
+                        return event
+        return None
+
+    def _get_metadata_constants(self, runtime: Runtime) -> list[dict]:
+        """
+        See subclass `get_metadata_constants` for documentation.
+        """
+        constant_list = []
+
+        for module_idx, module in enumerate(runtime.metadata.pallets):
+            for constant in module.constants or []:
+                constant_list.append(
+                    self.serialize_constant(constant, module, runtime.runtime_version)
+                )
+
+        return constant_list
+
+    @staticmethod
+    def _get_metadata_constant(
+        module_name: str, constant_name: str, runtime: Runtime
+    ) -> Optional[scalecodec.ScaleInfoModuleConstantMetadata]:
+        """
+        See subclass `get_metadata_constant` for documentation.
+        """
+        for module in runtime.metadata.pallets:
+            if module_name == module.name and module.constants:
+                for constant in module.constants:
+                    if constant_name == constant.value["name"]:
+                        return constant
+        return None
+
+    @staticmethod
+    def _get_metadata_modules(runtime: Runtime) -> list[dict[str, Any]]:
+        """
+        See subclass `get_metadata_modules` for documentation.
+        """
+        return [
+            {
+                "metadata_index": idx,
+                "module_id": module.get_identifier(),
+                "name": module.name,
+                "spec_version": runtime.runtime_version,
+                "count_call_functions": len(module.calls or []),
+                "count_storage_functions": len(module.storage or []),
+                "count_events": len(module.events or []),
+                "count_constants": len(module.constants or []),
+                "count_errors": len(module.errors or []),
+            }
+            for idx, module in enumerate(runtime.metadata.pallets)
+        ]
+
+    def _get_metadata_storage_functions(self, runtime: Runtime) -> list[dict[str, Any]]:
+        """
+        See subclass `get_metadata_storage_functions` for documentation.
+        """
+        storage_list = []
+
+        for module_idx, module in enumerate(runtime.metadata.pallets):
+            if module.storage:
+                for storage in module.storage:
+                    storage_list.append(
+                        self.serialize_storage_item(
+                            storage_item=storage,
+                            module=module,
+                            spec_version_id=runtime.runtime_version,
+                            runtime=runtime,
+                        )
+                    )
+
+        return storage_list
+
+    def _get_metadata_errors(self, runtime: Runtime) -> list[dict[str, Optional[str]]]:
+        """
+        See subclass `get_metadata_errors` for documentation.
+        """
+        error_list = []
+
+        for module_idx, module in enumerate(runtime.metadata.pallets):
+            if module.errors:
+                for error in module.errors:
+                    error_list.append(
+                        self.serialize_module_error(
+                            module=module,
+                            error=error,
+                            spec_version=runtime.runtime_version,
+                        )
+                    )
+
+        return error_list
+
+    @staticmethod
+    def _get_metadata_error(
+        module_name: str, error_name: str, runtime: Runtime
+    ) -> Optional[scalecodec.GenericVariant]:
+        """
+        See subclass `get_metadata_error` for documentation.
+        """
+        for module_idx, module in enumerate(runtime.metadata.pallets):
+            if module.name == module_name and module.errors:
+                for error in module.errors:
+                    if error_name == error.name:
+                        return error
+        return None
+
+    @staticmethod
+    def _get_metadata_runtime_call_function(
+        api: str, method: str, runtime: Runtime
+    ) -> scalecodec.GenericRuntimeCallDefinition:
+        """
+        See subclass `get_metadata_runtime_call_function` for documentation.
+        """
+        try:
+            runtime_call_def = runtime.runtime_config.type_registry["runtime_api"][api][
+                "methods"
+            ][method]
+            runtime_call_def["api"] = api
+            runtime_call_def["method"] = method
+            runtime_api_types = runtime.runtime_config.type_registry["runtime_api"][
+                api
+            ].get("types", {})
+        except KeyError:
+            raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
+
+        # Add runtime API types to registry
+        runtime.runtime_config.update_type_registry_types(runtime_api_types)
+        runtime_call_def_obj = runtime.runtime_config.create_scale_object(
+            "RuntimeCallDefinition"
+        )
+        runtime_call_def_obj.encode(runtime_call_def)
+
+        return runtime_call_def_obj
+
+    def _get_metadata_runtime_call_functions(
+        self, runtime: Runtime
+    ) -> list[scalecodec.GenericRuntimeCallDefinition]:
+        """
+        See subclass `get_metadata_runtime_call_functions` for documentation.
+        """
+        call_functions = []
+
+        for api, methods in runtime.runtime_config.type_registry["runtime_api"].items():
+            for method in methods["methods"].keys():
+                call_functions.append(
+                    self._get_metadata_runtime_call_function(
+                        api=api, method=method, runtime=runtime
+                    )
+                )
+
+        return call_functions

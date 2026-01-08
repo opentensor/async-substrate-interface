@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import logging
 import os
+import socket
 import ssl
 import warnings
 from contextlib import suppress
@@ -22,8 +23,10 @@ from typing import (
     cast,
 )
 
+import scalecodec
 import websockets.exceptions
 from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
+from scalecodec import GenericVariant
 from scalecodec.base import ScaleBytes, ScaleType, RuntimeConfigurationObject
 from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import (
@@ -33,6 +36,7 @@ from scalecodec.types import (
     ss58_encode,
     MultiAccountId,
 )
+from websockets import CloseCode
 from websockets.asyncio.client import connect, ClientConnection
 from websockets.exceptions import (
     ConnectionClosed,
@@ -54,6 +58,7 @@ from async_substrate_interface.types import (
     RuntimeCache,
     SubstrateMixin,
     Preprocessed,
+    RequestResults,
 )
 from async_substrate_interface.utils import (
     hex_to_bytes,
@@ -127,6 +132,16 @@ class AsyncExtrinsicReceipt:
         self.__error_message = None
         self.__weight = None
         self.__total_fee_amount = None
+
+    def __str__(self):
+        return (
+            f"AsyncExtrinsicReceipt({self.extrinsic_hash}), "
+            f"block_hash={self.block_hash}, block_number={self.block_number}), "
+            f"finalized={self.finalized})"
+        )
+
+    def __repr__(self):
+        return self.__str__()
 
     async def get_extrinsic_identifier(self) -> str:
         """
@@ -259,14 +274,15 @@ class AsyncExtrinsicReceipt:
                     has_transaction_fee_paid_event = True
 
             # Process other events
+            possible_success = False
             for event in await self.triggered_events:
+                # TODO make this more readable
                 # Check events
                 if (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicSuccess"
                 ):
-                    self.__is_success = True
-                    self.__error_message = None
+                    possible_success = True
 
                     if "dispatch_info" in event["event"]["attributes"]:
                         self.__weight = event["event"]["attributes"]["dispatch_info"][
@@ -279,13 +295,37 @@ class AsyncExtrinsicReceipt:
                 elif (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicFailed"
+                ) or (
+                    event["event"]["module_id"] == "MevShield"
+                    and event["event"]["event_id"]
+                    in ("DecryptedRejected", "DecryptionFailed")
                 ):
+                    possible_success = False
                     self.__is_success = False
 
-                    dispatch_info = event["event"]["attributes"]["dispatch_info"]
-                    dispatch_error = event["event"]["attributes"]["dispatch_error"]
-
-                    self.__weight = dispatch_info["weight"]
+                    if event["event"]["module_id"] == "System":
+                        dispatch_info = event["event"]["attributes"]["dispatch_info"]
+                        dispatch_error = event["event"]["attributes"]["dispatch_error"]
+                        self.__weight = dispatch_info["weight"]
+                    else:
+                        # MEV shield extrinsics
+                        if event["event"]["event_id"] == "DecryptedRejected":
+                            dispatch_info = event["event"]["attributes"]["reason"][
+                                "post_info"
+                            ]
+                            dispatch_error = event["event"]["attributes"]["reason"][
+                                "error"
+                            ]
+                            self.__weight = event["event"]["attributes"]["reason"][
+                                "post_info"
+                            ]["actual_weight"]
+                        else:
+                            self.__error_message = {
+                                "type": "MevShield",
+                                "name": "DecryptionFailed",
+                                "docs": event["event"]["attributes"]["reason"],
+                            }
+                            continue
 
                     if "Module" in dispatch_error:
                         if isinstance(dispatch_error["Module"], tuple):
@@ -350,7 +390,13 @@ class AsyncExtrinsicReceipt:
                         event["event"]["module_id"] == "Balances"
                         and event["event"]["event_id"] == "Deposit"
                     ):
-                        self.__total_fee_amount += event.value["attributes"]["amount"]
+                        self.__total_fee_amount += event["event"]["attributes"][
+                            "amount"
+                        ]
+            if possible_success is True and self.__error_message is None:
+                # we delay the positive setting of the __is_success flag until we have finished iteration of the
+                # events and have ensured nothing has set an error message
+                self.__is_success = True
 
     @property
     async def is_success(self) -> bool:
@@ -526,9 +572,9 @@ class Websocket:
     def __init__(
         self,
         ws_url: str,
-        max_subscriptions=1024,
-        max_connections=100,
-        shutdown_timer=5,
+        max_subscriptions: int = 1024,
+        max_connections: int = 100,
+        shutdown_timer: Optional[float] = 5.0,
         options: Optional[dict] = None,
         _log_raw_websockets: bool = False,
         retry_timeout: float = 60.0,
@@ -542,7 +588,9 @@ class Websocket:
             ws_url: Websocket URL to connect to
             max_subscriptions: Maximum number of subscriptions per websocket connection
             max_connections: Maximum number of connections total
-            shutdown_timer: Number of seconds to shut down websocket connection after last use
+            shutdown_timer: Number of seconds to shut down websocket connection after last use. If set to `None`, the
+                connection will never be automatically shut down. Use this for very long-running processes, where you
+                will manually shut down the connection if ever you intend to close it.
             options: Options to pass to the websocket connection
             _log_raw_websockets: Whether to log raw websockets in the "raw_websocket" logger
             retry_timeout: Timeout in seconds to retry websocket connection
@@ -558,7 +606,7 @@ class Websocket:
         self._received: dict[str, asyncio.Future] = {}
         self._received_subscriptions: dict[str, asyncio.Queue] = {}
         self._sending: Optional[asyncio.Queue] = None
-        self._send_recv_task = None
+        self._send_recv_task: Optional[asyncio.Task] = None
         self._inflight: dict[str, str] = {}
         self._attempts = 0
         self._lock = asyncio.Lock()
@@ -567,6 +615,9 @@ class Websocket:
         self._log_raw_websockets = _log_raw_websockets
         self._in_use_ids = set()
         self._max_retries = max_retries
+        self._last_activity = asyncio.Event()
+        self._last_activity.set()
+        self._waiting_for_response = 0
 
     @property
     def state(self):
@@ -580,48 +631,150 @@ class Websocket:
             await self.connect()
         return self
 
+    async def mark_waiting_for_response(self):
+        """
+        Mark that a response is expected. This will cause the websocket to not automatically close.
+
+        Note: you must mark as response received once you have received the response.
+        """
+        async with self._lock:
+            self._waiting_for_response += 1
+
+    async def mark_response_received(self):
+        """
+        Mark that the expected response has been received. Automatic shutdown of websocket will proceed normally.
+
+        Note: only do this if you have previously marked as waiting for response
+        """
+        async with self._lock:
+            self._waiting_for_response -= 1
+
     @staticmethod
     async def loop_time() -> float:
         return asyncio.get_running_loop().time()
 
+    async def _reset_activity_timer(self):
+        """Reset the shared activity timeout"""
+        # Create a NEW event instead of reusing the same one
+        old_event = self._last_activity
+        self._last_activity = asyncio.Event()
+        self._last_activity.clear()  # Start fresh
+        old_event.set()  # Wake up anyone waiting on the old event
+
+    async def _wait_with_activity_timeout(self, coro, timeout: float):
+        """
+        Wait for a coroutine with a shared activity timeout.
+        Returns the result or raises TimeoutError if no activity for timeout seconds.
+        """
+        activity_task = asyncio.create_task(self._last_activity.wait())
+
+        if isinstance(coro, asyncio.Task):
+            main_task = coro
+        else:
+            main_task = asyncio.create_task(coro)
+
+        try:
+            done, pending = await asyncio.wait(
+                [main_task, activity_task],
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if not done:
+                logger.debug(f"Activity timeout after {timeout}s, no activity detected")
+                for task in pending:
+                    task.cancel()
+                raise TimeoutError()
+
+            if main_task in done:
+                activity_task.cancel()
+
+                exc = main_task.exception()
+                if exc is not None:
+                    raise exc
+                else:
+                    return main_task.result()
+            else:
+                logger.debug("Activity detected, resetting timeout")
+                return await self._wait_with_activity_timeout(main_task, timeout)
+
+        except asyncio.CancelledError:
+            main_task.cancel()
+            activity_task.cancel()
+            raise
+
     async def _cancel(self):
         try:
-            self._send_recv_task.cancel()
-            await self.ws.close()
-        except (
-            AttributeError,
-            asyncio.CancelledError,
-            WebSocketException,
-        ):
+            logger.debug("Cancelling send/recv tasks")
+            if self._send_recv_task is not None:
+                self._send_recv_task.cancel()
+        except asyncio.CancelledError:
             pass
+        except Exception as e:
+            logger.warning(
+                f"{e} encountered while trying to close websocket connection."
+            )
+        try:
+            logger.debug("Closing websocket connection")
+            if self.ws is not None:
+                await self.ws.close()
         except Exception as e:
             logger.warning(
                 f"{e} encountered while trying to close websocket connection."
             )
 
     async def connect(self, force=False):
-        async with self._lock:
-            logger.debug(f"Websocket connecting to {self.ws_url}")
-            if self._sending is None or self._sending.empty():
-                self._sending = asyncio.Queue()
-            if self._exit_task:
-                self._exit_task.cancel()
-            if self.state not in (State.OPEN, State.CONNECTING) or force:
+        if not force:
+            async with self._lock:
+                return await self._connect_internal(force)
+        else:
+            logger.debug("Proceeding without acquiring lock.")
+            return await self._connect_internal(force)
+
+    async def _connect_internal(self, force):
+        # Check state again after acquiring lock to avoid duplicate connections
+        if not force and self.state in (State.OPEN, State.CONNECTING):
+            return None
+
+        logger.debug(f"Websocket connecting to {self.ws_url}")
+        if self._sending is None or self._sending.empty():
+            self._sending = asyncio.Queue()
+        if self._exit_task:
+            self._exit_task.cancel()
+        logger.debug(f"self.state={self.state}")
+        if force and self.state == State.OPEN:
+            logger.debug(f"Attempting to reconnect while already connected.")
+            if self.ws is not None:
+                self.ws.protocol.fail(CloseCode.SERVICE_RESTART)
+            logger.debug(f"Open connection cancelled.")
+            await asyncio.sleep(1)
+        if self.state not in (State.OPEN, State.CONNECTING) or force:
+            if not force:
                 try:
+                    logger.debug("Attempting cancellation")
                     await asyncio.wait_for(self._cancel(), timeout=10.0)
                 except asyncio.TimeoutError:
                     logger.debug(f"Timed out waiting for cancellation")
                     pass
-                self.ws = await asyncio.wait_for(
+            logger.debug("Attempting connection")
+            try:
+                connection = await asyncio.wait_for(
                     connect(self.ws_url, **self._options), timeout=10.0
                 )
-                if self._send_recv_task is None or self._send_recv_task.done():
-                    self._send_recv_task = asyncio.get_running_loop().create_task(
-                        self._handler(self.ws)
-                    )
-                logger.debug("Websocket handler attached.")
+            except socket.gaierror:
+                logger.debug(f"Hostname not known (this is just for testing")
+                await asyncio.sleep(10)
+                return await self.connect(force=force)
+            logger.debug("Connection established")
+            self.ws = connection
+            if self._send_recv_task is None or self._send_recv_task.done():
+                self._send_recv_task = asyncio.get_running_loop().create_task(
+                    self._handler(self.ws)
+                )
+        return None
 
     async def _handler(self, ws: ClientConnection) -> Union[None, Exception]:
+        logger.debug("WS handler attached")
         recv_task = asyncio.create_task(self._start_receiving(ws))
         send_task = asyncio.create_task(self._start_sending(ws))
         done, pending = await asyncio.wait(
@@ -631,45 +784,87 @@ class Websocket:
         loop = asyncio.get_running_loop()
         should_reconnect = False
         is_retry = False
+
         for task in pending:
             task.cancel()
+
         for task in done:
             task_res = task.result()
+
+            # If ConnectionClosedOK, graceful shutdown - don't reconnect
+            if (
+                isinstance(task_res, websockets.exceptions.ConnectionClosedOK)
+                and self._waiting_for_response <= 0
+            ):
+                logger.debug("Graceful shutdown detected, not reconnecting")
+                return None  # Clean exit
+
+            # Check for timeout/connection errors that should trigger reconnect
             if isinstance(
-                task_res, (asyncio.TimeoutError, ConnectionClosed, TimeoutError)
+                task_res, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
             ):
                 should_reconnect = True
+                logger.debug(f"Reconnection triggered by: {type(task_res).__name__}")
+
             if isinstance(task_res, (asyncio.TimeoutError, TimeoutError)):
                 self._attempts += 1
                 is_retry = True
+
         if should_reconnect is True:
-            for original_id, payload in list(self._inflight.items()):
-                self._received[original_id] = loop.create_future()
-                to_send = json.loads(payload)
-                await self._sending.put(to_send)
+            if len(self._received_subscriptions) > 0:
+                return SubstrateRequestException(
+                    f"Unable to reconnect because there are currently open subscriptions."
+                )
+
             if is_retry:
-                # Otherwise the connection was just closed due to no activity, which should not count against retries
+                if self._attempts >= self._max_retries:
+                    logger.error("Max retries exceeded.")
+                    return TimeoutError("Max retries exceeded.")
                 logger.info(
                     f"Timeout occurred. Reconnecting. Attempt {self._attempts} of {self._max_retries}"
                 )
+
+            async with self._lock:
+                for original_id in list(self._inflight.keys()):
+                    payload = self._inflight.pop(original_id)
+                    self._received[original_id] = loop.create_future()
+                    to_send = json.loads(payload)
+                    logger.debug(f"Resubmitting {to_send['id']}")
+                    await self._sending.put(to_send)
+
+            logger.debug("Attempting reconnection...")
             await self.connect(True)
-            await self._handler(ws=self.ws)
-            return None
+            logger.debug(f"Reconnected. Send queue size: {self._sending.qsize()}")
+            # Recursively call handler
+            return await self._handler(self.ws)
         elif isinstance(e := recv_task.result(), Exception):
             return e
         elif isinstance(e := send_task.result(), Exception):
             return e
+        elif len(self._received_subscriptions) > 0:
+            return SubstrateRequestException(
+                f"Currently open subscriptions while disconnecting. "
+                f"Ensure these are unsubscribed from before closing in the future."
+            )
+        return None
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if not self.state != State.CONNECTING:
-            if self._exit_task is not None:
-                self._exit_task.cancel()
-                try:
-                    await self._exit_task
-                except asyncio.CancelledError:
-                    pass
-            if self.ws is not None:
-                self._exit_task = asyncio.create_task(self._exit_with_timer())
+        if self.shutdown_timer is not None:
+            if (
+                self.state != State.CONNECTING
+                and self._sending.qsize() == 0
+                and not self._received_subscriptions
+                and self._waiting_for_response <= 0
+            ):
+                if self._exit_task is not None:
+                    self._exit_task.cancel()
+                    try:
+                        await self._exit_task
+                    except asyncio.CancelledError:
+                        pass
+                if self.ws is not None:
+                    self._exit_task = asyncio.create_task(self._exit_with_timer())
+        self._attempts = 0
 
     async def _exit_with_timer(self):
         """
@@ -677,12 +872,21 @@ class Websocket:
         for reuse of the websocket connection.
         """
         try:
-            await asyncio.sleep(self.shutdown_timer)
-            await self.shutdown()
+            if self.shutdown_timer is not None:
+                logger.debug("Exiting with timer")
+                await asyncio.sleep(self.shutdown_timer)
+            if (
+                self.state != State.CONNECTING
+                and self._sending.qsize() == 0
+                and not self._received_subscriptions
+                and self._waiting_for_response <= 0
+            ):
+                await self.shutdown()
         except asyncio.CancelledError:
             pass
 
     async def shutdown(self):
+        logger.debug("Shutdown requested")
         try:
             await asyncio.wait_for(self._cancel(), timeout=10.0)
         except asyncio.TimeoutError:
@@ -696,11 +900,16 @@ class Websocket:
         response = json.loads(recd)
         if "id" in response:
             async with self._lock:
-                self._inflight.pop(response["id"])
-            with suppress(KeyError):
-                # These would be subscriptions that were unsubscribed
+                inflight_item = self._inflight.pop(response["id"], None)
+                if inflight_item is not None:
+                    logger.debug(f"Popped {response['id']} from inflight")
+                else:
+                    logger.debug(
+                        f"Received response for {response['id']} which is no longer inflight (likely reconnection)"
+                    )
+            if self._received.get(response["id"]) is not None:
                 self._received[response["id"]].set_result(response)
-                self._in_use_ids.remove(response["id"])
+            self._in_use_ids.discard(response["id"])
         elif "params" in response:
             sub_id = response["params"]["subscription"]
             if sub_id not in self._received_subscriptions:
@@ -710,14 +919,28 @@ class Websocket:
             raise KeyError(response)
 
     async def _start_receiving(self, ws: ClientConnection) -> Exception:
+        logger.debug("Starting receiving task")
         try:
             while True:
-                recd = await asyncio.wait_for(
-                    ws.recv(decode=False), timeout=self.retry_timeout
-                )
-                # reset the counter once we successfully receive something back
-                self._attempts = 0
-                await self._recv(recd)
+                try:
+                    recd = await self._wait_with_activity_timeout(
+                        ws.recv(decode=False), self.retry_timeout
+                    )
+                    await self._reset_activity_timer()
+                    self._attempts = 0
+                    await self._recv(recd)
+                except TimeoutError:
+                    if (
+                        self._waiting_for_response <= 0
+                        or self._sending.qsize() == 0
+                        or len(self._inflight) == 0
+                        or len(self._received_subscriptions) == 0
+                    ):
+                        # if there's nothing in a queue, we really have no reason to have this, so we continue to wait
+                        continue
+        except websockets.exceptions.ConnectionClosedOK as e:
+            logger.debug("ConnectionClosedOK")
+            return e
         except Exception as e:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
@@ -729,17 +952,19 @@ class Websocket:
                     if not fut.done():
                         fut.set_exception(e)
                         fut.cancel()
-            elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
-                logger.debug("Websocket connection closed.")
             else:
-                logger.debug(f"Timeout occurred. Reconnecting.")
+                logger.debug(f"Timeout/ConnectionClosed occurred.")
             return e
 
     async def _start_sending(self, ws) -> Exception:
+        logger.debug("Starting sending task")
         to_send = None
         try:
             while True:
+                logger.debug(f"_sending, {self._sending.qsize()}")
                 to_send_ = await self._sending.get()
+                logger.debug("Retrieved item from sending queue")
+                self._sending.task_done()
                 send_id = to_send_["id"]
                 to_send = json.dumps(to_send_)
                 async with self._lock:
@@ -747,16 +972,26 @@ class Websocket:
                 if self._log_raw_websockets:
                     raw_websocket_logger.debug(f"WEBSOCKET_SEND> {to_send}")
                 await ws.send(to_send)
+                logger.debug("Sent to websocket")
+                await self._reset_activity_timer()
         except Exception as e:
             if isinstance(e, ssl.SSLError):
                 e = ConnectionClosed
             if not isinstance(
                 e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
             ):
-                logger.exception("Websocket sending exception", exc_info=e)
+                logger.exception(
+                    f"Websocket sending exception; "
+                    f"sending: {self._sending.qsize()}; "
+                    f"waiting_for_response: {self._waiting_for_response}; "
+                    f"inflight: {len(self._inflight)}; "
+                    f"subscriptions: {len(self._received_subscriptions)};",
+                    exc_info=e,
+                )
                 if to_send is not None:
-                    self._received[to_send["id"]].set_exception(e)
-                    self._received[to_send["id"]].cancel()
+                    to_send_ = json.loads(to_send)
+                    self._received[to_send_["id"]].set_exception(e)
+                    self._received[to_send_["id"]].cancel()
                 else:
                     for i in self._received.keys():
                         self._received[i].set_exception(e)
@@ -764,7 +999,7 @@ class Websocket:
             elif isinstance(e, websockets.exceptions.ConnectionClosedOK):
                 logger.debug("Websocket connection closed.")
             else:
-                logger.debug("Timeout occurred. Reconnecting.")
+                logger.debug("Timeout occurred.")
             return e
 
     async def send(self, payload: dict) -> str:
@@ -804,7 +1039,8 @@ class Websocket:
             original_id = get_next_id()
             while original_id in self._in_use_ids:
                 original_id = get_next_id()
-            del self._received_subscriptions[subscription_id]
+            logger.debug(f"Unwatched extrinsic subscription {subscription_id}")
+            self._received_subscriptions.pop(subscription_id, None)
 
         to_send = {
             "jsonrpc": "2.0",
@@ -833,19 +1069,31 @@ class Websocket:
                 return res
         else:
             try:
-                return self._received_subscriptions[item_id].get_nowait()
+                subscription = self._received_subscriptions[item_id].get_nowait()
+                self._received_subscriptions[item_id].task_done()
+                return subscription
             except asyncio.QueueEmpty:
                 pass
+            except KeyError:
+                logger.debug(
+                    f"Received item {item_id} not in received subscriptions. "
+                    f"This indicates the response of the subscription was inflight when sending "
+                    f"the unsubscribe request."
+                )
         if self._send_recv_task is not None and self._send_recv_task.done():
             if not self._send_recv_task.cancelled():
                 if isinstance((e := self._send_recv_task.exception()), Exception):
                     logger.exception(f"Websocket sending exception: {e}")
                     raise e
-        await asyncio.sleep(0.1)
+                elif isinstance((e := self._send_recv_task.result()), Exception):
+                    logger.exception(f"Websocket sending exception: {e}")
+                    raise e
         return None
 
 
 class AsyncSubstrateInterface(SubstrateMixin):
+    ws: "Websocket"
+
     def __init__(
         self,
         url: str,
@@ -859,7 +1107,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         retry_timeout: float = 60.0,
         _mock: bool = False,
         _log_raw_websockets: bool = False,
-        ws_shutdown_timer: float = 5.0,
+        ws_shutdown_timer: Optional[float] = 5.0,
         decode_ss58: bool = False,
     ):
         """
@@ -919,7 +1167,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             "strict_scale_decode": True,
         }
         self.initialized = False
-        self._forgettable_task = None
+        self._forgettable_tasks = set()
         self.type_registry = type_registry
         self.type_registry_preset = type_registry_preset
         self.runtime_cache = RuntimeCache()
@@ -1379,11 +1627,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                     if subscription_result is not None:
                         # Handler returned end result: unsubscribe from further updates
-                        self._forgettable_task = asyncio.create_task(
+                        unsub_task = asyncio.create_task(
                             self.rpc_request(
                                 "state_unsubscribeStorage", [subscription_id]
                             )
                         )
+                        self._forgettable_tasks.add(unsub_task)
+                        unsub_task.add_done_callback(self._forgettable_tasks.discard)
 
             return result_found, subscription_result
 
@@ -1408,6 +1658,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         result_data = await self.rpc_request("author_pendingExtrinsics", [])
         if "error" in result_data:
+            logger.error(
+                f"Error in retrieving pending extrinsics: {result_data['error']}"
+            )
             raise SubstrateRequestException(result_data["error"]["message"])
         extrinsics = []
 
@@ -1424,11 +1677,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
         return extrinsics
 
     async def get_metadata_storage_functions(
-        self, block_hash=None, runtime: Optional[Runtime] = None
-    ) -> list:
+        self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
+    ) -> list[dict[str, Any]]:
         """
-        Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if block_hash is
-        omitted)
+        Retrieves a list of all storage functions in metadata active at given block_hash (or chaintip if
+        block_hash and runtime are omitted)
 
         Args:
             block_hash: hash of the blockchain block whose runtime to use
@@ -1440,21 +1693,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
-        storage_list = []
-
-        for module_idx, module in enumerate(runtime.metadata.pallets):
-            if module.storage:
-                for storage in module.storage:
-                    storage_list.append(
-                        self.serialize_storage_item(
-                            storage_item=storage,
-                            module=module,
-                            spec_version_id=runtime.runtime_version,
-                            runtime=runtime,
-                        )
-                    )
-
-        return storage_list
+        return self._get_metadata_storage_functions(runtime=runtime)
 
     async def get_metadata_storage_function(
         self,
@@ -1499,20 +1738,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
 
-        error_list = []
-
-        for module_idx, module in enumerate(runtime.metadata.pallets):
-            if module.errors:
-                for error in module.errors:
-                    error_list.append(
-                        self.serialize_module_error(
-                            module=module,
-                            error=error,
-                            spec_version=runtime.runtime_version,
-                        )
-                    )
-
-        return error_list
+        return self._get_metadata_errors(runtime=runtime)
 
     async def get_metadata_error(
         self,
@@ -1520,7 +1746,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         error_name: str,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ):
+    ) -> Optional[scalecodec.GenericVariant]:
         """
         Retrieves the details of an error for given module name, call function name and block_hash
 
@@ -1536,16 +1762,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
-
-        for module_idx, module in enumerate(runtime.metadata.pallets):
-            if module.name == module_name and module.errors:
-                for error in module.errors:
-                    if error_name == error.name:
-                        return error
+        return self._get_metadata_error(
+            module_name=module_name, error_name=error_name, runtime=runtime
+        )
 
     async def get_metadata_runtime_call_functions(
         self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
-    ) -> list[GenericRuntimeCallDefinition]:
+    ) -> list[scalecodec.GenericRuntimeCallDefinition]:
         """
         Get a list of available runtime API calls
 
@@ -1554,17 +1777,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
-        call_functions = []
-
-        for api, methods in runtime.runtime_config.type_registry["runtime_api"].items():
-            for method in methods["methods"].keys():
-                call_functions.append(
-                    await self.get_metadata_runtime_call_function(
-                        api, method, runtime=runtime
-                    )
-                )
-
-        return call_functions
+        return self._get_metadata_runtime_call_functions(runtime=runtime)
 
     async def get_metadata_runtime_call_function(
         self,
@@ -1572,7 +1785,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         method: str,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ) -> GenericRuntimeCallDefinition:
+    ) -> scalecodec.GenericRuntimeCallDefinition:
         """
         Get details of a runtime API call. If not supplying `block_hash` or `runtime`, the runtime of the current block
         will be used.
@@ -1588,28 +1801,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
-
-        try:
-            runtime_call_def = runtime.runtime_config.type_registry["runtime_api"][api][
-                "methods"
-            ][method]
-            runtime_call_def["api"] = api
-            runtime_call_def["method"] = method
-            runtime_api_types = runtime.runtime_config.type_registry["runtime_api"][
-                api
-            ].get("types", {})
-        except KeyError:
-            raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry")
-
-        # Add runtime API types to registry
-        runtime.runtime_config.update_type_registry_types(runtime_api_types)
-
-        runtime_call_def_obj = await self.create_scale_object(
-            "RuntimeCallDefinition", runtime=runtime
-        )
-        runtime_call_def_obj.encode(runtime_call_def)
-
-        return runtime_call_def_obj
+        return self._get_metadata_runtime_call_function(api, method, runtime)
 
     async def _get_block_handler(
         self,
@@ -2296,8 +2488,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 metadata=runtime.metadata,
             )
         method = "state_getStorageAt"
+        queryable = (
+            str(query_for)
+            if query_for is not None
+            else f"{method}{random.randint(0, 7000)}"
+        )
         return Preprocessed(
-            str(query_for),
+            queryable,
             method,
             [storage_key.to_hex(), block_hash],
             value_scale_type,
@@ -2365,12 +2562,16 @@ class AsyncSubstrateInterface(SubstrateMixin):
         attempt: int = 1,
         runtime: Optional[Runtime] = None,
         force_legacy_decode: bool = False,
-    ) -> RequestManager.RequestResults:
+    ) -> RequestResults:
         request_manager = RequestManager(payloads)
+
+        if len(set(x["id"] for x in payloads)) != len(payloads):
+            raise ValueError("Payloads must have unique ids")
 
         subscription_added = False
 
         async with self.ws as ws:
+            await ws.mark_waiting_for_response()
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
@@ -2439,7 +2640,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             )
 
                 if request_manager.is_complete:
+                    await ws.mark_response_received()
                     break
+                else:
+                    await asyncio.sleep(0.01)
 
         return request_manager.get_results()
 
@@ -2523,10 +2727,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 bh = err_msg.split("State already discarded for ")[1].strip()
                 raise StateDiscardedError(bh)
             else:
+                logger.error(f"Substrate Request Exception: {result[payload_id]}")
                 raise SubstrateRequestException(err_msg)
         if "result" in result[payload_id][0]:
             return result[payload_id][0]
         else:
+            logger.error(f"Substrate Request Exception: {result[payload_id]}")
             raise SubstrateRequestException(result[payload_id][0])
 
     @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
@@ -3249,16 +3455,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
 
         runtime = await self.init_runtime(block_hash=block_hash)
-
-        constant_list = []
-
-        for module_idx, module in enumerate(runtime.metadata.pallets):
-            for constant in module.constants or []:
-                constant_list.append(
-                    self.serialize_constant(constant, module, runtime.runtime_version)
-                )
-
-        return constant_list
+        return self._get_metadata_constants(runtime)
 
     async def get_metadata_constant(
         self,
@@ -3266,7 +3463,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         constant_name: str,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ):
+    ) -> Optional[scalecodec.ScaleInfoModuleConstantMetadata]:
         """
         Retrieves the details of a constant for given module name, call function name and block_hash
         (or chaintip if block_hash is omitted)
@@ -3282,12 +3479,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
         if runtime is None:
             runtime = await self.init_runtime(block_hash=block_hash)
-
-        for module in runtime.metadata.pallets:
-            if module_name == module.name and module.constants:
-                for constant in module.constants:
-                    if constant_name == constant.value["name"]:
-                        return constant
+        return self._get_metadata_constant(module_name, constant_name, runtime)
 
     async def get_constant(
         self,
@@ -3327,7 +3519,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return None
 
     async def get_payment_info(
-        self, call: GenericCall, keypair: Keypair
+        self,
+        call: GenericCall,
+        keypair: Keypair,
+        era: Optional[Union[dict, str]] = None,
+        nonce: Optional[int] = None,
+        tip: int = 0,
+        tip_asset_id: Optional[int] = None,
     ) -> dict[str, Any]:
         """
         Retrieves fee estimation via RPC for given extrinsic
@@ -3336,6 +3534,11 @@ class AsyncSubstrateInterface(SubstrateMixin):
             call: Call object to estimate fees for
             keypair: Keypair of the sender, does not have to include private key because no valid signature is
                      required
+            era: Specify mortality in blocks in follow format:
+                {'period': [amount_blocks]} If omitted the extrinsic is immortal
+            nonce: nonce to include in extrinsics, if omitted the current nonce is retrieved on-chain
+            tip: The tip for the block author to gain priority during network congestion
+            tip_asset_id: Optional asset ID with which to pay the tip
 
         Returns:
             Dict with payment info
@@ -3355,7 +3558,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         # Create extrinsic
         extrinsic = await self.create_signed_extrinsic(
-            call=call, keypair=keypair, signature=signature
+            call=call,
+            keypair=keypair,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            signature=signature,
         )
         extrinsic_len = len(extrinsic.data)
 
@@ -3431,21 +3640,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             List of metadata modules
         """
         runtime = await self.init_runtime(block_hash=block_hash)
-
-        return [
-            {
-                "metadata_index": idx,
-                "module_id": module.get_identifier(),
-                "name": module.name,
-                "spec_version": runtime.runtime_version,
-                "count_call_functions": len(module.calls or []),
-                "count_storage_functions": len(module.storage or []),
-                "count_events": len(module.events or []),
-                "count_constants": len(module.constants or []),
-                "count_errors": len(module.errors or []),
-            }
-            for idx, module in enumerate(runtime.metadata.pallets)
-        ]
+        return self._get_metadata_modules(runtime)
 
     async def get_metadata_module(self, name, block_hash=None) -> ScaleType:
         """
@@ -3645,34 +3840,41 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         self.decode_ss58,
                     )
             else:
-                all_responses = []
+                # storage item and value scale type are not included here because this is batch-decoded in rust
                 page_batches = [
                     result_keys[i : i + page_size]
                     for i in range(0, len(result_keys), page_size)
                 ]
                 changes = []
-                for batch_group in [
-                    # run five concurrent batch pulls; could go higher, but it's good to be a good citizens
-                    # of the ecosystem
-                    page_batches[i : i + 5]
-                    for i in range(0, len(page_batches), 5)
-                ]:
-                    all_responses.extend(
-                        await asyncio.gather(
-                            *[
-                                self.rpc_request(
-                                    method="state_queryStorageAt",
-                                    params=[batch_keys, block_hash],
-                                    runtime=runtime,
-                                )
-                                for batch_keys in batch_group
-                            ]
+                payloads = []
+                for idx, page_batch in enumerate(page_batches):
+                    payloads.append(
+                        self.make_payload(
+                            str(idx), "state_queryStorageAt", [page_batch, block_hash]
                         )
                     )
-                for response in all_responses:
-                    for result_group in response["result"]:
-                        changes.extend(result_group["changes"])
-
+                results: RequestResults = await self._make_rpc_request(
+                    payloads, runtime=runtime
+                )
+                for result in results.values():
+                    res = result[0]
+                    if "error" in res:
+                        err_msg = res["error"]["message"]
+                        if (
+                            "Client error: Api called for an unknown Block: State already discarded"
+                            in err_msg
+                        ):
+                            bh = err_msg.split("State already discarded for ")[
+                                1
+                            ].strip()
+                            raise StateDiscardedError(bh)
+                        else:
+                            raise SubstrateRequestException(err_msg)
+                    elif "result" not in res:
+                        raise SubstrateRequestException(res)
+                    else:
+                        for result_group in res["result"]:
+                            changes.extend(result_group["changes"])
                 result = decode_query_map(
                     changes,
                     prefix,
@@ -3835,8 +4037,35 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 message_result = {
                     k.lower(): v for k, v in message["params"]["result"].items()
                 }
+                # check for any subscription indicators of failure
+                failure_message = None
+                if "usurped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} usurped: {message_result}"
+                    )
+                if "retracted" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} retracted: {message_result}"
+                    )
+                if "finalitytimeout" in message_result:
+                    failure_message = f"Subscription {subscription_id} finalityTimeout: {message_result}"
+                if "dropped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} dropped: {message_result}"
+                    )
+                if "invalid" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} invalid: {message_result}"
+                    )
+
+                if failure_message is not None:
+                    async with self.ws as ws:
+                        await ws.unsubscribe(subscription_id)
+                    logger.error(failure_message)
+                    raise SubstrateRequestException(failure_message)
 
                 if "finalized" in message_result and wait_for_finalization:
+                    logger.debug("Extrinsic finalized. Unsubscribing.")
                     async with self.ws as ws:
                         await ws.unsubscribe(subscription_id)
                     return {
@@ -3849,10 +4078,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     and wait_for_inclusion
                     and not wait_for_finalization
                 ):
+                    logger.debug("Extrinsic included. Unsubscribing.")
                     async with self.ws as ws:
                         await ws.unsubscribe(subscription_id)
                     return {
-                        "block_hash": message_result["inblock"],
+                        "block_hash": message_result.get(
+                            "inblock", message_result.get("inBlock")
+                        ),
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
                         "finalized": False,
                     }, True
@@ -3899,15 +4131,49 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         return result
 
+    async def get_metadata_call_functions(
+        self, block_hash: Optional[str] = None, runtime: Optional[Runtime] = None
+    ) -> dict[str, dict[str, dict[str, dict[str, Union[str, int, list]]]]]:
+        """
+        Retrieves calls functions for the metadata at the specified block_hash or runtime. If neither are specified,
+        the metadata at chaintip is used.
+
+        Args:
+            block_hash: block hash to retrieve metadata for, unused if supplying runtime
+            runtime: Runtime object containing the metadata you wish to parse
+
+        Returns:
+            dict mapping {pallet name: {call name: {param name: param definition}}}
+            e.g.
+            {
+                "Sudo":{
+                    "sudo": {
+                        "_docs": "Authenticates the sudo key and dispatches a function call with `Root` origin.",
+                        "call": {
+                            "name": "call",
+                            "type": 227,
+                            "typeName": "Box<<T as Config>::RuntimeCall>",
+                            "index": 0,
+                            "_docs": ""
+                        }
+                    },
+                    ...
+                },
+                ...
+            }
+        """
+        if runtime is None:
+            runtime = await self.init_runtime(block_hash=block_hash)
+        return self._get_metadata_call_functions(runtime)
+
     async def get_metadata_call_function(
         self,
         module_name: str,
         call_function_name: str,
         block_hash: Optional[str] = None,
-    ) -> Optional[list]:
+    ) -> Optional[GenericVariant]:
         """
-        Retrieves a list of all call functions in metadata active for given block_hash (or chaintip if block_hash
-        is omitted)
+        Retrieves specified call from the metadata at the block specified, or the chain tip if omitted.
 
         Args:
             module_name: name of the module
@@ -3915,16 +4181,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
             block_hash: optional block hash
 
         Returns:
-            list of call functions
+            The dict-like call definition, if found. None otherwise.
         """
         runtime = await self.init_runtime(block_hash=block_hash)
 
-        for pallet in runtime.metadata.pallets:
-            if pallet.name == module_name and pallet.calls:
-                for call in pallet.calls:
-                    if call.name == call_function_name:
-                        return call
-        return None
+        return self._get_metadata_call_function(
+            module_name, call_function_name, runtime
+        )
 
     async def get_metadata_events(self, block_hash=None) -> list[dict]:
         """
@@ -3938,17 +4201,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
 
         runtime = await self.init_runtime(block_hash=block_hash)
-
-        event_list = []
-
-        for event_index, (module, event) in runtime.metadata.event_index.items():
-            event_list.append(
-                self.serialize_module_event(
-                    module, event, runtime.runtime_version, event_index
-                )
-            )
-
-        return event_list
+        return self._get_metadata_events(runtime)
 
     async def get_metadata_event(
         self, module_name, event_name, block_hash=None
@@ -3968,12 +4221,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         """
 
         runtime = await self.init_runtime(block_hash=block_hash)
-
-        for pallet in runtime.metadata.pallets:
-            if pallet.name == module_name and pallet.events:
-                for event in pallet.events:
-                    if event.name == event_name:
-                        return event
+        return self._get_metadata_event(module_name, event_name, runtime)
 
     async def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""
