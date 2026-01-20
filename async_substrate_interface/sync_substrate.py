@@ -2527,29 +2527,21 @@ class SubstrateInterface(SubstrateMixin):
         runtime_call_def = _TYPE_REGISTRY["runtime_api"][api]["methods"][method]
 
         # Encode params
-        param_data = b""
+        param_data: Union[ScaleBytes, bytes] = b""
 
-        if "encoder" in runtime_call_def:
-            runtime = self.init_runtime(block_hash=block_hash)
+        runtime = self.init_runtime(block_hash=block_hash)
+
+        if "encoder" in runtime_call_def and runtime.registry is not None:
+            # only works if we have metadata v15
             param_data = runtime_call_def["encoder"](params, runtime.registry)
+            param_hex = param_data.hex()
         else:
-            for idx, param in enumerate(runtime_call_def["params"]):
-                param_type_string = f"{param['type']}"
-                if isinstance(params, list):
-                    param_data += self.encode_scale(param_type_string, params[idx])
-                else:
-                    if param["name"] not in params:
-                        raise ValueError(
-                            f"Runtime Call param '{param['name']}' is missing"
-                        )
-
-                    param_data += self.encode_scale(
-                        param_type_string, params[param["name"]]
-                    )
+            param_data = self._encode_scale_legacy(runtime_call_def, params, runtime)
+            param_hex = param_data.to_hex()
 
         # RPC request
         result_data = self.rpc_request(
-            "state_call", [f"{api}_{method}", param_data.hex(), block_hash]
+            "state_call", [f"{api}_{method}", param_hex, block_hash]
         )
         result_vec_u8_bytes = hex_to_bytes(result_data["result"])
         result_bytes = self.decode_scale("Vec<u8>", result_vec_u8_bytes)

@@ -966,6 +966,23 @@ class SubstrateMixin(ABC):
         return result
 
     @staticmethod
+    def _encode_scale_legacy(call_definition: list[dict], params: Union[list[Any], dict[str, Any]], runtime:Runtime) -> bytes:
+        """Returns a hex encoded string of the params using their types."""
+        param_data = scalecodec.ScaleBytes(b"")
+
+        for i, param in enumerate(call_definition["params"]):  # type: ignore
+            scale_obj = runtime.runtime_config.create_scale_object(param["type"])
+            if type(params) is list:
+                param_data += scale_obj.encode(params[i])
+            else:
+                if param["name"] not in params:
+                    raise ValueError(f"Missing param {param['name']} in params dict.")
+
+                param_data += scale_obj.encode(params[param["name"]])
+
+        return param_data
+
+    @staticmethod
     def _encode_account_id(account) -> bytes:
         """Encode an account ID into bytes.
 
