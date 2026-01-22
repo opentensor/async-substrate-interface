@@ -75,7 +75,7 @@ from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     _bt_decode_to_dict_or_list,
     legacy_scale_decode,
-    convert_account_ids,
+    convert_account_ids, _decode_scale_list_with_runtime,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
@@ -2894,19 +2894,19 @@ class AsyncSubstrateInterface(SubstrateMixin):
         result = []
 
         storage_key_map = {s.to_hex(): s for s in storage_keys}
-
+        keys = []
+        values = []
+        sks = []
         for result_group in response["result"]:
             for change_storage_key, change_data in result_group["changes"]:
-                # Decode result for specified storage_key
+                as_bytes = bytes.fromhex(change_data[2:]) if change_data is not None else b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
                 storage_key = storage_key_map[change_storage_key]
-                if change_data is not None:
-                    change_data = ScaleBytes(change_data)
-                result.append(
-                    (
-                        storage_key,
-                        storage_key.decode_scale_value(change_data).value,
-                    ),
-                )
+                keys.append(storage_key.value_scale_type)
+                values.append(as_bytes)
+                sks.append(storage_key)
+        decoded = _decode_scale_list_with_runtime(type_strings=keys, scale_bytes_list=values, runtime=runtime, return_scale_obj=False)
+        for sk, value in zip(sks, decoded):
+            result.append((sk, value))
 
         return result
 
