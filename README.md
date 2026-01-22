@@ -13,7 +13,7 @@ pip install async-substrate-interface
 
 ## Usage
 
-Here are examples of how to use the sync and async inferfaces:
+Here are examples of how to use the sync and async interfaces:
 
 ```python
 from async_substrate_interface import SubstrateInterface
