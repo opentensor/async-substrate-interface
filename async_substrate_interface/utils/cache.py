@@ -20,6 +20,7 @@ CACHE_LOCATION = (
     if USE_CACHE
     else ":memory:"
 )
+SUBSTRATE_CACHE_METHOD_SIZE = int(os.getenv("SUBSTRATE_CACHE_METHOD_SIZE", "512"))
 
 logger = logging.getLogger("async_substrate_interface")
 
@@ -38,13 +39,13 @@ class AsyncSqliteDB:
             cls._instances[chain_endpoint] = instance
             return instance
 
-    async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
+    async def close(self):
         async with self._lock:
-            if not self._db:
-                _ensure_dir()
-                self._db = await aiosqlite.connect(CACHE_LOCATION)
-        table_name = _get_table_name(func)
-        key = None
+            if self._db:
+                await self._db.close()
+                self._db = None
+
+    async def _create_if_not_exists(self, chain: str, table_name: str):
         if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
             await self._db.execute(
                 f"""
@@ -54,7 +55,8 @@ class AsyncSqliteDB:
                        key BLOB,
                        value BLOB,
                        chain TEXT,
-                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       UNIQUE(key, chain)
                     );
                 """
             )
@@ -66,25 +68,34 @@ class AsyncSqliteDB:
                           WHERE rowid IN (
                             SELECT rowid FROM {table_name}
                             ORDER BY created_at DESC
-                            LIMIT -1 OFFSET 500
+                            LIMIT -1 OFFSET {SUBSTRATE_CACHE_METHOD_SIZE}
                           );
                         END;
                 """
             )
             await self._db.commit()
-            key = pickle.dumps((args, kwargs or None))
-            try:
-                cursor: aiosqlite.Cursor = await self._db.execute(
-                    f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
-                    (key, chain),
-                )
-                result = await cursor.fetchone()
-                await cursor.close()
-                if result is not None:
-                    return pickle.loads(result[0])
-            except (pickle.PickleError, sqlite3.Error) as e:
-                logger.exception("Cache error", exc_info=e)
-                pass
+        return local_chain
+
+    async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
+        table_name = _get_table_name(func)
+        local_chain = await self._create_if_not_exists(chain, table_name)
+        key = pickle.dumps((args, kwargs or None))
+        try:
+            cursor: aiosqlite.Cursor = await self._db.execute(
+                f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
+                (key, chain),
+            )
+            result = await cursor.fetchone()
+            await cursor.close()
+            if result is not None:
+                return pickle.loads(result[0])
+        except (pickle.PickleError, sqlite3.Error) as e:
+            logger.exception("Cache error", exc_info=e)
+            pass
         result = await func(other_self, *args, **kwargs)
         if not local_chain or not USE_CACHE:
             # TODO use a task here
@@ -94,6 +105,85 @@ class AsyncSqliteDB:
             )
             await self._db.commit()
         return result
+
+    async def load_runtime_cache(self, chain: str) -> tuple[dict, dict, dict]:
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
+        block_mapping = {}
+        block_hash_mapping = {}
+        version_mapping = {}
+        tables = {
+            "RuntimeCache_blocks": block_mapping,
+            "RuntimeCache_block_hashes": block_hash_mapping,
+            "RuntimeCache_versions": version_mapping,
+        }
+        for table in tables.keys():
+            async with self._lock:
+                local_chain = await self._create_if_not_exists(chain, table)
+            if local_chain:
+                return {}, {}, {}
+        for table_name, mapping in tables.items():
+            try:
+                async with self._lock:
+                    cursor: aiosqlite.Cursor = await self._db.execute(
+                        f"SELECT key, value FROM {table_name} WHERE chain=?",
+                        (chain,),
+                    )
+                    results = await cursor.fetchall()
+                    await cursor.close()
+                if results is None:
+                    continue
+                for row in results:
+                    key, value = row
+                    runtime = pickle.loads(value)
+                    mapping[key] = runtime
+            except (pickle.PickleError, sqlite3.Error) as e:
+                logger.exception("Cache error", exc_info=e)
+                return {}, {}, {}
+        return block_mapping, block_hash_mapping, version_mapping
+
+    async def dump_runtime_cache(
+        self,
+        chain: str,
+        block_mapping: dict,
+        block_hash_mapping: dict,
+        version_mapping: dict,
+    ) -> None:
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
+
+            tables = {
+                "RuntimeCache_blocks": block_mapping,
+                "RuntimeCache_block_hashes": block_hash_mapping,
+                "RuntimeCache_versions": version_mapping,
+            }
+            for table, mapping in tables.items():
+                local_chain = await self._create_if_not_exists(chain, table)
+                if local_chain:
+                    return None
+                serialized_mapping = {}
+                for key, value in mapping.items():
+                    if not isinstance(value, (str, int)):
+                        serialized_value = pickle.dumps(value.serialize())
+                    else:
+                        serialized_value = pickle.dumps(value)
+                    serialized_mapping[key] = serialized_value
+
+                await self._db.executemany(
+                    f"INSERT OR REPLACE INTO {table} (key, value, chain) VALUES (?,?,?)",
+                    [
+                        (key, serialized_value_, chain)
+                        for key, serialized_value_ in serialized_mapping.items()
+                    ],
+                )
+
+            await self._db.commit()
+
+            return None
 
 
 def _ensure_dir():
@@ -119,7 +209,8 @@ def _create_table(c, conn, table_name):
            key BLOB,
            value BLOB,
            chain TEXT,
-           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+           UNIQUE(key, chain)
         );
         """
     )
@@ -130,7 +221,7 @@ def _create_table(c, conn, table_name):
               WHERE rowid IN (
                 SELECT rowid FROM {table_name}
                 ORDER BY created_at DESC
-                LIMIT -1 OFFSET 500
+                LIMIT -1 OFFSET {SUBSTRATE_CACHE_METHOD_SIZE}
               );
             END;"""
     )
@@ -205,7 +296,7 @@ def sql_lru_cache(maxsize=None):
 
 def async_sql_lru_cache(maxsize: Optional[int] = None):
     def decorator(func):
-        @cached_fetcher(max_size=maxsize)
+        @cached_fetcher(max_size=maxsize, cache_key_index=None)
         async def inner(self, *args, **kwargs):
             async_sql_db = AsyncSqliteDB(self.url)
             result = await async_sql_db(self.url, self, func, args, kwargs)
@@ -300,7 +391,7 @@ class CachedFetcher:
             key_name = list(bound.arguments)[self._cache_key_index]
             return bound.arguments[key_name]
 
-        return (tuple(bound.arguments.items()),)
+        return pickle.dumps(dict(bound.arguments))
 
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
         key = self.make_cache_key(args, kwargs)
@@ -354,7 +445,7 @@ class _CachedFetcherMethod:
         return self._instances[instance]
 
 
-def cached_fetcher(max_size: Optional[int] = None, cache_key_index: int = 0):
+def cached_fetcher(max_size: Optional[int] = None, cache_key_index: Optional[int] = 0):
     """Wrapper for CachedFetcher. See example in CachedFetcher docstring."""
 
     def wrapper(method):
