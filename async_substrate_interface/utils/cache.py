@@ -391,7 +391,7 @@ class CachedFetcher:
             key_name = list(bound.arguments)[self._cache_key_index]
             return bound.arguments[key_name]
 
-        return (tuple(bound.arguments.items()),)
+        return pickle.dumps(dict(bound.arguments))
 
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
         key = self.make_cache_key(args, kwargs)
