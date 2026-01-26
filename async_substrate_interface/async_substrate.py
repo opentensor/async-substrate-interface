@@ -4291,7 +4291,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
 class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
     """
-    Experimental new class that uses disk-caching in addition to memory-caching for the cached methods
+    Uses disk-caching in addition to memory-caching for the cached methods
+
+    Loads the cache from the disk at startup, where it is kept in-memory, and dumps to the disk
+    when the connection is closed.
     """
 
     async def initialize(self) -> None:
@@ -4300,7 +4303,7 @@ class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
 
     async def close(self):
         """
-        Closes the substrate connection, and the websocket connection.
+        Closes the substrate connection and the websocket connection, dumps the runtime cache to disk
         """
         try:
             await self.runtime_cache.dump_to_disk(self.url)
