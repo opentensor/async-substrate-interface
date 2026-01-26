@@ -1,6 +1,6 @@
 [project]
 name = "async-substrate-interface"
-version = "1.5.8"
+version = "1.5.15"
 description = "Asyncio library for interacting with substrate. Mostly API-compatible with py-substrate-interface"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -56,5 +56,6 @@ dev = [
     "pytest-split==0.10.0",
     "pytest-xdist==3.6.1",
     "pytest-rerunfailures==10.2",
-    "bittensor-wallet>=4.0.0"
+    "bittensor-wallet>=4.0.0",
+    "pytest-forked"
 ]

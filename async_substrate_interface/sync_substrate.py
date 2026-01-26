@@ -235,14 +235,15 @@ class ExtrinsicReceipt:
                     has_transaction_fee_paid_event = True
 
             # Process other events
+            possible_success = False
             for event in self.triggered_events:
+                # TODO make this more readable
                 # Check events
                 if (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicSuccess"
                 ):
-                    self.__is_success = True
-                    self.__error_message = None
+                    possible_success = True
 
                     if "dispatch_info" in event["event"]["attributes"]:
                         self.__weight = event["event"]["attributes"]["dispatch_info"][
@@ -255,13 +256,37 @@ class ExtrinsicReceipt:
                 elif (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicFailed"
+                ) or (
+                    event["event"]["module_id"] == "MevShield"
+                    and event["event"]["event_id"]
+                    in ("DecryptedRejected", "DecryptionFailed")
                 ):
+                    possible_success = False
                     self.__is_success = False
 
-                    dispatch_info = event["event"]["attributes"]["dispatch_info"]
-                    dispatch_error = event["event"]["attributes"]["dispatch_error"]
-
-                    self.__weight = dispatch_info["weight"]
+                    if event["event"]["module_id"] == "System":
+                        dispatch_info = event["event"]["attributes"]["dispatch_info"]
+                        dispatch_error = event["event"]["attributes"]["dispatch_error"]
+                        self.__weight = dispatch_info["weight"]
+                    else:
+                        # MEV shield extrinsics
+                        if event["event"]["event_id"] == "DecryptedRejected":
+                            dispatch_info = event["event"]["attributes"]["reason"][
+                                "post_info"
+                            ]
+                            dispatch_error = event["event"]["attributes"]["reason"][
+                                "error"
+                            ]
+                            self.__weight = event["event"]["attributes"]["reason"][
+                                "post_info"
+                            ]["actual_weight"]
+                        else:
+                            self.__error_message = {
+                                "type": "MevShield",
+                                "name": "DecryptionFailed",
+                                "docs": event["event"]["attributes"]["reason"],
+                            }
+                            continue
 
                     if "Module" in dispatch_error:
                         if isinstance(dispatch_error["Module"], tuple):
@@ -318,7 +343,13 @@ class ExtrinsicReceipt:
                         event["event"]["module_id"] == "Balances"
                         and event["event"]["event_id"] == "Deposit"
                     ):
-                        self.__total_fee_amount += event.value["attributes"]["amount"]
+                        self.__total_fee_amount += event["event"]["attributes"][
+                            "amount"
+                        ]
+            if possible_success is True and self.__error_message is None:
+                # we delay the positive setting of the __is_success flag until we have finished iteration of the
+                # events and have ensured nothing has set an error message
+                self.__is_success = True
 
     @property
     def is_success(self) -> bool:
@@ -3169,6 +3200,32 @@ class SubstrateInterface(SubstrateMixin):
                 message_result = {
                     k.lower(): v for k, v in message["params"]["result"].items()
                 }
+
+                # check for any subscription indicators of failure
+                failure_message = None
+                if "usurped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} usurped: {message_result}"
+                    )
+                if "retracted" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} retracted: {message_result}"
+                    )
+                if "finalitytimeout" in message_result:
+                    failure_message = f"Subscription {subscription_id} finalityTimeout: {message_result}"
+                if "dropped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} dropped: {message_result}"
+                    )
+                if "invalid" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} invalid: {message_result}"
+                    )
+
+                if failure_message is not None:
+                    self.rpc_request("author_unwatchExtrinsic", [subscription_id])
+                    logger.error(failure_message)
+                    raise SubstrateRequestException(failure_message)
 
                 if "finalized" in message_result and wait_for_finalization:
                     # Created as a task because we don't actually care about the result

@@ -57,13 +57,13 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     outputs:
-      run-sdk-tests: ${{ steps.get-labels.outputs.run-sdk-tests }}
+      run-sdk-tests: ${{ steps.check-manual.outputs.run-sdk-tests || steps.get-labels-pr.outputs.run-sdk-tests }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Skip label check for manual runs
-        id: get-labels
+        id: check-manual
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           echo "Manual workflow dispatch detected, skipping PR label check."
@@ -74,11 +74,13 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         run: |
           sleep 5
-          LABELS=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name')
+          LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels --jq '.labels[].name')
           echo "Current labels: $LABELS"
           if echo "$LABELS" | grep -q "run-bittensor-sdk-tests"; then
+            echo "run-sdk-tests=true" >> $GITHUB_ENV
             echo "run-sdk-tests=true" >> $GITHUB_OUTPUT
           else
+            echo "run-sdk-tests=false" >> $GITHUB_ENV
             echo "run-sdk-tests=false" >> $GITHUB_OUTPUT
           fi
         env:
@@ -171,48 +173,52 @@ jobs:
       - name: Check-out repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update &&
           sudo apt-get install -y clang curl libssl-dev llvm libudev-dev protobuf-compiler
 
-      - name: Create Python virtual environment
-        working-directory: ${{ github.workspace }}
-        run: python3 -m venv ${{ github.workspace }}/venv
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Clone Bittensor SDK repo
-        working-directory: ${{ github.workspace }}
         run: git clone https://github.com/opentensor/bittensor.git
 
-      - name: Setup Bittensor SDK from cloned repo
+      - name: Checkout Bittensor branch
         working-directory: ${{ github.workspace }}/bittensor
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
           if ! git fetch origin $BITTENSOR_BRANCH; then
             echo "❌ Error: Branch '$BITTENSOR_BRANCH' does not exist in opentensor/bittensor."
             exit 1
           fi
           git checkout FETCH_HEAD
           echo "✅ Using Bittensor branch: $BITTENSOR_BRANCH"
-          python3 -m pip install --upgrade pip uv
-          uv pip install '.[dev]'
 
-      - name: Clone Bittensor async-substrate-interface repo
+      - name: Install Bittensor SDK dependencies
+        working-directory: ${{ github.workspace }}/bittensor
+        run: uv pip install --system '.[dev]'
+
+      - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
 
-      - name: Checkout PR branch in async-substrate-interface repo
+      - name: Checkout PR branch in async-substrate-interface
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
-          git fetch origin ${{ github.event.pull_request.head.ref }}
-          git checkout ${{ github.event.pull_request.head.ref }}
+          BRANCH="${{ github.event.pull_request.head.ref || github.ref_name }}"
+          git fetch origin $BRANCH
+          git checkout $BRANCH
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
-      - name: Install async-substrate-interface package
+      - name: Install async-substrate-interface with dev dependencies
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          python3 -m pip uninstall async-substrate-interface -y
-          uv pip install .
+          uv pip uninstall --system async-substrate-interface || true
+          uv pip install --system '.[dev]'
 
       - name: Download Cached Docker Image
         uses: actions/download-artifact@v4
@@ -222,10 +228,8 @@ jobs:
       - name: Load Docker Image
         run: docker load -i subtensor-localnet.tar
 
-      - name: Run tests
-        run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          python3 -m pytest ${{ matrix.test-file }} -s
+      - name: Run e2e tests
+        run: pytest ${{ matrix.test-file }} -s
 
 
   run-integration-and-unit-test:
@@ -237,55 +241,54 @@ jobs:
       - name: Check-out repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update &&
           sudo apt-get install -y clang curl libssl-dev llvm libudev-dev protobuf-compiler
 
-      - name: Create Python virtual environment
-        working-directory: ${{ github.workspace }}
-        run:  python3 -m venv venv
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Clone Bittensor SDK repo
-        working-directory: ${{ github.workspace }}
         run: git clone https://github.com/opentensor/bittensor.git
 
-      - name: Setup Bittensor SDK from cloned repo
+      - name: Checkout Bittensor branch
         working-directory: ${{ github.workspace }}/bittensor
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
           if ! git fetch origin $BITTENSOR_BRANCH; then
             echo "❌ Error: Branch '$BITTENSOR_BRANCH' does not exist in opentensor/bittensor."
             exit 1
           fi
           git checkout FETCH_HEAD
           echo "✅ Using Bittensor branch: $BITTENSOR_BRANCH"
-          python3 -m pip install --upgrade pip uv
-          uv pip install '.[dev]'
+
+      - name: Install Bittensor SDK dependencies
+        working-directory: ${{ github.workspace }}/bittensor
+        run: uv pip install --system '.[dev]' torch
 
       - name: Clone async-substrate-interface repo
         run: git clone https://github.com/opentensor/async-substrate-interface.git
 
-      - name: Checkout PR branch in async-substrate-interface repo
+      - name: Checkout PR branch in async-substrate-interface
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
           git fetch origin ${{ github.event.pull_request.head.ref }}
           git checkout ${{ github.event.pull_request.head.ref }}
           echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
 
-      - name: Install /async-substrate-interface package
+      - name: Install async-substrate-interface with dev dependencies
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          pip uninstall async-substrate-interface -y
-          uv pip install .
+          uv pip uninstall --system async-substrate-interface || true
+          uv pip install --system '.[dev]'
 
       - name: Run SDK integration tests
-        run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          pytest ${{ github.workspace }}/bittensor/tests/integration_tests
+        run: pytest ${{ github.workspace }}/bittensor/tests/integration_tests
 
-      - name: Run bittensor-sdk unit tests
-        run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          pytest ${{ github.workspace }}/bittensor/tests/unit_tests
+      - name: Run Bittensor SDK unit tests
+        run: pytest ${{ github.workspace }}/bittensor/tests/unit_tests

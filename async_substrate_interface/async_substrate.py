@@ -274,14 +274,15 @@ class AsyncExtrinsicReceipt:
                     has_transaction_fee_paid_event = True
 
             # Process other events
+            possible_success = False
             for event in await self.triggered_events:
+                # TODO make this more readable
                 # Check events
                 if (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicSuccess"
                 ):
-                    self.__is_success = True
-                    self.__error_message = None
+                    possible_success = True
 
                     if "dispatch_info" in event["event"]["attributes"]:
                         self.__weight = event["event"]["attributes"]["dispatch_info"][
@@ -294,13 +295,37 @@ class AsyncExtrinsicReceipt:
                 elif (
                     event["event"]["module_id"] == "System"
                     and event["event"]["event_id"] == "ExtrinsicFailed"
+                ) or (
+                    event["event"]["module_id"] == "MevShield"
+                    and event["event"]["event_id"]
+                    in ("DecryptedRejected", "DecryptionFailed")
                 ):
+                    possible_success = False
                     self.__is_success = False
 
-                    dispatch_info = event["event"]["attributes"]["dispatch_info"]
-                    dispatch_error = event["event"]["attributes"]["dispatch_error"]
-
-                    self.__weight = dispatch_info["weight"]
+                    if event["event"]["module_id"] == "System":
+                        dispatch_info = event["event"]["attributes"]["dispatch_info"]
+                        dispatch_error = event["event"]["attributes"]["dispatch_error"]
+                        self.__weight = dispatch_info["weight"]
+                    else:
+                        # MEV shield extrinsics
+                        if event["event"]["event_id"] == "DecryptedRejected":
+                            dispatch_info = event["event"]["attributes"]["reason"][
+                                "post_info"
+                            ]
+                            dispatch_error = event["event"]["attributes"]["reason"][
+                                "error"
+                            ]
+                            self.__weight = event["event"]["attributes"]["reason"][
+                                "post_info"
+                            ]["actual_weight"]
+                        else:
+                            self.__error_message = {
+                                "type": "MevShield",
+                                "name": "DecryptionFailed",
+                                "docs": event["event"]["attributes"]["reason"],
+                            }
+                            continue
 
                     if "Module" in dispatch_error:
                         if isinstance(dispatch_error["Module"], tuple):
@@ -365,7 +390,13 @@ class AsyncExtrinsicReceipt:
                         event["event"]["module_id"] == "Balances"
                         and event["event"]["event_id"] == "Deposit"
                     ):
-                        self.__total_fee_amount += event.value["attributes"]["amount"]
+                        self.__total_fee_amount += event["event"]["attributes"][
+                            "amount"
+                        ]
+            if possible_success is True and self.__error_message is None:
+                # we delay the positive setting of the __is_success flag until we have finished iteration of the
+                # events and have ensured nothing has set an error message
+                self.__is_success = True
 
     @property
     async def is_success(self) -> bool:
@@ -586,6 +617,7 @@ class Websocket:
         self._max_retries = max_retries
         self._last_activity = asyncio.Event()
         self._last_activity.set()
+        self._waiting_for_response = 0
 
     @property
     def state(self):
@@ -598,6 +630,24 @@ class Websocket:
         if self.state not in (State.CONNECTING, State.OPEN):
             await self.connect()
         return self
+
+    async def mark_waiting_for_response(self):
+        """
+        Mark that a response is expected. This will cause the websocket to not automatically close.
+
+        Note: you must mark as response received once you have received the response.
+        """
+        async with self._lock:
+            self._waiting_for_response += 1
+
+    async def mark_response_received(self):
+        """
+        Mark that the expected response has been received. Automatic shutdown of websocket will proceed normally.
+
+        Note: only do this if you have previously marked as waiting for response
+        """
+        async with self._lock:
+            self._waiting_for_response -= 1
 
     @staticmethod
     async def loop_time() -> float:
@@ -675,9 +725,17 @@ class Websocket:
 
     async def connect(self, force=False):
         if not force:
-            await self._lock.acquire()
+            async with self._lock:
+                return await self._connect_internal(force)
         else:
             logger.debug("Proceeding without acquiring lock.")
+            return await self._connect_internal(force)
+
+    async def _connect_internal(self, force):
+        # Check state again after acquiring lock to avoid duplicate connections
+        if not force and self.state in (State.OPEN, State.CONNECTING):
+            return None
+
         logger.debug(f"Websocket connecting to {self.ws_url}")
         if self._sending is None or self._sending.empty():
             self._sending = asyncio.Queue()
@@ -706,8 +764,6 @@ class Websocket:
             except socket.gaierror:
                 logger.debug(f"Hostname not known (this is just for testing")
                 await asyncio.sleep(10)
-                if self._lock.locked():
-                    self._lock.release()
                 return await self.connect(force=force)
             logger.debug("Connection established")
             self.ws = connection
@@ -715,8 +771,6 @@ class Websocket:
                 self._send_recv_task = asyncio.get_running_loop().create_task(
                     self._handler(self.ws)
                 )
-        if self._lock.locked():
-            self._lock.release()
         return None
 
     async def _handler(self, ws: ClientConnection) -> Union[None, Exception]:
@@ -738,7 +792,10 @@ class Websocket:
             task_res = task.result()
 
             # If ConnectionClosedOK, graceful shutdown - don't reconnect
-            if isinstance(task_res, websockets.exceptions.ConnectionClosedOK):
+            if (
+                isinstance(task_res, websockets.exceptions.ConnectionClosedOK)
+                and self._waiting_for_response <= 0
+            ):
                 logger.debug("Graceful shutdown detected, not reconnecting")
                 return None  # Clean exit
 
@@ -793,7 +850,12 @@ class Websocket:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.shutdown_timer is not None:
-            if not self.state != State.CONNECTING:
+            if (
+                self.state != State.CONNECTING
+                and self._sending.qsize() == 0
+                and not self._received_subscriptions
+                and self._waiting_for_response <= 0
+            ):
                 if self._exit_task is not None:
                     self._exit_task.cancel()
                     try:
@@ -802,6 +864,7 @@ class Websocket:
                         pass
                 if self.ws is not None:
                     self._exit_task = asyncio.create_task(self._exit_with_timer())
+        self._attempts = 0
 
     async def _exit_with_timer(self):
         """
@@ -810,8 +873,15 @@ class Websocket:
         """
         try:
             if self.shutdown_timer is not None:
+                logger.debug("Exiting with timer")
                 await asyncio.sleep(self.shutdown_timer)
-            await self.shutdown()
+            if (
+                self.state != State.CONNECTING
+                and self._sending.qsize() == 0
+                and not self._received_subscriptions
+                and self._waiting_for_response <= 0
+            ):
+                await self.shutdown()
         except asyncio.CancelledError:
             pass
 
@@ -852,12 +922,22 @@ class Websocket:
         logger.debug("Starting receiving task")
         try:
             while True:
-                recd = await self._wait_with_activity_timeout(
-                    ws.recv(decode=False), self.retry_timeout
-                )
-                await self._reset_activity_timer()
-                self._attempts = 0
-                await self._recv(recd)
+                try:
+                    recd = await self._wait_with_activity_timeout(
+                        ws.recv(decode=False), self.retry_timeout
+                    )
+                    await self._reset_activity_timer()
+                    self._attempts = 0
+                    await self._recv(recd)
+                except TimeoutError:
+                    if (
+                        self._waiting_for_response <= 0
+                        or self._sending.qsize() == 0
+                        or len(self._inflight) == 0
+                        or len(self._received_subscriptions) == 0
+                    ):
+                        # if there's nothing in a queue, we really have no reason to have this, so we continue to wait
+                        continue
         except websockets.exceptions.ConnectionClosedOK as e:
             logger.debug("ConnectionClosedOK")
             return e
@@ -900,7 +980,14 @@ class Websocket:
             if not isinstance(
                 e, (asyncio.TimeoutError, TimeoutError, ConnectionClosed)
             ):
-                logger.exception("Websocket sending exception", exc_info=e)
+                logger.exception(
+                    f"Websocket sending exception; "
+                    f"sending: {self._sending.qsize()}; "
+                    f"waiting_for_response: {self._waiting_for_response}; "
+                    f"inflight: {len(self._inflight)}; "
+                    f"subscriptions: {len(self._received_subscriptions)};",
+                    exc_info=e,
+                )
                 if to_send is not None:
                     to_send_ = json.loads(to_send)
                     self._received[to_send_["id"]].set_exception(e)
@@ -952,7 +1039,8 @@ class Websocket:
             original_id = get_next_id()
             while original_id in self._in_use_ids:
                 original_id = get_next_id()
-            del self._received_subscriptions[subscription_id]
+            logger.debug(f"Unwatched extrinsic subscription {subscription_id}")
+            self._received_subscriptions.pop(subscription_id, None)
 
         to_send = {
             "jsonrpc": "2.0",
@@ -1000,11 +1088,12 @@ class Websocket:
                 elif isinstance((e := self._send_recv_task.result()), Exception):
                     logger.exception(f"Websocket sending exception: {e}")
                     raise e
-        await asyncio.sleep(0.01)
         return None
 
 
 class AsyncSubstrateInterface(SubstrateMixin):
+    ws: "Websocket"
+
     def __init__(
         self,
         url: str,
@@ -2484,6 +2573,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         subscription_added = False
 
         async with self.ws as ws:
+            await ws.mark_waiting_for_response()
             for payload in payloads:
                 item_id = await ws.send(payload["payload"])
                 request_manager.add_request(item_id, payload["id"])
@@ -2552,6 +2642,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                             )
 
                 if request_manager.is_complete:
+                    await ws.mark_response_received()
                     break
                 else:
                     await asyncio.sleep(0.01)
@@ -3946,8 +4037,35 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 message_result = {
                     k.lower(): v for k, v in message["params"]["result"].items()
                 }
+                # check for any subscription indicators of failure
+                failure_message = None
+                if "usurped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} usurped: {message_result}"
+                    )
+                if "retracted" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} retracted: {message_result}"
+                    )
+                if "finalitytimeout" in message_result:
+                    failure_message = f"Subscription {subscription_id} finalityTimeout: {message_result}"
+                if "dropped" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} dropped: {message_result}"
+                    )
+                if "invalid" in message_result:
+                    failure_message = (
+                        f"Subscription {subscription_id} invalid: {message_result}"
+                    )
+
+                if failure_message is not None:
+                    async with self.ws as ws:
+                        await ws.unsubscribe(subscription_id)
+                    logger.error(failure_message)
+                    raise SubstrateRequestException(failure_message)
 
                 if "finalized" in message_result and wait_for_finalization:
+                    logger.debug("Extrinsic finalized. Unsubscribing.")
                     async with self.ws as ws:
                         await ws.unsubscribe(subscription_id)
                     return {
@@ -3960,10 +4078,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     and wait_for_inclusion
                     and not wait_for_finalization
                 ):
+                    logger.debug("Extrinsic included. Unsubscribing.")
                     async with self.ws as ws:
                         await ws.unsubscribe(subscription_id)
                     return {
-                        "block_hash": message_result["inblock"],
+                        "block_hash": message_result.get(
+                            "inblock", message_result.get("inBlock")
+                        ),
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
                         "finalized": False,
                     }, True

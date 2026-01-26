@@ -1,5 +1,6 @@
 import subprocess
 import time
+import sys
 
 import pytest
 
@@ -11,6 +12,63 @@ from async_substrate_interface.substrate_addons import (
 )
 from tests.conftest import start_docker_container
 from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
+
+
+def wait_for_output(process, target_string, timeout=60):
+    """
+    Wait for a specific string to appear in the subprocess stdout.
+
+    Args:
+        process: subprocess.Popen object
+        target_string: String to wait for in stdout
+        timeout: Maximum time to wait in seconds
+
+    Returns:
+        bool: True if string was found, False if timeout occurred
+    """
+    import time
+
+    start_time = time.time()
+
+    # Make stdout non-blocking on Unix systems
+    if sys.platform != "win32":
+        import fcntl
+        import os
+
+        flags = fcntl.fcntl(process.stdout, fcntl.F_GETFL)
+        fcntl.fcntl(process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+    buffer = ""
+    while time.time() - start_time < timeout:
+        try:
+            # Read available data
+            chunk = process.stdout.read(1024)
+            if chunk:
+                chunk_str = chunk.decode("utf-8", errors="ignore")
+                buffer += chunk_str
+                print(chunk_str, end="", flush=True)  # Echo output for visibility
+
+                if target_string in buffer:
+                    return True
+            else:
+                # No data available, sleep briefly
+                time.sleep(0.1)
+        except (BlockingIOError, TypeError):
+            # No data available yet
+            time.sleep(0.1)
+
+        # Check if process has terminated
+        if process.poll() is not None:
+            # Process ended, read remaining output
+            remaining = process.stdout.read()
+            if remaining:
+                remaining_str = remaining.decode("utf-8", errors="ignore")
+                print(remaining_str, end="", flush=True)
+                if target_string in remaining_str:
+                    return True
+            return False
+
+    return False
 
 
 @pytest.fixture(scope="function")
@@ -39,7 +97,12 @@ def single_local_chain():
 
 
 def test_retry_sync_substrate(single_local_chain):
-    time.sleep(10)
+    # Wait for the Docker container to be ready
+    if not wait_for_output(single_local_chain.process, "Imported #1", timeout=60):
+        raise TimeoutError(
+            "Docker container did not start properly - 'Imported #1' not found in output"
+        )
+
     with RetrySyncSubstrate(
         single_local_chain.uri, fallback_chains=[LATENT_LITE_ENTRYPOINT]
     ) as substrate:
@@ -52,13 +115,14 @@ def test_retry_sync_substrate(single_local_chain):
             time.sleep(2)
 
 
-@pytest.mark.skip(
-    "There's an issue with this running in the GitHub runner, "
-    "where it seemingly cannot connect to the docker container. "
-    "It does run locally, however."
-)
 def test_retry_sync_substrate_max_retries(docker_containers):
-    time.sleep(10)
+    # Wait for both Docker containers to be ready
+    for i, container in enumerate(docker_containers):
+        if not wait_for_output(container.process, "Imported #1", timeout=60):
+            raise TimeoutError(
+                f"Docker container {i} did not start properly - 'Imported #1' not found in output"
+            )
+
     with RetrySyncSubstrate(
         docker_containers[0].uri, fallback_chains=[docker_containers[1].uri]
     ) as substrate:

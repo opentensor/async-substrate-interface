@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import time
 
@@ -8,7 +9,13 @@ logger = logging.getLogger("websockets.proxy")
 
 
 class ProxyServer:
-    def __init__(self, upstream: str, time_til_pause: float, time_til_resume: float):
+    def __init__(
+        self,
+        upstream: str,
+        time_til_pause: float,
+        time_til_resume: float,
+        port: int = 8080,
+    ):
         self.upstream_server = upstream
         self.time_til_pause = time_til_pause
         self.time_til_resume = time_til_resume
@@ -16,6 +23,7 @@ class ProxyServer:
         self.connection_time = 0
         self.shutdown_time = 0
         self.resume_time = 0
+        self.port = port
 
     def connect(self):
         self.upstream_connection = connect(self.upstream_server)
@@ -26,7 +34,8 @@ class ProxyServer:
     def close(self):
         if self.upstream_connection:
             self.upstream_connection.close()
-        self.server.shutdown()
+        with contextlib.suppress(AttributeError):
+            self.server.shutdown()
 
     def proxy_request(self, websocket: ServerConnection):
         for message in websocket:
@@ -39,7 +48,7 @@ class ProxyServer:
             websocket.send(recd)
 
     def serve(self):
-        with serve(self.proxy_request, "localhost", 8080) as self.server:
+        with serve(self.proxy_request, "localhost", self.port) as self.server:
             self.server.serve_forever()
 
     def connect_and_serve(self):

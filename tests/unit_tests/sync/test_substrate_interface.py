@@ -7,6 +7,7 @@ from tests.helpers.settings import ARCHIVE_ENTRYPOINT
 
 
 def test_runtime_call(monkeypatch):
+    print("Testing test_runtime_call")
     substrate = SubstrateInterface("ws://localhost", _mock=True)
     fake_runtime = MagicMock()
     fake_metadata_v15 = MagicMock()
@@ -75,9 +76,11 @@ def test_runtime_call(monkeypatch):
         "state_call", ["SubstrateApi_SubstrateMethod", "", None]
     )
     substrate.close()
+    print("test_runtime_call succeeded")
 
 
 def test_runtime_switching():
+    print("Testing test_runtime_switching")
     block = 6067945  # block where a runtime switch happens
     with SubstrateInterface(
         ARCHIVE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
@@ -86,3 +89,4 @@ def test_runtime_switching():
         assert substrate.get_extrinsics(block_number=block - 20) is not None
         assert substrate.get_extrinsics(block_number=block) is not None
         assert substrate.get_extrinsics(block_number=block - 21) is not None
+    print("test_runtime_switching succeeded")
