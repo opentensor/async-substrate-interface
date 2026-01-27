@@ -1181,7 +1181,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
             await self.initialize()
         return self
 
-    async def initialize(self):
+    async def initialize(self) -> None:
+        await self._initialize()
+
+    async def _initialize(self) -> None:
         """
         Initialize the connection to the chain.
         """
@@ -1206,7 +1209,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self._initializing = False
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.ws.shutdown()
+        await self.close()
 
     @property
     def metadata(self):
@@ -2428,7 +2431,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 "MetadataVersioned", data=ScaleBytes(result)
             )
             metadata_decoder.decode()
-
             return metadata_decoder
         else:
             return result
@@ -4289,20 +4291,27 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
 class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
     """
-    Experimental new class that uses disk-caching in addition to memory-caching for the cached methods
+    Uses disk-caching in addition to memory-caching for the cached methods
+
+    Loads the cache from the disk at startup, where it is kept in-memory, and dumps to the disk
+    when the connection is closed.
     """
+
+    async def initialize(self) -> None:
+        await self.runtime_cache.load_from_disk(self.url)
+        await self._initialize()
 
     async def close(self):
         """
-        Closes the substrate connection, and the websocket connection.
+        Closes the substrate connection and the websocket connection, dumps the runtime cache to disk
         """
         try:
+            await self.runtime_cache.dump_to_disk(self.url)
             await self.ws.shutdown()
         except AttributeError:
             pass
-        db_conn = AsyncSqliteDB(self.url)
-        if db_conn._db is not None:
-            await db_conn._db.close()
+        db = AsyncSqliteDB(self.url)
+        await db.close()
 
     @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
     async def get_parent_block_hash(self, block_hash):

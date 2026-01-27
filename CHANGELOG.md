@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.0 /2025-01-27
+* Fix typo by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/258
+* Improve Disk Caching by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/227
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.5.15...v1.6.0
+
 ## 1.5.15 /2025-12-22
 * Modifies the CachedFetcher to not keep pending exceptions by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/253
 
