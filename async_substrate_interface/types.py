@@ -159,9 +159,8 @@ class RuntimeCache:
             logger.debug("Found runtime mappings in disk cache")
         self.blocks.cache = block_mapping
         self.block_hashes.cache = block_hash_mapping
-        self.versions.cache = {
-            x: Runtime.deserialize(y) for x, y in runtime_version_mapping.items()
-        }
+        for x, y in runtime_version_mapping.items():
+            self.versions.cache[x] = Runtime.deserialize(y)
 
     async def dump_to_disk(self, chain_endpoint: str):
         db = AsyncSqliteDB(chain_endpoint=chain_endpoint)
