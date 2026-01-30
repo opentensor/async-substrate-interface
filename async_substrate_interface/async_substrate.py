@@ -11,7 +11,6 @@ import os
 import socket
 import ssl
 import warnings
-from contextlib import suppress
 from unittest.mock import AsyncMock
 from hashlib import blake2b
 from typing import (
@@ -40,7 +39,6 @@ from websockets import CloseCode
 from websockets.asyncio.client import connect, ClientConnection
 from websockets.exceptions import (
     ConnectionClosed,
-    WebSocketException,
 )
 from websockets.protocol import State
 
