@@ -157,9 +157,9 @@ class RuntimeCache:
             logger.debug("No runtime mappings in disk cache")
         else:
             logger.debug("Found runtime mappings in disk cache")
-        self.blocks = block_mapping
-        self.block_hashes = block_hash_mapping
-        self.versions = {
+        self.blocks.cache = block_mapping
+        self.block_hashes.cache = block_hash_mapping
+        self.versions.cache = {
             x: Runtime.deserialize(y) for x, y in runtime_version_mapping.items()
         }
 

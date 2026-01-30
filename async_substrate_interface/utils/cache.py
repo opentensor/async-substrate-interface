@@ -111,9 +111,9 @@ class AsyncSqliteDB:
             if not self._db:
                 _ensure_dir()
                 self._db = await aiosqlite.connect(CACHE_LOCATION)
-        block_mapping = {}
-        block_hash_mapping = {}
-        version_mapping = {}
+        block_mapping = OrderedDict()
+        block_hash_mapping = OrderedDict()
+        version_mapping = OrderedDict()
         tables = {
             "RuntimeCache_blocks": block_mapping,
             "RuntimeCache_block_hashes": block_hash_mapping,
