@@ -1,13 +1,14 @@
 import asyncio
+import tracemalloc
 from unittest.mock import AsyncMock, MagicMock, ANY
 
 import pytest
 from websockets.exceptions import InvalidURI
 from websockets.protocol import State
 
-from async_substrate_interface.async_substrate import AsyncSubstrateInterface
+from async_substrate_interface.async_substrate import AsyncSubstrateInterface, get_async_substrate_interface
 from async_substrate_interface.types import ScaleObj
-from tests.helpers.settings import ARCHIVE_ENTRYPOINT
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
 
 @pytest.mark.asyncio
@@ -139,3 +140,34 @@ async def test_runtime_switching():
         assert one is not None
         assert two is not None
     print("test_runtime_switching succeeded")
+
+@pytest.mark.asyncio
+async def test_memory_leak():
+    tracemalloc.start()
+    subtensor = None
+    last_snapshot = None
+    one_mb = 1 * 1024 * 1024
+
+    for i in range(0, 5):
+        print(f"Running loop {i}")
+        try:
+            subtensor = await get_async_substrate_interface(LATENT_LITE_ENTRYPOINT)
+        except Exception as e:
+            raise e
+        finally:
+            if subtensor is not None:
+                await subtensor.close()
+
+        snapshot = tracemalloc.take_snapshot()
+        if last_snapshot is None:
+            last_snapshot = snapshot
+            continue
+        stats = snapshot.compare_to(last_snapshot, "lineno")
+        total_diff = sum(stat.size_diff for stat in stats)
+        current, peak = tracemalloc.get_traced_memory()
+        assert total_diff < one_mb, (
+            f"Loop {i}: diff={total_diff / 1024:.2f} KiB, current={current / 1024:.2f} KiB, "
+            f"peak={peak / 1024:.2f} KiB"
+        )
+        last_snapshot = snapshot
+    print("Memory leak-test passed.")
