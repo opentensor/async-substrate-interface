@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import weakref
 from collections import OrderedDict
 import functools
 import logging
@@ -60,6 +61,7 @@ class AsyncSqliteDB:
                     );
                 """
             )
+            await self._db.commit()
             await self._db.execute(
                 f"""
                 CREATE TRIGGER IF NOT EXISTS prune_rows_trigger_{table_name} AFTER INSERT ON {table_name}
@@ -81,8 +83,8 @@ class AsyncSqliteDB:
             if not self._db:
                 _ensure_dir()
                 self._db = await aiosqlite.connect(CACHE_LOCATION)
-        table_name = _get_table_name(func)
-        local_chain = await self._create_if_not_exists(chain, table_name)
+            table_name = _get_table_name(func)
+            local_chain = await self._create_if_not_exists(chain, table_name)
         key = pickle.dumps((args, kwargs or None))
         try:
             cursor: aiosqlite.Cursor = await self._db.execute(
@@ -111,9 +113,9 @@ class AsyncSqliteDB:
             if not self._db:
                 _ensure_dir()
                 self._db = await aiosqlite.connect(CACHE_LOCATION)
-        block_mapping = {}
-        block_hash_mapping = {}
-        version_mapping = {}
+        block_mapping = OrderedDict()
+        block_hash_mapping = OrderedDict()
+        version_mapping = OrderedDict()
         tables = {
             "RuntimeCache_blocks": block_mapping,
             "RuntimeCache_block_hashes": block_hash_mapping,
@@ -419,6 +421,26 @@ class CachedFetcher:
             self._inflight.pop(key, None)
 
 
+class _WeakMethod:
+    """
+    Weak reference to a bound method that allows the instance to be garbage collected.
+    Preserves the method's signature for introspection.
+    """
+
+    def __init__(self, method):
+        self._func = method.__func__
+        self._instance_ref = weakref.ref(method.__self__)
+        # Store the bound method's signature (without 'self') for inspect.signature() to find.
+        # We capture this once at creation time to avoid holding references to the bound method.
+        self.__signature__ = inspect.signature(method)
+
+    def __call__(self, *args, **kwargs):
+        instance = self._instance_ref()
+        if instance is None:
+            raise ReferenceError("Instance has been garbage collected")
+        return self._func(instance, *args, **kwargs)
+
+
 class _CachedFetcherMethod:
     """
     Helper class for using CachedFetcher with method caches (rather than functions)
@@ -428,18 +450,21 @@ class _CachedFetcherMethod:
         self.method = method
         self.max_size = max_size
         self.cache_key_index = cache_key_index
-        self._instances = {}
+        # Use WeakKeyDictionary to avoid preventing garbage collection of instances
+        self._instances: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
     def __get__(self, instance, owner):
         if instance is None:
             return self
 
-        # Cache per-instance
+        # Cache per-instance (weak references allow GC when instance is no longer used)
         if instance not in self._instances:
             bound_method = self.method.__get__(instance, owner)
+            # Use weak reference wrapper to avoid preventing GC of instance
+            weak_method = _WeakMethod(bound_method)
             self._instances[instance] = CachedFetcher(
                 max_size=self.max_size,
-                method=bound_method,
+                method=weak_method,
                 cache_key_index=self.cache_key_index,
             )
         return self._instances[instance]

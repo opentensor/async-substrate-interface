@@ -111,15 +111,15 @@ async def test_runtime_cache_from_disk():
         substrate.initialized = True
 
         # runtime cache should be completely empty
-        assert substrate.runtime_cache.block_hashes == {}
-        assert substrate.runtime_cache.blocks == {}
-        assert substrate.runtime_cache.versions == {}
+        assert len(substrate.runtime_cache.block_hashes.cache) == 0
+        assert len(substrate.runtime_cache.blocks.cache) == 0
+        assert len(substrate.runtime_cache.versions.cache) == 0
         await substrate.initialize()
 
         # after initialization, runtime cache should still be completely empty
-        assert substrate.runtime_cache.block_hashes == {}
-        assert substrate.runtime_cache.blocks == {}
-        assert substrate.runtime_cache.versions == {}
+        assert len(substrate.runtime_cache.block_hashes.cache) == 0
+        assert len(substrate.runtime_cache.blocks.cache) == 0
+        assert len(substrate.runtime_cache.versions.cache) == 0
         await substrate.close()
 
         # ensure we have created the SQLite DB during initialize()
@@ -136,7 +136,7 @@ async def test_runtime_cache_from_disk():
 
         substrate.initialized = True
         await substrate.initialize()
-        assert substrate.runtime_cache.blocks == {fake_block: fake_hash}
+        assert substrate.runtime_cache.blocks.cache == {fake_block: fake_hash}
         # add an item to the cache
         substrate.runtime_cache.add_item(
             runtime=None, block_hash=new_fake_hash, block=new_fake_block

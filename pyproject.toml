@@ -1,6 +1,6 @@
 [project]
 name = "async-substrate-interface"
-version = "1.6.0"
+version = "1.6.1"
 description = "Asyncio library for interacting with substrate. Mostly API-compatible with py-substrate-interface"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -37,6 +37,8 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: 3 :: Only",
 ]
 

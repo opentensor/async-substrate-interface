@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.1 /2025-02-03
+* RuntimeCache updates by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/260
+* fix memory leak by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/261
+* Avoid Race Condition on SQLite Table Creation by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/263
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.6.0...v1.6.1
+
 ## 1.6.0 /2025-01-27
 * Fix typo by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/258
 * Improve Disk Caching by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/227

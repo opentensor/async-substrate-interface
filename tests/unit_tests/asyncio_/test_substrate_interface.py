@@ -1,13 +1,17 @@
 import asyncio
+import tracemalloc
 from unittest.mock import AsyncMock, MagicMock, ANY
 
 import pytest
 from websockets.exceptions import InvalidURI
 from websockets.protocol import State
 
-from async_substrate_interface.async_substrate import AsyncSubstrateInterface
+from async_substrate_interface.async_substrate import (
+    AsyncSubstrateInterface,
+    get_async_substrate_interface,
+)
 from async_substrate_interface.types import ScaleObj
-from tests.helpers.settings import ARCHIVE_ENTRYPOINT
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
 
 @pytest.mark.asyncio
@@ -139,3 +143,35 @@ async def test_runtime_switching():
         assert one is not None
         assert two is not None
     print("test_runtime_switching succeeded")
+
+
+@pytest.mark.asyncio
+async def test_memory_leak():
+    import gc
+
+    # Stop any existing tracemalloc and start fresh
+    tracemalloc.stop()
+    tracemalloc.start()
+    two_mb = 2 * 1024 * 1024
+
+    # Warmup: populate caches before taking baseline
+    for _ in range(2):
+        subtensor = await get_async_substrate_interface(LATENT_LITE_ENTRYPOINT)
+        await subtensor.close()
+
+    baseline_snapshot = tracemalloc.take_snapshot()
+
+    for i in range(5):
+        subtensor = await get_async_substrate_interface(LATENT_LITE_ENTRYPOINT)
+        await subtensor.close()
+        gc.collect()
+
+        snapshot = tracemalloc.take_snapshot()
+        stats = snapshot.compare_to(baseline_snapshot, "lineno")
+        total_diff = sum(stat.size_diff for stat in stats)
+        current, peak = tracemalloc.get_traced_memory()
+        # Allow cumulative growth up to 2MB per iteration from baseline
+        assert total_diff < two_mb * (i + 1), (
+            f"Loop {i}: diff={total_diff / 1024:.2f} KiB, current={current / 1024:.2f} KiB, "
+            f"peak={peak / 1024:.2f} KiB"
+        )

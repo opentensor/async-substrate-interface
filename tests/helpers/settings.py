@@ -33,6 +33,6 @@ AURA_NODE_URL = (
     environ.get("SUBSTRATE_AURA_NODE_URL") or "wss://acala-rpc-1.aca-api.network"
 )
 
-ARCHIVE_ENTRYPOINT = "wss://archive.chain.opentensor.ai:443"
+ARCHIVE_ENTRYPOINT = "wss://archive.sub.latent.to"
 
 LATENT_LITE_ENTRYPOINT = "wss://lite.sub.latent.to:443"
