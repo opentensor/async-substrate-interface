@@ -5,13 +5,15 @@ from async_substrate_interface.async_substrate import (
     AsyncSubstrateInterface,
 )
 from async_substrate_interface.sync_substrate import SubstrateInterface
+from tests.helpers.settings import LATENT_LITE_ENTRYPOINT
 
 
 @pytest.mark.asyncio
 async def test_disk_cache():
     print("Testing test_disk_cache")
-    entrypoint = "wss://entrypoint-finney.opentensor.ai:443"
-    async with DiskCachedAsyncSubstrateInterface(entrypoint) as disk_cached_substrate:
+    async with DiskCachedAsyncSubstrateInterface(
+        LATENT_LITE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
+    ) as disk_cached_substrate:
         current_block = await disk_cached_substrate.get_block_number(None)
         block_hash = await disk_cached_substrate.get_block_hash(current_block)
         parent_block_hash = await disk_cached_substrate.get_parent_block_hash(
@@ -42,7 +44,9 @@ async def test_disk_cache():
     assert block_runtime_info == block_runtime_info_from_cache
     assert block_runtime_version_for == block_runtime_version_from_cache
     # Verify data integrity with non-disk cached Async Substrate Interface
-    async with AsyncSubstrateInterface(entrypoint) as non_cache_substrate:
+    async with AsyncSubstrateInterface(
+        LATENT_LITE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
+    ) as non_cache_substrate:
         block_hash_non_cache = await non_cache_substrate.get_block_hash(current_block)
         parent_block_hash_non_cache = await non_cache_substrate.get_parent_block_hash(
             block_hash_non_cache
@@ -60,7 +64,9 @@ async def test_disk_cache():
     assert block_runtime_info == block_runtime_info_non_cache
     assert block_runtime_version_for == block_runtime_version_for_non_cache
     # Verify data integrity with sync Substrate Interface
-    with SubstrateInterface(entrypoint) as sync_substrate:
+    with SubstrateInterface(
+        LATENT_LITE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
+    ) as sync_substrate:
         block_hash_sync = sync_substrate.get_block_hash(current_block)
         parent_block_hash_sync = sync_substrate.get_parent_block_hash(
             block_hash_non_cache
@@ -76,7 +82,9 @@ async def test_disk_cache():
     assert block_runtime_info == block_runtime_info_sync
     assert block_runtime_version_for == block_runtime_version_for_sync
     # Verify data is pulling from disk cache
-    async with DiskCachedAsyncSubstrateInterface(entrypoint) as disk_cached_substrate:
+    async with DiskCachedAsyncSubstrateInterface(
+        LATENT_LITE_ENTRYPOINT, ss58_format=42, chain_name="Bittensor"
+    ) as disk_cached_substrate:
         start = time.monotonic()
         new_block_hash = await disk_cached_substrate.get_block_hash(current_block)
         new_time = time.monotonic()
