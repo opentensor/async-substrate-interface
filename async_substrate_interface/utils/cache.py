@@ -61,6 +61,7 @@ class AsyncSqliteDB:
                     );
                 """
             )
+            await self._db.commit()
             await self._db.execute(
                 f"""
                 CREATE TRIGGER IF NOT EXISTS prune_rows_trigger_{table_name} AFTER INSERT ON {table_name}
@@ -82,8 +83,8 @@ class AsyncSqliteDB:
             if not self._db:
                 _ensure_dir()
                 self._db = await aiosqlite.connect(CACHE_LOCATION)
-        table_name = _get_table_name(func)
-        local_chain = await self._create_if_not_exists(chain, table_name)
+            table_name = _get_table_name(func)
+            local_chain = await self._create_if_not_exists(chain, table_name)
         key = pickle.dumps((args, kwargs or None))
         try:
             cursor: aiosqlite.Cursor = await self._db.execute(

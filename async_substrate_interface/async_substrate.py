@@ -2001,7 +2001,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
                     if subscription_result is not None:
                         reached = True
-                        logger.info("REACHED!")
                         # Handler returned end result: unsubscribe from further updates
                         async with self.ws as ws:
                             await ws.unsubscribe(
