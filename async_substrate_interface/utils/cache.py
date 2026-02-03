@@ -61,6 +61,7 @@ class AsyncSqliteDB:
                     );
                 """
             )
+            await self._db.commit()
             await self._db.execute(
                 f"""
                 CREATE TRIGGER IF NOT EXISTS prune_rows_trigger_{table_name} AFTER INSERT ON {table_name}
