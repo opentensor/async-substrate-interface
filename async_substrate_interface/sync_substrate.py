@@ -3398,5 +3398,12 @@ class SubstrateInterface(SubstrateMixin):
             self.ws.close()
         except AttributeError:
             pass
+        # Clear lru_cache on instance methods to allow garbage collection
+        self.get_runtime_for_version.cache_clear()
+        self.get_parent_block_hash.cache_clear()
+        self.get_block_runtime_info.cache_clear()
+        self.get_block_runtime_version_for.cache_clear()
+        self.supports_rpc_method.cache_clear()
+        self.get_block_hash.cache_clear()
 
     encode_scale = SubstrateMixin._encode_scale
