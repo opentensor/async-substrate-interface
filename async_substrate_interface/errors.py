@@ -11,6 +11,8 @@ class SubstrateRequestException(Exception):
 class MaxRetriesExceeded(SubstrateRequestException):
     pass
 
+class DeleteAfterThis:
+    pass
 
 class MetadataAtVersionNotFound(SubstrateRequestException):
     def __init__(self):
