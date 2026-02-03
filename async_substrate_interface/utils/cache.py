@@ -423,11 +423,15 @@ class CachedFetcher:
 class _WeakMethod:
     """
     Weak reference to a bound method that allows the instance to be garbage collected.
+    Preserves the method's signature for introspection.
     """
 
     def __init__(self, method):
         self._func = method.__func__
         self._instance_ref = weakref.ref(method.__self__)
+        # Store the bound method's signature (without 'self') for inspect.signature() to find.
+        # We capture this once at creation time to avoid holding references to the bound method.
+        self.__signature__ = inspect.signature(method)
 
     def __call__(self, *args, **kwargs):
         instance = self._instance_ref()

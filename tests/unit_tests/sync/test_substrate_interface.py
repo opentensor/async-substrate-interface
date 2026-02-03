@@ -94,6 +94,10 @@ def test_runtime_switching():
 
 
 def test_memory_leak():
+    import gc
+
+    # Stop any existing tracemalloc and start fresh
+    tracemalloc.stop()
     tracemalloc.start()
     two_mb = 2 * 1024 * 1024
 
@@ -107,6 +111,7 @@ def test_memory_leak():
     for i in range(5):
         subtensor = SubstrateInterface(LATENT_LITE_ENTRYPOINT)
         subtensor.close()
+        gc.collect()
 
         snapshot = tracemalloc.take_snapshot()
         stats = snapshot.compare_to(baseline_snapshot, "lineno")

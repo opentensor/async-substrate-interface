@@ -147,6 +147,10 @@ async def test_runtime_switching():
 
 @pytest.mark.asyncio
 async def test_memory_leak():
+    import gc
+
+    # Stop any existing tracemalloc and start fresh
+    tracemalloc.stop()
     tracemalloc.start()
     two_mb = 2 * 1024 * 1024
 
@@ -160,6 +164,7 @@ async def test_memory_leak():
     for i in range(5):
         subtensor = await get_async_substrate_interface(LATENT_LITE_ENTRYPOINT)
         await subtensor.close()
+        gc.collect()
 
         snapshot = tracemalloc.take_snapshot()
         stats = snapshot.compare_to(baseline_snapshot, "lineno")
