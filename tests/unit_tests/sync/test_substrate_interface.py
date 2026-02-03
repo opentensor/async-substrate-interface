@@ -1,9 +1,10 @@
+import tracemalloc
 from unittest.mock import MagicMock
 
 from async_substrate_interface.sync_substrate import SubstrateInterface
 from async_substrate_interface.types import ScaleObj
 
-from tests.helpers.settings import ARCHIVE_ENTRYPOINT
+from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
 
 def test_runtime_call(monkeypatch):
@@ -90,3 +91,34 @@ def test_runtime_switching():
         assert substrate.get_extrinsics(block_number=block) is not None
         assert substrate.get_extrinsics(block_number=block - 21) is not None
     print("test_runtime_switching succeeded")
+
+
+def test_memory_leak():
+    import gc
+
+    # Stop any existing tracemalloc and start fresh
+    tracemalloc.stop()
+    tracemalloc.start()
+    two_mb = 2 * 1024 * 1024
+
+    # Warmup: populate caches before taking baseline
+    for _ in range(2):
+        subtensor = SubstrateInterface(LATENT_LITE_ENTRYPOINT)
+        subtensor.close()
+
+    baseline_snapshot = tracemalloc.take_snapshot()
+
+    for i in range(5):
+        subtensor = SubstrateInterface(LATENT_LITE_ENTRYPOINT)
+        subtensor.close()
+        gc.collect()
+
+        snapshot = tracemalloc.take_snapshot()
+        stats = snapshot.compare_to(baseline_snapshot, "lineno")
+        total_diff = sum(stat.size_diff for stat in stats)
+        current, peak = tracemalloc.get_traced_memory()
+        # Allow cumulative growth up to 2MB per iteration from baseline
+        assert total_diff < two_mb * (i + 1), (
+            f"Loop {i}: diff={total_diff / 1024:.2f} KiB, current={current / 1024:.2f} KiB, "
+            f"peak={peak / 1024:.2f} KiB"
+        )
