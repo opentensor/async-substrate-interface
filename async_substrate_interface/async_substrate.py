@@ -706,6 +706,10 @@ class Websocket:
             logger.debug("Cancelling send/recv tasks")
             if self._send_recv_task is not None:
                 self._send_recv_task.cancel()
+                try:
+                    await self._send_recv_task
+                except asyncio.CancelledError:
+                    pass
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -775,16 +779,31 @@ class Websocket:
         logger.debug("WS handler attached")
         recv_task = asyncio.create_task(self._start_receiving(ws))
         send_task = asyncio.create_task(self._start_sending(ws))
-        done, pending = await asyncio.wait(
-            [recv_task, send_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        try:
+            done, pending = await asyncio.wait(
+                [recv_task, send_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        except asyncio.CancelledError:
+            # Handler was cancelled, clean up child tasks
+            for task in [recv_task, send_task]:
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            raise
         loop = asyncio.get_running_loop()
         should_reconnect = False
         is_retry = False
 
         for task in pending:
             task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
         for task in done:
             task_res = task.result()
@@ -885,6 +904,14 @@ class Websocket:
 
     async def shutdown(self):
         logger.debug("Shutdown requested")
+        # Cancel the exit timer task if it exists
+        if self._exit_task is not None:
+            self._exit_task.cancel()
+            try:
+                await self._exit_task
+            except asyncio.CancelledError:
+                pass
+            self._exit_task = None
         try:
             await asyncio.wait_for(self._cancel(), timeout=10.0)
         except asyncio.TimeoutError:
@@ -988,8 +1015,9 @@ class Websocket:
                 )
                 if to_send is not None:
                     to_send_ = json.loads(to_send)
-                    self._received[to_send_["id"]].set_exception(e)
-                    self._received[to_send_["id"]].cancel()
+                    if to_send_["id"] in self._received:
+                        self._received[to_send_["id"]].set_exception(e)
+                        self._received[to_send_["id"]].cancel()
                 else:
                     for i in self._received.keys():
                         self._received[i].set_exception(e)
