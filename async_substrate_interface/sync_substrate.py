@@ -482,6 +482,18 @@ class QueryMapResult:
         self.last_key = result.last_key
         return result.records
 
+    def retrieve_all_records(self) -> list[Any]:
+        """
+        Retrieves all records from all subsequent pages for the QueryMapResult,
+        returning them as a list.
+
+        Side effect:
+            The self.records list will be populated fully after running this method.
+        """
+        for _ in self:
+            pass
+        return self.records
+
     def __iter__(self):
         return self
 
