@@ -511,6 +511,7 @@ class QueryMapResult:
             self.loading_complete = True
             raise StopIteration
 
+        self.records.extend(next_page)
         # Update the buffer with the newly fetched records
         self._buffer = iter(next_page)
         return next(self._buffer)
