@@ -122,3 +122,71 @@ def test_memory_leak():
             f"Loop {i}: diff={total_diff / 1024:.2f} KiB, current={current / 1024:.2f} KiB, "
             f"peak={peak / 1024:.2f} KiB"
         )
+
+
+class TestGetBlockHash:
+    def _make_substrate(self):
+        s = SubstrateInterface("ws://localhost", _mock=True)
+        s.runtime_cache = MagicMock()
+        s._get_block_hash = MagicMock(return_value="0xCACHED")
+        s.get_chain_head = MagicMock(return_value="0xHEAD")
+        return s
+
+    def test_none_block_id_returns_chain_head(self):
+        substrate = self._make_substrate()
+        result = substrate.get_block_hash(None)
+        assert result == "0xHEAD"
+        substrate.get_chain_head.assert_called_once()
+        substrate._get_block_hash.assert_not_called()
+
+    def test_cache_hit_returns_cached_hash(self):
+        substrate = self._make_substrate()
+        substrate.runtime_cache.blocks.get.return_value = "0xFROMCACHE"
+        result = substrate.get_block_hash(42)
+        assert result == "0xFROMCACHE"
+        substrate.runtime_cache.blocks.get.assert_called_once_with(42)
+        substrate._get_block_hash.assert_not_called()
+
+    def test_cache_miss_fetches_and_stores(self):
+        substrate = self._make_substrate()
+        substrate.runtime_cache.blocks.get.return_value = None
+        result = substrate.get_block_hash(42)
+        assert result == "0xCACHED"
+        substrate._get_block_hash.assert_called_once_with(42)
+        substrate.runtime_cache.add_item.assert_called_once_with(
+            block_hash="0xCACHED", block=42
+        )
+
+
+class TestGetBlockNumber:
+    def _make_substrate(self):
+        s = SubstrateInterface("ws://localhost", _mock=True)
+        s.runtime_cache = MagicMock()
+        s._cached_get_block_number = MagicMock(return_value=100)
+        s._get_block_number = MagicMock(return_value=99)
+        return s
+
+    def test_none_block_hash_calls_get_block_number_directly(self):
+        substrate = self._make_substrate()
+        result = substrate.get_block_number(None)
+        assert result == 99
+        substrate._get_block_number.assert_called_once_with(None)
+        substrate._cached_get_block_number.assert_not_called()
+
+    def test_cache_hit_returns_cached_number(self):
+        substrate = self._make_substrate()
+        substrate.runtime_cache.blocks_reverse.get.return_value = 42
+        result = substrate.get_block_number("0xABC")
+        assert result == 42
+        substrate.runtime_cache.blocks_reverse.get.assert_called_once_with("0xABC")
+        substrate._cached_get_block_number.assert_not_called()
+
+    def test_cache_miss_fetches_and_stores(self):
+        substrate = self._make_substrate()
+        substrate.runtime_cache.blocks_reverse.get.return_value = None
+        result = substrate.get_block_number("0xABC")
+        assert result == 100
+        substrate._cached_get_block_number.assert_called_once_with(block_hash="0xABC")
+        substrate.runtime_cache.add_item.assert_called_once_with(
+            block_hash="0xABC", block=100
+        )

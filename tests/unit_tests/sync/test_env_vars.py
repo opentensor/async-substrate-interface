@@ -10,7 +10,7 @@ def test_env_vars(monkeypatch):
     assert asi.get_block_runtime_info.cache_parameters()["maxsize"] == 9
     assert asi.get_parent_block_hash.cache_parameters()["maxsize"] == 10
     assert asi.get_block_runtime_version_for.cache_parameters()["maxsize"] == 10
-    assert asi.get_block_hash.cache_parameters()["maxsize"] == 10
+    assert asi._get_block_hash.cache_parameters()["maxsize"] == 10
 
 
 def test_defaults():
@@ -20,4 +20,4 @@ def test_defaults():
     assert asi.get_block_runtime_info.cache_parameters()["maxsize"] == 16
     assert asi.get_parent_block_hash.cache_parameters()["maxsize"] == 512
     assert asi.get_block_runtime_version_for.cache_parameters()["maxsize"] == 512
-    assert asi.get_block_hash.cache_parameters()["maxsize"] == 512
+    assert asi._get_block_hash.cache_parameters()["maxsize"] == 512
