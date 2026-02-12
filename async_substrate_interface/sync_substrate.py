@@ -2052,7 +2052,6 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
-
     def get_block_hash(self, block_id: Optional[int]) -> str:
         """
         Retrieves the block hash for a given block number, or the chaintip hash if None
@@ -3400,7 +3399,9 @@ class SubstrateInterface(SubstrateMixin):
         if block_hash is None:
             return self._get_block_number(None)
         else:
-            if (block_number := self.runtime_cache.blocks_reverse.get(block_hash)) is not None:
+            if (
+                block_number := self.runtime_cache.blocks_reverse.get(block_hash)
+            ) is not None:
                 return block_number
             block_number = self._cached_get_block_number(block_hash=block_hash)
             self.runtime_cache.add_item(block_hash=block_hash, block=block_number)
