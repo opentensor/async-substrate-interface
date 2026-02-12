@@ -162,6 +162,8 @@ def test_async_query_map_result_retrieve_all_records():
     assert qm.records == page1 + page2 + page3
     assert qm.loading_complete is True
     assert mock_substrate.query_map.call_count == 2
+
+
 class TestGetBlockHash:
     def _make_substrate(self):
         s = SubstrateInterface("ws://localhost", _mock=True)
