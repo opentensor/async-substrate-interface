@@ -2,7 +2,7 @@ import bisect
 import logging
 import os
 from abc import ABC
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict
 from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -170,7 +170,9 @@ class RuntimeCache:
         else:
             logger.debug("Found runtime mappings in disk cache")
         self.blocks.cache = block_mapping
-        self.blocks_reverse.cache = {v: k for k, v in block_mapping.items()}
+        self.blocks_reverse.cache = OrderedDict(
+            {v: k for k, v in block_mapping.items()}
+        )
         self.block_hashes.cache = block_hash_mapping
         for x, y in runtime_version_mapping.items():
             self.versions.cache[x] = Runtime.deserialize(y)

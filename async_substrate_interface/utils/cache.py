@@ -108,7 +108,9 @@ class AsyncSqliteDB:
             await self._db.commit()
         return result
 
-    async def load_runtime_cache(self, chain: str) -> tuple[dict, dict, dict]:
+    async def load_runtime_cache(
+        self, chain: str
+    ) -> tuple[OrderedDict[int, str], OrderedDict[str, int], OrderedDict[int, dict]]:
         async with self._lock:
             if not self._db:
                 _ensure_dir()
@@ -125,7 +127,7 @@ class AsyncSqliteDB:
             async with self._lock:
                 local_chain = await self._create_if_not_exists(chain, table)
             if local_chain:
-                return {}, {}, {}
+                return block_mapping, block_hash_mapping, version_mapping
         for table_name, mapping in tables.items():
             try:
                 async with self._lock:
@@ -143,7 +145,7 @@ class AsyncSqliteDB:
                     mapping[key] = runtime
             except (pickle.PickleError, sqlite3.Error) as e:
                 logger.exception("Cache error", exc_info=e)
-                return {}, {}, {}
+                return block_mapping, block_hash_mapping, version_mapping
         return block_mapping, block_hash_mapping, version_mapping
 
     async def dump_runtime_cache(
