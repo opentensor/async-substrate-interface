@@ -3430,5 +3430,6 @@ class SubstrateInterface(SubstrateMixin):
         self.get_block_runtime_version_for.cache_clear()
         self.supports_rpc_method.cache_clear()
         self._get_block_hash.cache_clear()
+        self._cached_get_block_number.cache_clear()
 
     encode_scale = SubstrateMixin._encode_scale
