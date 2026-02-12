@@ -217,3 +217,71 @@ async def test_async_query_map_result_retrieve_all_records():
     assert qm.records == page1 + page2 + page3
     assert qm.loading_complete is True
     assert mock_substrate.query_map.call_count == 2
+class TestGetBlockHash:
+    @pytest.fixture
+    def substrate(self):
+        s = AsyncSubstrateInterface("ws://localhost", _mock=True)
+        s.runtime_cache = MagicMock()
+        s._cached_get_block_hash = AsyncMock(return_value="0xCACHED")
+        s.get_chain_head = AsyncMock(return_value="0xHEAD")
+        return s
+
+    @pytest.mark.asyncio
+    async def test_none_block_id_returns_chain_head(self, substrate):
+        result = await substrate.get_block_hash(None)
+        assert result == "0xHEAD"
+        substrate.get_chain_head.assert_awaited_once()
+        substrate._cached_get_block_hash.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_returns_cached_hash(self, substrate):
+        substrate.runtime_cache.blocks.get.return_value = "0xFROMCACHE"
+        result = await substrate.get_block_hash(42)
+        assert result == "0xFROMCACHE"
+        substrate.runtime_cache.blocks.get.assert_called_once_with(42)
+        substrate._cached_get_block_hash.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_fetches_and_stores(self, substrate):
+        substrate.runtime_cache.blocks.get.return_value = None
+        result = await substrate.get_block_hash(42)
+        assert result == "0xCACHED"
+        substrate._cached_get_block_hash.assert_awaited_once_with(42)
+        substrate.runtime_cache.add_item.assert_called_once_with(
+            block_hash="0xCACHED", block=42
+        )
+
+
+class TestGetBlockNumber:
+    @pytest.fixture
+    def substrate(self):
+        s = AsyncSubstrateInterface("ws://localhost", _mock=True)
+        s.runtime_cache = MagicMock()
+        s._cached_get_block_number = AsyncMock(return_value=100)
+        s._get_block_number = AsyncMock(return_value=99)
+        return s
+
+    @pytest.mark.asyncio
+    async def test_none_block_hash_calls_get_block_number_directly(self, substrate):
+        result = await substrate.get_block_number(None)
+        assert result == 99
+        substrate._get_block_number.assert_awaited_once_with(None)
+        substrate._cached_get_block_number.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_returns_cached_number(self, substrate):
+        substrate.runtime_cache.blocks_reverse.get.return_value = 42
+        result = await substrate.get_block_number("0xABC")
+        assert result == 42
+        substrate.runtime_cache.blocks_reverse.get.assert_called_once_with("0xABC")
+        substrate._cached_get_block_number.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_fetches_and_stores(self, substrate):
+        substrate.runtime_cache.blocks_reverse.get.return_value = None
+        result = await substrate.get_block_number("0xABC")
+        assert result == 100
+        substrate._cached_get_block_number.assert_awaited_once_with("0xABC")
+        substrate.runtime_cache.add_item.assert_called_once_with(
+            block_hash="0xABC", block=100
+        )

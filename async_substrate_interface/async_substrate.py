@@ -2775,19 +2775,34 @@ class AsyncSubstrateInterface(SubstrateMixin):
             logger.error(f"Substrate Request Exception: {result[payload_id]}")
             raise SubstrateRequestException(result[payload_id][0])
 
-    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
-    async def get_block_hash(self, block_id: int) -> str:
+    async def get_block_hash(self, block_id: Optional[int]) -> str:
         """
-        Retrieves the hash of the specified block number
+        Retrieves the hash of the specified block number, or the chaintip if None
         Args:
             block_id: block number
 
         Returns:
             Hash of the block
         """
+        if block_id is None:
+            return await self.get_chain_head()
+        else:
+            if (block_hash := self.runtime_cache.blocks.get(block_id)) is not None:
+                return block_hash
+
+            block_hash = await self._cached_get_block_hash(block_id)
+            self.runtime_cache.add_item(block_hash=block_hash, block=block_id)
+            return block_hash
+
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
+    async def _cached_get_block_hash(self, block_id: int) -> str:
+        """
+        The design of this method is as such, because it allows for an easy drop-in for a different cache, such
+        as is the case with DiskCachedAsyncSubstrateInterface._cached_get_block_hash
+        """
         return await self._get_block_hash(block_id)
 
-    async def _get_block_hash(self, block_id: int) -> str:
+    async def _get_block_hash(self, block_id: Optional[int]) -> str:
         return (await self.rpc_request("chain_getBlockHash", [block_id]))["result"]
 
     async def get_chain_head(self) -> str:
@@ -4263,13 +4278,25 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""
-        response = await self.rpc_request("chain_getHeader", [block_hash])
+        if block_hash is None:
+            return await self._get_block_number(None)
+        if (block := self.runtime_cache.blocks_reverse.get(block_hash)) is not None:
+            return block
+        block = await self._cached_get_block_number(block_hash)
+        self.runtime_cache.add_item(block_hash=block_hash, block=block)
+        return block
 
-        if response["result"]:
-            return int(response["result"]["number"], 16)
-        raise SubstrateRequestException(
-            f"Unable to retrieve block number for {block_hash}"
-        )
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
+    async def _cached_get_block_number(self, block_hash: str) -> int:
+        """
+        The design of this method is as such, because it allows for an easy drop-in for a different cache, such
+        as is the case with DiskCachedAsyncSubstrateInterface._cached_get_block_number
+        """
+        return await self._get_block_number(block_hash=block_hash)
+
+    async def _get_block_number(self, block_hash: Optional[str]) -> int:
+        response = await self.rpc_request("chain_getHeader", [block_hash])
+        return int(response["result"]["number"], 16)
 
     async def close(self):
         """
@@ -4364,8 +4391,12 @@ class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
         return await self._get_block_runtime_version_for(block_hash)
 
     @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
-    async def get_block_hash(self, block_id: int) -> str:
+    async def _cached_get_block_hash(self, block_id: int) -> str:
         return await self._get_block_hash(block_id)
+
+    @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
+    async def _cached_get_block_number(self, block_hash: str) -> int:
+        return await self._get_block_number(block_hash=block_hash)
 
 
 async def get_async_substrate_interface(

@@ -2,7 +2,7 @@ import bisect
 import logging
 import os
 from abc import ABC
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict
 from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -48,6 +48,8 @@ class RuntimeCache:
     def __init__(self, known_versions: Optional[Sequence[tuple[int, int]]] = None):
         # {block: block_hash, ...}
         self.blocks: LRUCache = LRUCache(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
+        # {block_hash: block, ...}
+        self.blocks_reverse: LRUCache = LRUCache(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
         # {block_hash: specVersion, ...}
         self.block_hashes: LRUCache = LRUCache(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
         # {specVersion: Runtime, ...}
@@ -87,7 +89,7 @@ class RuntimeCache:
 
     def add_item(
         self,
-        runtime: "Runtime",
+        runtime: Optional["Runtime"] = None,
         block: Optional[int] = None,
         block_hash: Optional[str] = None,
         runtime_version: Optional[int] = None,
@@ -95,13 +97,15 @@ class RuntimeCache:
         """
         Adds a Runtime object to the cache mapped to its version, block number, and/or block hash.
         """
-        self.last_used = runtime
+        if runtime is not None:
+            self.last_used = runtime
+            if runtime_version is not None:
+                self.versions.set(runtime_version, runtime)
         if block is not None and block_hash is not None:
             self.blocks.set(block, block_hash)
+            self.blocks_reverse.set(block_hash, block)
         if block_hash is not None and runtime_version is not None:
             self.block_hashes.set(block_hash, runtime_version)
-        if runtime_version is not None:
-            self.versions.set(runtime_version, runtime)
 
     def retrieve(
         self,
@@ -114,16 +118,24 @@ class RuntimeCache:
         Retrieval happens in this order. If no Runtime is found mapped to any of your supplied keys, returns `None`.
         """
         # No reason to do this lookup if the runtime version is already supplied in this call
-        if block is not None and runtime_version is None and self._known_version_blocks:
-            # _known_version_blocks excludes the last item (see note in `add_known_versions`)
-            idx = bisect.bisect_right(self._known_version_blocks, block) - 1
-            if idx >= 0:
-                runtime_version = self.known_versions[idx][1]
+        if runtime_version is None and self._known_version_blocks:
+            if block is not None:
+                block_ = block
+            elif block_hash is not None:
+                block_ = self.blocks_reverse.get(block_hash)
+            else:
+                block_ = None
+            if block_ is not None:
+                # _known_version_blocks excludes the last item (see note in `add_known_versions`)
+                idx = bisect.bisect_right(self._known_version_blocks, block_) - 1
+                if idx >= 0:
+                    runtime_version = self.known_versions[idx][1]
 
         runtime = None
         if block is not None:
             if block_hash is not None:
                 self.blocks.set(block, block_hash)
+                self.blocks_reverse.set(block_hash, block)
                 if runtime_version is not None:
                     self.block_hashes.set(block_hash, runtime_version)
             with suppress(AttributeError):
@@ -158,6 +170,9 @@ class RuntimeCache:
         else:
             logger.debug("Found runtime mappings in disk cache")
         self.blocks.cache = block_mapping
+        self.blocks_reverse.cache = OrderedDict(
+            {v: k for k, v in block_mapping.items()}
+        )
         self.block_hashes.cache = block_hash_mapping
         for x, y in runtime_version_mapping.items():
             self.versions.cache[x] = Runtime.deserialize(y)
