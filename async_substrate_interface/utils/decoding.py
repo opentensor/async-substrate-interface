@@ -1,3 +1,4 @@
+import asyncio
 from typing import Union, TYPE_CHECKING, Any
 
 from bt_decode import AxonInfo, PrometheusInfo, decode_list
@@ -72,16 +73,34 @@ def _decode_scale_list_with_runtime(
         return obj
 
 
-def decode_query_map(
+async def _async_decode_scale_list_with_runtime(
+    type_strings: list[str],
+    scale_bytes_list: list[bytes],
+    runtime: "Runtime",
+    return_scale_obj: bool = False,
+):
+    if runtime.metadata_v15 is not None:
+        obj = await asyncio.to_thread(
+            decode_list, type_strings, runtime.registry, scale_bytes_list
+        )
+    else:
+        obj = [
+            legacy_scale_decode(x, y, runtime)
+            for (x, y) in zip(type_strings, scale_bytes_list)
+        ]
+    if return_scale_obj:
+        return [ScaleObj(x) for x in obj]
+    else:
+        return obj
+
+
+def _decode_query_map_pre(
     result_group_changes: list,
     prefix,
-    runtime: "Runtime",
     param_types,
     params,
     value_type,
     key_hashers,
-    ignore_decoding_errors,
-    decode_ss58: bool = False,
 ):
     def concat_hash_len(key_hasher: str) -> int:
         """
@@ -98,7 +117,6 @@ def decode_query_map(
 
     hex_to_bytes_ = hex_to_bytes
 
-    result = []
     # Determine type string
     key_type_string_ = []
     for n in range(len(params), len(param_types)):
@@ -116,11 +134,25 @@ def decode_query_map(
         pre_decoded_values.append(
             hex_to_bytes_(item[1]) if item[1] is not None else b""
         )
-    all_decoded = _decode_scale_list_with_runtime(
-        pre_decoded_key_types + pre_decoded_value_types,
-        pre_decoded_keys + pre_decoded_values,
-        runtime,
+    return (
+        pre_decoded_key_types,
+        pre_decoded_value_types,
+        pre_decoded_keys,
+        pre_decoded_values,
     )
+
+
+def _decode_query_map_post(
+    pre_decoded_key_types,
+    pre_decoded_value_types,
+    all_decoded,
+    runtime: "Runtime",
+    param_types,
+    params,
+    ignore_decoding_errors,
+    decode_ss58: bool = False,
+):
+    result = []
     middl_index = len(all_decoded) // 2
     decoded_keys = all_decoded[:middl_index]
     decoded_values = all_decoded[middl_index:]
@@ -165,6 +197,88 @@ def decode_query_map(
                 pass
         result.append([item_key, ScaleObj(item_value)])
     return result
+
+
+async def decode_query_map_async(
+    result_group_changes: list,
+    prefix,
+    runtime: "Runtime",
+    param_types,
+    params,
+    value_type,
+    key_hashers,
+    ignore_decoding_errors,
+    decode_ss58: bool = False,
+):
+    (
+        pre_decoded_key_types,
+        pre_decoded_value_types,
+        pre_decoded_keys,
+        pre_decoded_values,
+    ) = _decode_query_map_pre(
+        result_group_changes,
+        prefix,
+        param_types,
+        params,
+        value_type,
+        key_hashers,
+    )
+    all_decoded = await _async_decode_scale_list_with_runtime(
+        pre_decoded_key_types + pre_decoded_value_types,
+        pre_decoded_keys + pre_decoded_values,
+        runtime,
+    )
+    return _decode_query_map_post(
+        pre_decoded_key_types,
+        pre_decoded_value_types,
+        all_decoded,
+        runtime,
+        param_types,
+        params,
+        ignore_decoding_errors,
+        decode_ss58=decode_ss58,
+    )
+
+
+def decode_query_map(
+    result_group_changes: list,
+    prefix,
+    runtime: "Runtime",
+    param_types,
+    params,
+    value_type,
+    key_hashers,
+    ignore_decoding_errors,
+    decode_ss58: bool = False,
+):
+    (
+        pre_decoded_key_types,
+        pre_decoded_value_types,
+        pre_decoded_keys,
+        pre_decoded_values,
+    ) = _decode_query_map_pre(
+        result_group_changes,
+        prefix,
+        param_types,
+        params,
+        value_type,
+        key_hashers,
+    )
+    all_decoded = _decode_scale_list_with_runtime(
+        pre_decoded_key_types + pre_decoded_value_types,
+        pre_decoded_keys + pre_decoded_values,
+        runtime,
+    )
+    return _decode_query_map_post(
+        pre_decoded_key_types,
+        pre_decoded_value_types,
+        all_decoded,
+        runtime,
+        param_types,
+        params,
+        ignore_decoding_errors,
+        decode_ss58=decode_ss58,
+    )
 
 
 def legacy_scale_decode(

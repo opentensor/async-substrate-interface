@@ -31,7 +31,6 @@ from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
-    GenericRuntimeCallDefinition,
     ss58_encode,
     MultiAccountId,
 )
@@ -74,12 +73,10 @@ from async_substrate_interface.utils.decoding import (
     _bt_decode_to_dict_or_list,
     legacy_scale_decode,
     convert_account_ids,
+    decode_query_map_async,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
-from async_substrate_interface.utils.decoding import (
-    decode_query_map,
-)
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
@@ -1421,7 +1418,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if runtime is None:
                 runtime = await self.init_runtime(block_hash=block_hash)
             if runtime.metadata_v15 is not None and force_legacy is False:
-                obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
+                obj = await asyncio.to_thread(
+                    decode_by_type_string, type_string, runtime.registry, scale_bytes
+                )
                 if self.decode_ss58:
                     try:
                         type_str_int = int(type_string.split("::")[1])
@@ -3880,18 +3879,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     params=[result_keys, block_hash],
                     runtime=runtime,
                 )
+                changes = []
                 for result_group in response["result"]:
-                    result = decode_query_map(
-                        result_group["changes"],
-                        prefix,
-                        runtime,
-                        param_types,
-                        params,
-                        value_type,
-                        key_hashers,
-                        ignore_decoding_errors,
-                        self.decode_ss58,
-                    )
+                    changes.extend(result_group["changes"])
+                result = await decode_query_map_async(
+                    changes,
+                    prefix,
+                    runtime,
+                    param_types,
+                    params,
+                    value_type,
+                    key_hashers,
+                    ignore_decoding_errors,
+                    self.decode_ss58,
+                )
             else:
                 # storage item and value scale type are not included here because this is batch-decoded in rust
                 page_batches = [
@@ -3909,8 +3910,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 results: RequestResults = await self._make_rpc_request(
                     payloads, runtime=runtime
                 )
-                for result in results.values():
-                    res = result[0]
+                for result_ in results.values():
+                    res = result_[0]
                     if "error" in res:
                         err_msg = res["error"]["message"]
                         if (
@@ -3928,7 +3929,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     else:
                         for result_group in res["result"]:
                             changes.extend(result_group["changes"])
-                result = decode_query_map(
+                result = await decode_query_map_async(
                     changes,
                     prefix,
                     runtime,
