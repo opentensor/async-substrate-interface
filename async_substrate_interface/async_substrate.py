@@ -31,7 +31,6 @@ from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
-    GenericRuntimeCallDefinition,
     ss58_encode,
     MultiAccountId,
 )
@@ -78,9 +77,6 @@ from async_substrate_interface.utils.decoding import (
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
-from async_substrate_interface.utils.decoding import (
-    decode_query_map,
-)
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
@@ -3883,18 +3879,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     params=[result_keys, block_hash],
                     runtime=runtime,
                 )
+                changes = []
                 for result_group in response["result"]:
-                    result = decode_query_map(
-                        result_group["changes"],
-                        prefix,
-                        runtime,
-                        param_types,
-                        params,
-                        value_type,
-                        key_hashers,
-                        ignore_decoding_errors,
-                        self.decode_ss58,
-                    )
+                    changes.extend(result_group["changes"])
+                result = await decode_query_map_async(
+                    changes,
+                    prefix,
+                    runtime,
+                    param_types,
+                    params,
+                    value_type,
+                    key_hashers,
+                    ignore_decoding_errors,
+                    self.decode_ss58,
+                )
             else:
                 # storage item and value scale type are not included here because this is batch-decoded in rust
                 page_batches = [
@@ -3912,8 +3910,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 results: RequestResults = await self._make_rpc_request(
                     payloads, runtime=runtime
                 )
-                for result in results.values():
-                    res = result[0]
+                for result_ in results.values():
+                    res = result_[0]
                     if "error" in res:
                         err_msg = res["error"]["message"]
                         if (
