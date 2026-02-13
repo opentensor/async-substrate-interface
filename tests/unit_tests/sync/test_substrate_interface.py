@@ -1,7 +1,7 @@
 import tracemalloc
 from unittest.mock import MagicMock
 
-from async_substrate_interface.sync_substrate import SubstrateInterface
+from async_substrate_interface.sync_substrate import SubstrateInterface, QueryMapResult
 from async_substrate_interface.types import ScaleObj
 
 from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
@@ -122,6 +122,46 @@ def test_memory_leak():
             f"Loop {i}: diff={total_diff / 1024:.2f} KiB, current={current / 1024:.2f} KiB, "
             f"peak={peak / 1024:.2f} KiB"
         )
+
+
+def test_async_query_map_result_retrieve_all_records():
+    """Test that retrieve_all_records fetches all pages and returns the full record list."""
+    page1 = [("key1", "val1"), ("key2", "val2")]
+    page2 = [("key3", "val3"), ("key4", "val4")]
+    page3 = [("key5", "val5")]  # partial page signals loading_complete
+
+    mock_substrate = MagicMock()
+
+    qm = QueryMapResult(
+        records=list(page1),
+        page_size=2,
+        substrate=mock_substrate,
+        module="TestModule",
+        storage_function="TestStorage",
+        last_key="key2",
+    )
+
+    # Build mock pages: first call returns page2 (full page), second returns page3 (partial)
+    page2_result = QueryMapResult(
+        records=list(page2),
+        page_size=2,
+        substrate=mock_substrate,
+        last_key="key4",
+    )
+    page3_result = QueryMapResult(
+        records=list(page3),
+        page_size=2,
+        substrate=mock_substrate,
+        last_key="key5",
+    )
+    mock_substrate.query_map = MagicMock(side_effect=[page2_result, page3_result])
+
+    result = qm.retrieve_all_records()
+
+    assert result == page1 + page2 + page3
+    assert qm.records == page1 + page2 + page3
+    assert qm.loading_complete is True
+    assert mock_substrate.query_map.call_count == 2
 
 
 class TestGetBlockHash:

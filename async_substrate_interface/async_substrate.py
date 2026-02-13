@@ -526,6 +526,18 @@ class AsyncQueryMapResult:
         self.last_key = result.last_key
         return result.records
 
+    async def retrieve_all_records(self) -> list[Any]:
+        """
+        Retrieves all records from all subsequent pages for the AsyncQueryMapResult,
+        returning them as a list.
+
+        Side effect:
+            The self.records list will be populated fully after running this method.
+        """
+        async for _ in self:
+            pass
+        return self.records
+
     def __aiter__(self):
         return self
 
@@ -558,6 +570,7 @@ class AsyncQueryMapResult:
             self.loading_complete = True
             raise StopAsyncIteration
 
+        self.records.extend(next_page)
         # Update the buffer with the newly fetched records
         self._buffer = iter(next_page)
         return next(self._buffer)
