@@ -74,6 +74,7 @@ from async_substrate_interface.utils.decoding import (
     _bt_decode_to_dict_or_list,
     legacy_scale_decode,
     convert_account_ids,
+    decode_query_map_async,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
@@ -1421,7 +1422,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if runtime is None:
                 runtime = await self.init_runtime(block_hash=block_hash)
             if runtime.metadata_v15 is not None and force_legacy is False:
-                obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
+                obj = await asyncio.to_thread(
+                    decode_by_type_string, type_string, runtime.registry, scale_bytes
+                )
                 if self.decode_ss58:
                     try:
                         type_str_int = int(type_string.split("::")[1])
@@ -3928,7 +3931,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     else:
                         for result_group in res["result"]:
                             changes.extend(result_group["changes"])
-                result = decode_query_map(
+                result = await decode_query_map_async(
                     changes,
                     prefix,
                     runtime,
