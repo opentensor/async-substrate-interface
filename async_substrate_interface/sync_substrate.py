@@ -3273,6 +3273,13 @@ class SubstrateInterface(SubstrateMixin):
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
                         "finalized": False,
                     }, True
+
+            elif "params" in message and message["params"].get("result") == "invalid":
+                failure_message = f"Subscription {subscription_id} invalid: {message}"
+                self.rpc_request("author_unwatchExtrinsic", [subscription_id])
+                logger.error(failure_message)
+                raise SubstrateRequestException(failure_message)
+
             return message, False
 
         if wait_for_inclusion or wait_for_finalization:
