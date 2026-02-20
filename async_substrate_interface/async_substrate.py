@@ -31,7 +31,6 @@ from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
-    GenericRuntimeCallDefinition,
     ss58_encode,
     MultiAccountId,
 )
@@ -74,12 +73,10 @@ from async_substrate_interface.utils.decoding import (
     _bt_decode_to_dict_or_list,
     legacy_scale_decode,
     convert_account_ids,
+    decode_query_map_async,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
-from async_substrate_interface.utils.decoding import (
-    decode_query_map,
-)
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
@@ -526,6 +523,18 @@ class AsyncQueryMapResult:
         self.last_key = result.last_key
         return result.records
 
+    async def retrieve_all_records(self) -> list[Any]:
+        """
+        Retrieves all records from all subsequent pages for the AsyncQueryMapResult,
+        returning them as a list.
+
+        Side effect:
+            The self.records list will be populated fully after running this method.
+        """
+        async for _ in self:
+            pass
+        return self.records
+
     def __aiter__(self):
         return self
 
@@ -558,6 +567,7 @@ class AsyncQueryMapResult:
             self.loading_complete = True
             raise StopAsyncIteration
 
+        self.records.extend(next_page)
         # Update the buffer with the newly fetched records
         self._buffer = iter(next_page)
         return next(self._buffer)
@@ -1408,7 +1418,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if runtime is None:
                 runtime = await self.init_runtime(block_hash=block_hash)
             if runtime.metadata_v15 is not None and force_legacy is False:
-                obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
+                obj = await asyncio.to_thread(
+                    decode_by_type_string, type_string, runtime.registry, scale_bytes
+                )
                 if self.decode_ss58:
                     try:
                         type_str_int = int(type_string.split("::")[1])
@@ -2762,19 +2774,34 @@ class AsyncSubstrateInterface(SubstrateMixin):
             logger.error(f"Substrate Request Exception: {result[payload_id]}")
             raise SubstrateRequestException(result[payload_id][0])
 
-    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
-    async def get_block_hash(self, block_id: int) -> str:
+    async def get_block_hash(self, block_id: Optional[int]) -> str:
         """
-        Retrieves the hash of the specified block number
+        Retrieves the hash of the specified block number, or the chaintip if None
         Args:
             block_id: block number
 
         Returns:
             Hash of the block
         """
+        if block_id is None:
+            return await self.get_chain_head()
+        else:
+            if (block_hash := self.runtime_cache.blocks.get(block_id)) is not None:
+                return block_hash
+
+            block_hash = await self._cached_get_block_hash(block_id)
+            self.runtime_cache.add_item(block_hash=block_hash, block=block_id)
+            return block_hash
+
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
+    async def _cached_get_block_hash(self, block_id: int) -> str:
+        """
+        The design of this method is as such, because it allows for an easy drop-in for a different cache, such
+        as is the case with DiskCachedAsyncSubstrateInterface._cached_get_block_hash
+        """
         return await self._get_block_hash(block_id)
 
-    async def _get_block_hash(self, block_id: int) -> str:
+    async def _get_block_hash(self, block_id: Optional[int]) -> str:
         return (await self.rpc_request("chain_getBlockHash", [block_id]))["result"]
 
     async def get_chain_head(self) -> str:
@@ -3852,18 +3879,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     params=[result_keys, block_hash],
                     runtime=runtime,
                 )
+                changes = []
                 for result_group in response["result"]:
-                    result = decode_query_map(
-                        result_group["changes"],
-                        prefix,
-                        runtime,
-                        param_types,
-                        params,
-                        value_type,
-                        key_hashers,
-                        ignore_decoding_errors,
-                        self.decode_ss58,
-                    )
+                    changes.extend(result_group["changes"])
+                result = await decode_query_map_async(
+                    changes,
+                    prefix,
+                    runtime,
+                    param_types,
+                    params,
+                    value_type,
+                    key_hashers,
+                    ignore_decoding_errors,
+                    self.decode_ss58,
+                )
             else:
                 # storage item and value scale type are not included here because this is batch-decoded in rust
                 page_batches = [
@@ -3881,8 +3910,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 results: RequestResults = await self._make_rpc_request(
                     payloads, runtime=runtime
                 )
-                for result in results.values():
-                    res = result[0]
+                for result_ in results.values():
+                    res = result_[0]
                     if "error" in res:
                         err_msg = res["error"]["message"]
                         if (
@@ -3900,7 +3929,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     else:
                         for result_group in res["result"]:
                             changes.extend(result_group["changes"])
-                result = decode_query_map(
+                result = await decode_query_map_async(
                     changes,
                     prefix,
                     runtime,
@@ -4113,6 +4142,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
                         "finalized": False,
                     }, True
+
+            elif "params" in message and message["params"].get("result") == "invalid":
+                failure_message = f"Subscription {subscription_id} invalid: {message}"
+                async with self.ws as ws:
+                    await ws.unsubscribe(subscription_id)
+                logger.error(failure_message)
+                raise SubstrateRequestException(failure_message)
+
             return message, False
 
         if wait_for_inclusion or wait_for_finalization:
@@ -4250,13 +4287,25 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
     async def get_block_number(self, block_hash: Optional[str] = None) -> int:
         """Async version of `substrateinterface.base.get_block_number` method."""
-        response = await self.rpc_request("chain_getHeader", [block_hash])
+        if block_hash is None:
+            return await self._get_block_number(None)
+        if (block := self.runtime_cache.blocks_reverse.get(block_hash)) is not None:
+            return block
+        block = await self._cached_get_block_number(block_hash)
+        self.runtime_cache.add_item(block_hash=block_hash, block=block)
+        return block
 
-        if response["result"]:
-            return int(response["result"]["number"], 16)
-        raise SubstrateRequestException(
-            f"Unable to retrieve block number for {block_hash}"
-        )
+    @cached_fetcher(max_size=SUBSTRATE_CACHE_METHOD_SIZE)
+    async def _cached_get_block_number(self, block_hash: str) -> int:
+        """
+        The design of this method is as such, because it allows for an easy drop-in for a different cache, such
+        as is the case with DiskCachedAsyncSubstrateInterface._cached_get_block_number
+        """
+        return await self._get_block_number(block_hash=block_hash)
+
+    async def _get_block_number(self, block_hash: Optional[str]) -> int:
+        response = await self.rpc_request("chain_getHeader", [block_hash])
+        return int(response["result"]["number"], 16)
 
     async def close(self):
         """
@@ -4351,8 +4400,12 @@ class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
         return await self._get_block_runtime_version_for(block_hash)
 
     @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
-    async def get_block_hash(self, block_id: int) -> str:
+    async def _cached_get_block_hash(self, block_id: int) -> str:
         return await self._get_block_hash(block_id)
+
+    @async_sql_lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
+    async def _cached_get_block_number(self, block_hash: str) -> int:
+        return await self._get_block_number(block_hash=block_hash)
 
 
 async def get_async_substrate_interface(

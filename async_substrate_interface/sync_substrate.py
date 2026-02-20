@@ -482,6 +482,18 @@ class QueryMapResult:
         self.last_key = result.last_key
         return result.records
 
+    def retrieve_all_records(self) -> list[Any]:
+        """
+        Retrieves all records from all subsequent pages for the QueryMapResult,
+        returning them as a list.
+
+        Side effect:
+            The self.records list will be populated fully after running this method.
+        """
+        for _ in self:
+            pass
+        return self.records
+
     def __iter__(self):
         return self
 
@@ -511,6 +523,7 @@ class QueryMapResult:
             self.loading_complete = True
             raise StopIteration
 
+        self.records.extend(next_page)
         # Update the buffer with the newly fetched records
         self._buffer = iter(next_page)
         return next(self._buffer)
@@ -2052,8 +2065,21 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raise SubstrateRequestException(result[payload_id][0])
 
+    def get_block_hash(self, block_id: Optional[int]) -> str:
+        """
+        Retrieves the block hash for a given block number, or the chaintip hash if None
+        """
+        if block_id is None:
+            return self.get_chain_head()
+        else:
+            if (block_hash := self.runtime_cache.blocks.get(block_id)) is not None:
+                return block_hash
+            block_hash = self._get_block_hash(block_id)
+            self.runtime_cache.add_item(block_hash=block_hash, block=block_id)
+            return block_hash
+
     @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
-    def get_block_hash(self, block_id: int) -> str:
+    def _get_block_hash(self, block_id: int) -> str:
         return self.rpc_request("chain_getBlockHash", [block_id])["result"]
 
     def get_chain_head(self) -> str:
@@ -3247,6 +3273,13 @@ class SubstrateInterface(SubstrateMixin):
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
                         "finalized": False,
                     }, True
+
+            elif "params" in message and message["params"].get("result") == "invalid":
+                failure_message = f"Subscription {subscription_id} invalid: {message}"
+                self.rpc_request("author_unwatchExtrinsic", [subscription_id])
+                logger.error(failure_message)
+                raise SubstrateRequestException(failure_message)
+
             return message, False
 
         if wait_for_inclusion or wait_for_finalization:
@@ -3380,15 +3413,27 @@ class SubstrateInterface(SubstrateMixin):
         return self._get_metadata_event(module_name, event_name, runtime)
 
     def get_block_number(self, block_hash: Optional[str] = None) -> int:
-        """Async version of `substrateinterface.base.get_block_number` method."""
-        response = self.rpc_request("chain_getHeader", [block_hash])
-
-        if response["result"]:
-            return int(response["result"]["number"], 16)
+        """
+        Retrieves the block number for a given block hash or chaintip.
+        """
+        if block_hash is None:
+            return self._get_block_number(None)
         else:
-            raise SubstrateRequestException(
-                f"Unable to determine block number for {block_hash}"
-            )
+            if (
+                block_number := self.runtime_cache.blocks_reverse.get(block_hash)
+            ) is not None:
+                return block_number
+            block_number = self._cached_get_block_number(block_hash=block_hash)
+            self.runtime_cache.add_item(block_hash=block_hash, block=block_number)
+            return block_number
+
+    @functools.lru_cache(maxsize=SUBSTRATE_CACHE_METHOD_SIZE)
+    def _cached_get_block_number(self, block_hash: Optional[str]) -> int:
+        return self._get_block_number(block_hash=block_hash)
+
+    def _get_block_number(self, block_hash: Optional[str]) -> int:
+        response = self.rpc_request("chain_getHeader", [block_hash])
+        return int(response["result"]["number"], 16)
 
     def close(self):
         """
@@ -3404,6 +3449,7 @@ class SubstrateInterface(SubstrateMixin):
         self.get_block_runtime_info.cache_clear()
         self.get_block_runtime_version_for.cache_clear()
         self.supports_rpc_method.cache_clear()
-        self.get_block_hash.cache_clear()
+        self._get_block_hash.cache_clear()
+        self._cached_get_block_number.cache_clear()
 
     encode_scale = SubstrateMixin._encode_scale
