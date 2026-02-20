@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.2 /2025-02-19
+
+## What's Changed
+* Typing by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/265
+* Cache Improvements by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/267
+* improve (async) query map result by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/266
+* Use threaded bt-decode by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/268
+* Feat: Handle new error message fmt for InBlock source by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/269
+* Update: Remove python 3.9 support by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/271
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.6.1...v1.6.2
+
 ## 1.6.1 /2025-02-03
 * RuntimeCache updates by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/260
 * fix memory leak by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/261
