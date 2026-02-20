@@ -8,6 +8,7 @@
 * improve (async) query map result by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/266
 * Use threaded bt-decode by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/268
 * Feat: Handle new error message fmt for InBlock source by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/269
+* Update: Remove python 3.9 support by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/271
 
 **Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.6.1...v1.6.2
 
