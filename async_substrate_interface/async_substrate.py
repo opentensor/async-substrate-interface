@@ -3467,7 +3467,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
             return response["nonce"]
 
-    async def get_account_next_index(self, account_address: str) -> int:
+    async def get_account_next_index(
+        self, account_address: str, do_not_use_cache: bool = False
+    ) -> int:
         """
         This method maintains a cache of nonces for each account ss58address.
         Upon subsequent calls, it will return the cached nonce + 1 instead of fetching from the chain.
@@ -3475,22 +3477,30 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         Args:
             account_address: SS58 formatted address
+            do_not_use_cache: If True, bypass local nonce cache and always request fresh value from RPC.
 
         Returns:
             Next index for the given account address
         """
+
+        async def _get_account_next_index():
+            """Inner RPC call to get `account_nextIndex`."""
+            nonce_obj_ = await self.rpc_request("account_nextIndex", [account_address])
+            if "error" in nonce_obj_:
+                raise SubstrateRequestException(nonce_obj_["error"]["message"])
+            return nonce_obj_["result"]
+
         if not await self.supports_rpc_method("account_nextIndex"):
             # Unlikely to happen, this is a common RPC method
             raise Exception("account_nextIndex not supported")
 
+        if do_not_use_cache:
+            return await _get_account_next_index()
+
         async with self._lock:
             if self._nonces.get(account_address) is None:
-                nonce_obj = await self.rpc_request(
-                    "account_nextIndex", [account_address]
-                )
-                if "error" in nonce_obj:
-                    raise SubstrateRequestException(nonce_obj["error"]["message"])
-                self._nonces[account_address] = nonce_obj["result"]
+                nonce_obj = await _get_account_next_index()
+                self._nonces[account_address] = nonce_obj
             else:
                 self._nonces[account_address] += 1
         return self._nonces[account_address]
