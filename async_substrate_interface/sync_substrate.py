@@ -764,9 +764,12 @@ class SubstrateInterface(SubstrateMixin):
             return ss58_encode(scale_bytes, self.ss58_format)
         else:
             if self.runtime.metadata_v15 is not None and force_legacy is False:
-                obj = decode_by_type_string(
-                    type_string, self.runtime.registry, scale_bytes
-                )
+                try:
+                    obj = decode_by_type_string(
+                        type_string, self.runtime.registry, scale_bytes
+                    )
+                except ValueError:
+                    obj = legacy_scale_decode(type_string, scale_bytes, self.runtime)
                 if self.decode_ss58:
                     try:
                         type_str_int = int(type_string.split("::")[1])
