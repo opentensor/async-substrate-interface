@@ -319,7 +319,7 @@ async def test_get_account_next_index_bypass_mode_does_not_create_or_mutate_cach
 
     result = await substrate.get_account_next_index(
         address,
-        do_not_use_cache=True,
+        use_cache=False,
     )
 
     assert result == 10
@@ -336,5 +336,5 @@ async def test_get_account_next_index_bypass_mode_raises_on_rpc_error():
     with pytest.raises(SubstrateRequestException, match="rpc failure"):
         await substrate.get_account_next_index(
             "5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA",
-            do_not_use_cache=True,
+            use_cache=False,
         )

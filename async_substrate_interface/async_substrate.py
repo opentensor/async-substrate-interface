@@ -3468,7 +3468,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return response["nonce"]
 
     async def get_account_next_index(
-        self, account_address: str, do_not_use_cache: bool = False
+        self, account_address: str, use_cache: bool = True
     ) -> int:
         """
         This method maintains a cache of nonces for each account ss58address.
@@ -3477,7 +3477,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         Args:
             account_address: SS58 formatted address
-            do_not_use_cache: If True, bypass local nonce cache and always request fresh value from RPC.
+            use_cache: If True, bypass local nonce cache and always request fresh value from RPC.
 
         Returns:
             Next index for the given account address
@@ -3494,7 +3494,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             # Unlikely to happen, this is a common RPC method
             raise Exception("account_nextIndex not supported")
 
-        if do_not_use_cache:
+        if not use_cache:
             return await _get_account_next_index()
 
         async with self._lock:
