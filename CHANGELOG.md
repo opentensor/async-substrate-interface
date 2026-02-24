@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.3 /2025-02-24
+
+## What's Changed
+* Fix: Supp for third-party runtimes by @ibraheem-abe in https://github.com/opentensor/async-substrate-interface/pull/274
+* Extend `get_account_next_index` logic by @basfroman in https://github.com/opentensor/async-substrate-interface/pull/273
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.6.2...v1.6.3
+
 ## 1.6.2 /2025-02-19
 
 ## What's Changed
