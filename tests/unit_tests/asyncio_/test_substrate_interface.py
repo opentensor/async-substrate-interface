@@ -11,6 +11,7 @@ from async_substrate_interface.async_substrate import (
     AsyncSubstrateInterface,
     get_async_substrate_interface,
 )
+from async_substrate_interface.errors import SubstrateRequestException
 from async_substrate_interface.types import ScaleObj
 from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
@@ -286,4 +287,54 @@ class TestGetBlockNumber:
         substrate._cached_get_block_number.assert_awaited_once_with("0xABC")
         substrate.runtime_cache.add_item.assert_called_once_with(
             block_hash="0xABC", block=100
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_account_next_index_cached_mode_uses_internal_cache():
+    substrate = AsyncSubstrateInterface("ws://localhost", _mock=True)
+    substrate.supports_rpc_method = AsyncMock(return_value=True)
+    substrate.rpc_request = AsyncMock(return_value={"result": 5})
+
+    first = await substrate.get_account_next_index("5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA")
+    second = await substrate.get_account_next_index(
+        "5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA"
+    )
+
+    assert first == 5
+    assert second == 6
+    substrate.rpc_request.assert_awaited_once_with(
+        "account_nextIndex", ["5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_account_next_index_bypass_mode_does_not_create_or_mutate_cache():
+    substrate = AsyncSubstrateInterface("ws://localhost", _mock=True)
+    substrate.supports_rpc_method = AsyncMock(return_value=True)
+    substrate.rpc_request = AsyncMock(return_value={"result": 10})
+
+    address = "5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA"
+    assert address not in substrate._nonces
+
+    result = await substrate.get_account_next_index(
+        address,
+        use_cache=False,
+    )
+
+    assert result == 10
+    assert address not in substrate._nonces
+    substrate.rpc_request.assert_awaited_once_with("account_nextIndex", [address])
+
+
+@pytest.mark.asyncio
+async def test_get_account_next_index_bypass_mode_raises_on_rpc_error():
+    substrate = AsyncSubstrateInterface("ws://localhost", _mock=True)
+    substrate.supports_rpc_method = AsyncMock(return_value=True)
+    substrate.rpc_request = AsyncMock(return_value={"error": {"message": "rpc failure"}})
+
+    with pytest.raises(SubstrateRequestException, match="rpc failure"):
+        await substrate.get_account_next_index(
+            "5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA",
+            use_cache=False,
         )
