@@ -163,3 +163,17 @@ def test_get_payment_info():
         assert partial_fee_all_options > partial_fee_no_era
         assert partial_fee_all_options > partial_fee_era
     print("test_get_payment_info succeeded")
+
+
+def test_old_runtime_calls():
+    from bittensor import SubtensorApi
+
+    sub = SubtensorApi(network="archive", legacy_methods=True, async_subtensor=False)
+    # will pass
+    assert sub.get_stake_info_for_coldkey(
+        "5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G", 4943592
+    )
+    # needs to use legacy
+    assert sub.get_stake_info_for_coldkey(
+        "5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G", 4670227
+    )
