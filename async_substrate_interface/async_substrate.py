@@ -11,6 +11,7 @@ import os
 import socket
 import ssl
 import warnings
+from contextlib import suppress
 from unittest.mock import AsyncMock
 from hashlib import blake2b
 from typing import (
@@ -1212,6 +1213,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self._initializing = False
         self._mock = _mock
         self.startup_runtime_task: Optional[asyncio.Task] = None
+        self.startup_block_hash: Optional[str] = None
 
     async def __aenter__(self):
         if not self._mock:
@@ -1231,7 +1233,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if not self._chain:
                 chain = await self.rpc_request("system_chain", [])
                 self._chain = chain.get("result")
-            block_hash = await self.get_chain_head()
+            self.startup_block_hash = block_hash = await self.get_chain_head()
             self.startup_runtime_task = asyncio.create_task(
                 self.init_runtime(block_hash=block_hash, init=True)
             )
@@ -1463,9 +1465,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Runtime object
         """
-        if not init:
-            if self.startup_runtime_task is not None:
-                await self.startup_runtime_task
+        if (
+            not init
+            and self.startup_runtime_task is not None
+            and block_hash == self.startup_block_hash
+        ):
+            await self.startup_runtime_task
 
         if block_id and block_hash:
             raise ValueError("Cannot provide block_hash and block_id at the same time")
@@ -4333,6 +4338,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Closes the substrate connection, and the websocket connection.
         """
         try:
+            if self.startup_runtime_task is not None:
+                self.startup_runtime_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await self.startup_runtime_task
             await self.ws.shutdown()
         except AttributeError:
             pass
