@@ -1471,6 +1471,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             and block_hash == self.startup_block_hash
         ):
             await self.startup_runtime_task
+            self.startup_runtime_task = None
 
         if block_id and block_hash:
             raise ValueError("Cannot provide block_hash and block_id at the same time")
