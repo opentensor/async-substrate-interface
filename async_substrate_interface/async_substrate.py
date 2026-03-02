@@ -31,7 +31,6 @@ from scalecodec.type_registry import load_type_registry_preset
 from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
-    GenericRuntimeCallDefinition,
     ss58_encode,
     MultiAccountId,
 )
@@ -74,12 +73,10 @@ from async_substrate_interface.utils.decoding import (
     _bt_decode_to_dict_or_list,
     legacy_scale_decode,
     convert_account_ids,
+    decode_query_map_async,
 )
 from async_substrate_interface.utils.storage import StorageKey
 from async_substrate_interface.type_registry import _TYPE_REGISTRY
-from async_substrate_interface.utils.decoding import (
-    decode_query_map,
-)
 
 ResultHandler = Callable[[dict, Any], Awaitable[tuple[dict, bool]]]
 
@@ -1426,7 +1423,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if runtime is None:
                 runtime = await self.init_runtime(block_hash=block_hash)
             if runtime.metadata_v15 is not None and force_legacy is False:
-                obj = decode_by_type_string(type_string, runtime.registry, scale_bytes)
+                obj = await asyncio.to_thread(
+                    decode_by_type_string, type_string, runtime.registry, scale_bytes
+                )
                 if self.decode_ss58:
                     try:
                         type_str_int = int(type_string.split("::")[1])
@@ -3479,7 +3478,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             )
             return response["nonce"]
 
-    async def get_account_next_index(self, account_address: str) -> int:
+    async def get_account_next_index(
+        self, account_address: str, use_cache: bool = True
+    ) -> int:
         """
         This method maintains a cache of nonces for each account ss58address.
         Upon subsequent calls, it will return the cached nonce + 1 instead of fetching from the chain.
@@ -3487,22 +3488,30 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         Args:
             account_address: SS58 formatted address
+            use_cache: If True, bypass local nonce cache and always request fresh value from RPC.
 
         Returns:
             Next index for the given account address
         """
+
+        async def _get_account_next_index():
+            """Inner RPC call to get `account_nextIndex`."""
+            nonce_obj_ = await self.rpc_request("account_nextIndex", [account_address])
+            if "error" in nonce_obj_:
+                raise SubstrateRequestException(nonce_obj_["error"]["message"])
+            return nonce_obj_["result"]
+
         if not await self.supports_rpc_method("account_nextIndex"):
             # Unlikely to happen, this is a common RPC method
             raise Exception("account_nextIndex not supported")
 
+        if not use_cache:
+            return await _get_account_next_index()
+
         async with self._lock:
             if self._nonces.get(account_address) is None:
-                nonce_obj = await self.rpc_request(
-                    "account_nextIndex", [account_address]
-                )
-                if "error" in nonce_obj:
-                    raise SubstrateRequestException(nonce_obj["error"]["message"])
-                self._nonces[account_address] = nonce_obj["result"]
+                nonce_obj = await _get_account_next_index()
+                self._nonces[account_address] = nonce_obj
             else:
                 self._nonces[account_address] += 1
         return self._nonces[account_address]
@@ -3891,18 +3900,20 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     params=[result_keys, block_hash],
                     runtime=runtime,
                 )
+                changes = []
                 for result_group in response["result"]:
-                    result = decode_query_map(
-                        result_group["changes"],
-                        prefix,
-                        runtime,
-                        param_types,
-                        params,
-                        value_type,
-                        key_hashers,
-                        ignore_decoding_errors,
-                        self.decode_ss58,
-                    )
+                    changes.extend(result_group["changes"])
+                result = await decode_query_map_async(
+                    changes,
+                    prefix,
+                    runtime,
+                    param_types,
+                    params,
+                    value_type,
+                    key_hashers,
+                    ignore_decoding_errors,
+                    self.decode_ss58,
+                )
             else:
                 # storage item and value scale type are not included here because this is batch-decoded in rust
                 page_batches = [
@@ -3920,8 +3931,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 results: RequestResults = await self._make_rpc_request(
                     payloads, runtime=runtime
                 )
-                for result in results.values():
-                    res = result[0]
+                for result_ in results.values():
+                    res = result_[0]
                     if "error" in res:
                         err_msg = res["error"]["message"]
                         if (
@@ -3939,7 +3950,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     else:
                         for result_group in res["result"]:
                             changes.extend(result_group["changes"])
-                result = decode_query_map(
+                result = await decode_query_map_async(
                     changes,
                     prefix,
                     runtime,
@@ -4152,6 +4163,14 @@ class AsyncSubstrateInterface(SubstrateMixin):
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
                         "finalized": False,
                     }, True
+
+            elif "params" in message and message["params"].get("result") == "invalid":
+                failure_message = f"Subscription {subscription_id} invalid: {message}"
+                async with self.ws as ws:
+                    await ws.unsubscribe(subscription_id)
+                logger.error(failure_message)
+                raise SubstrateRequestException(failure_message)
+
             return message, False
 
         if wait_for_inclusion or wait_for_finalization:

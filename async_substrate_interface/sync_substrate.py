@@ -764,9 +764,12 @@ class SubstrateInterface(SubstrateMixin):
             return ss58_encode(scale_bytes, self.ss58_format)
         else:
             if self.runtime.metadata_v15 is not None and force_legacy is False:
-                obj = decode_by_type_string(
-                    type_string, self.runtime.registry, scale_bytes
-                )
+                try:
+                    obj = decode_by_type_string(
+                        type_string, self.runtime.registry, scale_bytes
+                    )
+                except ValueError:
+                    obj = legacy_scale_decode(type_string, scale_bytes, self.runtime)
                 if self.decode_ss58:
                     try:
                         type_str_int = int(type_string.split("::")[1])
@@ -3273,6 +3276,13 @@ class SubstrateInterface(SubstrateMixin):
                         "extrinsic_hash": "0x{}".format(extrinsic.extrinsic_hash.hex()),
                         "finalized": False,
                     }, True
+
+            elif "params" in message and message["params"].get("result") == "invalid":
+                failure_message = f"Subscription {subscription_id} invalid: {message}"
+                self.rpc_request("author_unwatchExtrinsic", [subscription_id])
+                logger.error(failure_message)
+                raise SubstrateRequestException(failure_message)
+
             return message, False
 
         if wait_for_inclusion or wait_for_finalization:
