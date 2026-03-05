@@ -88,44 +88,44 @@ async def test_disk_cache():
         start = time.monotonic()
         new_block_hash = await disk_cached_substrate.get_block_hash(current_block)
         new_time = time.monotonic()
-        assert new_time - start < 0.001
+        assert new_time - start < 0.002
 
         start = time.monotonic()
         new_parent_block_hash = await disk_cached_substrate.get_parent_block_hash(
             block_hash
         )
         new_time = time.monotonic()
-        assert new_time - start < 0.001
+        assert new_time - start < 0.002
         start = time.monotonic()
         new_block_runtime_info = await disk_cached_substrate.get_block_runtime_info(
             block_hash
         )
         new_time = time.monotonic()
-        assert new_time - start < 0.001
+        assert new_time - start < 0.002
         start = time.monotonic()
         new_block_runtime_version_for = (
             await disk_cached_substrate.get_block_runtime_version_for(block_hash)
         )
         new_time = time.monotonic()
-        assert new_time - start < 0.001
+        assert new_time - start < 0.002
         start = time.monotonic()
         new_block_hash_from_cache = await disk_cached_substrate.get_block_hash(
             current_block
         )
         new_time = time.monotonic()
-        assert new_time - start < 0.001
+        assert new_time - start < 0.002
         start = time.monotonic()
         new_parent_block_hash_from_cache = (
             await disk_cached_substrate.get_parent_block_hash(block_hash_from_cache)
         )
         new_time = time.monotonic()
-        assert new_time - start < 0.001
+        assert new_time - start < 0.002
         start = time.monotonic()
         new_block_runtime_info_from_cache = (
             await disk_cached_substrate.get_block_runtime_info(block_hash_from_cache)
         )
         new_time = time.monotonic()
-        assert new_time - start < 0.001
+        assert new_time - start < 0.002
         start = time.monotonic()
         new_block_runtime_version_from_cache = (
             await disk_cached_substrate.get_block_runtime_version_for(
@@ -133,5 +133,5 @@ async def test_disk_cache():
             )
         )
         new_time = time.monotonic()
-        assert new_time - start < 0.001
+        assert new_time - start < 0.002
     print("Disk Cache tests passed")

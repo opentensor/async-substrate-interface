@@ -11,6 +11,7 @@ import os
 import socket
 import ssl
 import warnings
+from contextlib import suppress
 from unittest.mock import AsyncMock
 from hashlib import blake2b
 from typing import (
@@ -1211,6 +1212,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self.metadata_version_hex = "0x0f000000"  # v15
         self._initializing = False
         self._mock = _mock
+        self.startup_runtime_task: Optional[asyncio.Task] = None
+        self.startup_block_hash: Optional[str] = None
 
     async def __aenter__(self):
         if not self._mock:
@@ -1230,8 +1233,12 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if not self._chain:
                 chain = await self.rpc_request("system_chain", [])
                 self._chain = chain.get("result")
-            runtime = await self.init_runtime()
+            self.startup_block_hash = block_hash = await self.get_chain_head()
+            self.startup_runtime_task = asyncio.create_task(
+                self.init_runtime(block_hash=block_hash, init=True)
+            )
             if self.ss58_format is None:
+                runtime = await self.init_runtime(block_hash)
                 # Check and apply runtime constants
                 ss58_prefix_constant = await self.get_constant(
                     "System", "SS58Prefix", runtime=runtime
@@ -1438,7 +1445,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return obj
 
     async def init_runtime(
-        self, block_hash: Optional[str] = None, block_id: Optional[int] = None
+        self,
+        block_hash: Optional[str] = None,
+        block_id: Optional[int] = None,
+        init: bool = False,
     ) -> Runtime:
         """
         This method is used by all other methods that deals with metadata and types defined in the type registry.
@@ -1455,6 +1465,13 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Returns:
             Runtime object
         """
+        if (
+            not init
+            and self.startup_runtime_task is not None
+            and block_hash == self.startup_block_hash
+        ):
+            await self.startup_runtime_task
+            self.startup_runtime_task = None
 
         if block_id and block_hash:
             raise ValueError("Cannot provide block_hash and block_id at the same time")
@@ -4322,6 +4339,10 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Closes the substrate connection, and the websocket connection.
         """
         try:
+            if self.startup_runtime_task is not None:
+                self.startup_runtime_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await self.startup_runtime_task
             await self.ws.shutdown()
         except AttributeError:
             pass

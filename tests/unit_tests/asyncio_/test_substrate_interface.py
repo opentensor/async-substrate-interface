@@ -296,7 +296,9 @@ async def test_get_account_next_index_cached_mode_uses_internal_cache():
     substrate.supports_rpc_method = AsyncMock(return_value=True)
     substrate.rpc_request = AsyncMock(return_value={"result": 5})
 
-    first = await substrate.get_account_next_index("5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA")
+    first = await substrate.get_account_next_index(
+        "5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA"
+    )
     second = await substrate.get_account_next_index(
         "5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA"
     )
@@ -331,7 +333,9 @@ async def test_get_account_next_index_bypass_mode_does_not_create_or_mutate_cach
 async def test_get_account_next_index_bypass_mode_raises_on_rpc_error():
     substrate = AsyncSubstrateInterface("ws://localhost", _mock=True)
     substrate.supports_rpc_method = AsyncMock(return_value=True)
-    substrate.rpc_request = AsyncMock(return_value={"error": {"message": "rpc failure"}})
+    substrate.rpc_request = AsyncMock(
+        return_value={"error": {"message": "rpc failure"}}
+    )
 
     with pytest.raises(SubstrateRequestException, match="rpc failure"):
         await substrate.get_account_next_index(
