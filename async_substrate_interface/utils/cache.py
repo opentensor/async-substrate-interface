@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import time
 import weakref
 from collections import OrderedDict
 import functools
@@ -107,6 +108,61 @@ class AsyncSqliteDB:
             )
             await self._db.commit()
         return result
+
+    async def _ensure_dns_table(self):
+        await self._db.execute(
+            """CREATE TABLE IF NOT EXISTS dns_cache (
+                url TEXT PRIMARY KEY,
+                addrinfos BLOB,
+                saved_at REAL
+            )"""
+        )
+        await self._db.commit()
+
+    async def load_dns_cache(self, url: str) -> Optional[tuple[list, float]]:
+        """
+        Load a previously saved DNS result for ``url``.
+
+        Returns ``(addrinfos, saved_at_unix)`` where ``saved_at_unix`` is the Unix
+        timestamp at which the result was saved, or ``None`` if nothing is cached.
+        Skips localhost URLs.
+        """
+        if _check_if_local(url):
+            return None
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
+            await self._ensure_dns_table()
+        try:
+            cursor = await self._db.execute(
+                "SELECT addrinfos, saved_at FROM dns_cache WHERE url=?", (url,)
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+            if row is not None:
+                return pickle.loads(row[0]), row[1]
+        except (pickle.PickleError, sqlite3.Error) as e:
+            logger.debug(f"DNS cache load error: {e}")
+        return None
+
+    async def save_dns_cache(self, url: str, addrinfos: list) -> None:
+        """Persist DNS results for ``url`` to disk. Skips localhost URLs."""
+        if _check_if_local(url):
+            return
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
+            await self._ensure_dns_table()
+            try:
+                await self._db.execute(
+                    "INSERT OR REPLACE INTO dns_cache (url, addrinfos, saved_at) VALUES (?,?,?)",
+                    (url, pickle.dumps(addrinfos), time.time()),
+                )
+                await self._db.commit()
+            except (pickle.PickleError, sqlite3.Error) as e:
+                logger.debug(f"DNS cache save error: {e}")
 
     async def load_runtime_cache(
         self, chain: str
