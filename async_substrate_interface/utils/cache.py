@@ -92,18 +92,18 @@ class AsyncSqliteDB:
             table_name = _get_table_name(func)
             local_chain = await self._create_if_not_exists(chain, table_name)
         key = pickle.dumps((args, kwargs or None))
-        try:
-            cursor: aiosqlite.Cursor = await self._db.execute(
-                f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
-                (key, chain),
-            )
-            result = await cursor.fetchone()
-            await cursor.close()
-            if result is not None:
-                return pickle.loads(result[0])
-        except (pickle.PickleError, sqlite3.Error) as e:
-            logger.exception("Cache error", exc_info=e)
-            pass
+        if not local_chain or not USE_CACHE:
+            try:
+                cursor: aiosqlite.Cursor = await self._db.execute(
+                    f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
+                    (key, chain),
+                )
+                result = await cursor.fetchone()
+                await cursor.close()
+                if result is not None:
+                    return pickle.loads(result[0])
+            except (pickle.PickleError, sqlite3.Error) as e:
+                logger.exception("Cache error", exc_info=e)
         result = await func(other_self, *args, **kwargs)
         if not local_chain or not USE_CACHE:
             # TODO use a task here
