@@ -14,6 +14,7 @@ import aiosqlite
 
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
+CACHE_LOCAL = os.getenv("CACHE_LOCAL") == "1"
 CACHE_LOCATION = (
     os.path.expanduser(
         os.getenv("CACHE_LOCATION", "~/.cache/async-substrate-interface")
@@ -208,6 +209,8 @@ def _get_table_name(func):
 
 
 def _check_if_local(chain: str) -> bool:
+    if CACHE_LOCAL:
+        return False
     return any([x in chain for x in ["127.0.0.1", "localhost", "0.0.0.0"]])
 
 
