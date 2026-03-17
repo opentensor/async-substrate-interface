@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Union, Any, Sequence
+from typing import Optional, Union, Any, Sequence, Generic, TypeVar
 
 import scalecodec.types
 from bt_decode import PortableRegistry, encode as encode_by_type_string
@@ -24,6 +24,8 @@ from .utils.cache import AsyncSqliteDB, LRUCache
 logger = logging.getLogger("async_substrate_interface")
 SUBSTRATE_RUNTIME_CACHE_SIZE = int(os.getenv("SUBSTRATE_RUNTIME_CACHE_SIZE", "16"))
 SUBSTRATE_CACHE_METHOD_SIZE = int(os.getenv("SUBSTRATE_CACHE_METHOD_SIZE", "512"))
+
+T = TypeVar("T")
 
 
 class RuntimeCache:
@@ -569,7 +571,7 @@ class Preprocessed:
     storage_item: ScaleType
 
 
-class ScaleObj:
+class ScaleObj(Generic[T]):
     """Bittensor representation of Scale Object."""
 
     def __init__(self, value):
