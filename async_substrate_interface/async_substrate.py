@@ -40,6 +40,7 @@ from websockets import CloseCode
 from websockets.asyncio.client import connect, ClientConnection
 from websockets.exceptions import (
     ConnectionClosed,
+    InvalidURI,
 )
 from websockets.protocol import State
 
@@ -808,6 +809,8 @@ class Websocket:
         from urllib.parse import urlparse
 
         parsed = urlparse(self.ws_url)
+        if parsed.scheme not in ("ws", "wss"):
+            raise InvalidURI(self.ws_url, f"Invalid URI scheme: {parsed.scheme!r}")
         host = parsed.hostname
         port = parsed.port or (443 if parsed.scheme == "wss" else 80)
 
