@@ -30,6 +30,7 @@ class AsyncSqliteDB:
     _instances: dict[str, "AsyncSqliteDB"] = {}
     _db: Optional[aiosqlite.Connection] = None
     _lock: Optional[asyncio.Lock] = None
+    _created_tables: set
 
     def __new__(cls, chain_endpoint: str):
         try:
@@ -37,6 +38,7 @@ class AsyncSqliteDB:
         except KeyError:
             instance = super().__new__(cls)
             instance._lock = asyncio.Lock()
+            instance._created_tables = set()
             cls._instances[chain_endpoint] = instance
             return instance
 
@@ -45,8 +47,11 @@ class AsyncSqliteDB:
             if self._db:
                 await self._db.close()
                 self._db = None
+                self._created_tables.clear()
 
     async def _create_if_not_exists(self, chain: str, table_name: str):
+        if table_name in self._created_tables:
+            return _check_if_local(chain)
         if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
             await self._db.execute(
                 f"""
@@ -76,6 +81,7 @@ class AsyncSqliteDB:
                 """
             )
             await self._db.commit()
+            self._created_tables.add(table_name)
         return local_chain
 
     async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
