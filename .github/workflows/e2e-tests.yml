@@ -20,6 +20,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
+  CACHE_LOCAL: "1"
 
 # job to run tests in parallel
 jobs:
