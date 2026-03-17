@@ -4560,8 +4560,9 @@ class DiskCachedAsyncSubstrateInterface(AsyncSubstrateInterface):
         caches to disk.
         """
         db = AsyncSqliteDB(self.url)
-        if self.ws._dns_cache is not None:
-            addrinfos, _ = self.ws._dns_cache
+        dns_cache = getattr(self.ws, "_dns_cache", None)
+        if dns_cache is not None:
+            addrinfos, _ = dns_cache
             await db.save_dns_cache(self.url, addrinfos)
         try:
             await self.runtime_cache.dump_to_disk(self.url)
