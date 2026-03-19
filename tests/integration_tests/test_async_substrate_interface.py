@@ -345,3 +345,20 @@ async def test_wait_for_block():
         current_block + 3, result_handler=handler, task_return=False
     )
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_old_runtime_calls():
+    from bittensor import SubtensorApi
+
+    sub = SubtensorApi(network="archive", legacy_methods=True, async_subtensor=True)
+    await sub.initialize()
+    # will pass
+    assert sub.get_stake_info_for_coldkey(
+        "5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G", 4943592
+    )
+    # needs to use legacy
+    assert sub.get_stake_info_for_coldkey(
+        "5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G", 4670227
+    )
+    await sub.close()
