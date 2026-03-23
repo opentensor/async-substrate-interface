@@ -1,3 +1,5 @@
+from typing import Union
+from collections import namedtuple
 from bt_decode import (
     NeuronInfo,
     NeuronInfoLite,
@@ -8,7 +10,54 @@ from bt_decode import (
     SubnetInfoV2,
     encode,
 )
-from scalecodec import ss58_encode
+from scalecodec import ss58_decode
+
+
+def stake_info_decode_vec_legacy_compatibility(
+    item,
+) -> list[dict[str, Union[str, int, bytes, bool]]]:
+    stake_infos: list[StakeInfo] = StakeInfo.decode_vec(item)
+    NewStakeInfo = namedtuple(
+        "NewStakeInfo",
+        [
+            "netuid",
+            "hotkey",
+            "coldkey",
+            "stake",
+            "locked",
+            "emission",
+            "drain",
+            "is_registered",
+        ],
+    )
+    output = []
+    for stake_info in stake_infos:
+        output.append(
+            NewStakeInfo(
+                0,
+                stake_info.hotkey,
+                stake_info.coldkey,
+                stake_info.stake,
+                0,
+                0,
+                0,
+                False,
+            )
+        )
+    return output
+
+
+def preprocess_get_stake_info_for_coldkeys(addrs):
+    output = []
+    if isinstance(addrs[0], list):  # I think
+        for addr in addrs[0]:
+            output.append(list(bytes.fromhex(ss58_decode(addr))))
+    else:
+        if isinstance(addrs[0], dict):
+            for addr in addrs[0]["coldkey_accounts"]:
+                output.append(list(bytes.fromhex(ss58_decode(addr))))
+    return output
+
 
 _TYPE_REGISTRY: dict[str, dict] = {
     "types": {
@@ -24,7 +73,9 @@ _TYPE_REGISTRY: dict[str, dict] = {
                             "type": "Vec<u8>",
                         },
                     ],
-                    "encoder": lambda addr: encode(ss58_encode(addr), "Vec<u8>"),
+                    "encoder": lambda addr, reg: encode(
+                        "Vec<u8>", reg, list(bytes.fromhex(ss58_decode(addr)))
+                    ),
                     "type": "Vec<u8>",
                     "decoder": DelegateInfo.decode_delegated,
                 },
@@ -97,8 +148,20 @@ _TYPE_REGISTRY: dict[str, dict] = {
                         },
                     ],
                     "type": "Vec<u8>",
-                    "encoder": lambda addr: encode(ss58_encode(addr), "Vec<u8>"),
-                    "decoder": StakeInfo.decode_vec,
+                    "encoder": lambda addr, reg: encode(
+                        "Vec<u8>",
+                        reg,
+                        list(
+                            bytes.fromhex(
+                                ss58_decode(
+                                    addr[0]
+                                    if isinstance(addr, list)
+                                    else addr["coldkey_account"]
+                                )
+                            )
+                        ),
+                    ),
+                    "decoder": stake_info_decode_vec_legacy_compatibility,
                 },
                 "get_stake_info_for_coldkeys": {
                     "params": [
@@ -108,8 +171,10 @@ _TYPE_REGISTRY: dict[str, dict] = {
                         },
                     ],
                     "type": "Vec<u8>",
-                    "encoder": lambda addrs: encode(
-                        [ss58_encode(addr) for addr in addrs], "Vec<Vec<u8>>"
+                    "encoder": lambda addrs, reg: encode(
+                        "Vec<Vec<u8>>",
+                        reg,
+                        preprocess_get_stake_info_for_coldkeys(addrs),
                     ),
                     "decoder": StakeInfo.decode_vec_tuple_vec,
                 },
