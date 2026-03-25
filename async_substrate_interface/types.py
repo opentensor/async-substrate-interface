@@ -227,6 +227,7 @@ class Runtime:
         self.type_registry = type_registry
         self.metadata = metadata
         self.metadata_v15 = metadata_v15
+        self._v15_storage_type_map: Optional[dict[tuple[str, str], int]] = None
         self.runtime_info = runtime_info
         self.registry = registry
         runtime_info = runtime_info or {}
@@ -498,6 +499,38 @@ class Runtime:
 
         self.registry_type_map = registry_type_map
         self.type_id_to_name = type_id_to_name
+
+    def get_v15_storage_type_id(
+        self, pallet: str, storage_function: str
+    ) -> Optional[int]:
+        """
+        Returns the V15 type ID for a given pallet storage function.
+        V14 and V15 metadata may have different portable type registry numbering,
+        so using V15 type IDs ensures correct decoding with the V15 PortableRegistry.
+        """
+        if self.metadata_v15 is None:
+            return None
+        if self._v15_storage_type_map is None:
+            self._v15_storage_type_map = {}
+            try:
+                v15_json = json.loads(self.metadata_v15.to_json())
+                for p in v15_json.get("pallets", []):
+                    storage = p.get("storage")
+                    if not storage:
+                        continue
+                    for entry in storage.get("entries", []):
+                        ty = entry.get("ty", {})
+                        if "Plain" in ty:
+                            self._v15_storage_type_map[(p["name"], entry["name"])] = ty[
+                                "Plain"
+                            ]
+                        elif "Map" in ty:
+                            self._v15_storage_type_map[(p["name"], entry["name"])] = ty[
+                                "Map"
+                            ]["value"]
+            except Exception:
+                pass
+        return self._v15_storage_type_map.get((pallet, storage_function))
 
 
 RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]

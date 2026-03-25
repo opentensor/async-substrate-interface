@@ -1793,6 +1793,12 @@ class SubstrateInterface(SubstrateMixin):
         # SCALE type string of value
         param_types = storage_item.get_params_type_string()
         value_scale_type = storage_item.get_value_type_string()
+        # V14 and V15 metadata may have different portable type registry numbering.
+        # Use V15 type ID when available to ensure correct decoding with the V15 registry.
+        if v15_type_id := self.runtime.get_v15_storage_type_id(
+            module, storage_function
+        ):
+            value_scale_type = f"scale_info::{v15_type_id}"
 
         if len(params) != len(param_types):
             raise ValueError(
