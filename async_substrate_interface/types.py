@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Union, Any, Sequence
+from typing import Optional, Union, Any, Sequence, Generic, TypeVar
 
 import scalecodec.types
 from bt_decode import PortableRegistry, encode as encode_by_type_string
@@ -24,6 +24,8 @@ from .utils.cache import AsyncSqliteDB, LRUCache
 logger = logging.getLogger("async_substrate_interface")
 SUBSTRATE_RUNTIME_CACHE_SIZE = int(os.getenv("SUBSTRATE_RUNTIME_CACHE_SIZE", "16"))
 SUBSTRATE_CACHE_METHOD_SIZE = int(os.getenv("SUBSTRATE_CACHE_METHOD_SIZE", "512"))
+
+T = TypeVar("T")
 
 
 class RuntimeCache:
@@ -225,6 +227,7 @@ class Runtime:
         self.type_registry = type_registry
         self.metadata = metadata
         self.metadata_v15 = metadata_v15
+        self._v15_storage_type_map: Optional[dict[tuple[str, str], int]] = None
         self.runtime_info = runtime_info
         self.registry = registry
         runtime_info = runtime_info or {}
@@ -497,6 +500,38 @@ class Runtime:
         self.registry_type_map = registry_type_map
         self.type_id_to_name = type_id_to_name
 
+    def get_v15_storage_type_id(
+        self, pallet: str, storage_function: str
+    ) -> Optional[int]:
+        """
+        Returns the V15 type ID for a given pallet storage function.
+        V14 and V15 metadata may have different portable type registry numbering,
+        so using V15 type IDs ensures correct decoding with the V15 PortableRegistry.
+        """
+        if self.metadata_v15 is None:
+            return None
+        if self._v15_storage_type_map is None:
+            self._v15_storage_type_map = {}
+            try:
+                v15_json = json.loads(self.metadata_v15.to_json())
+                for p in v15_json.get("pallets", []):
+                    storage = p.get("storage")
+                    if not storage:
+                        continue
+                    for entry in storage.get("entries", []):
+                        ty = entry.get("ty", {})
+                        if "Plain" in ty:
+                            self._v15_storage_type_map[(p["name"], entry["name"])] = ty[
+                                "Plain"
+                            ]
+                        elif "Map" in ty:
+                            self._v15_storage_type_map[(p["name"], entry["name"])] = ty[
+                                "Map"
+                            ]["value"]
+            except Exception:
+                pass
+        return self._v15_storage_type_map.get((pallet, storage_function))
+
 
 RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
 
@@ -569,7 +604,7 @@ class Preprocessed:
     storage_item: ScaleType
 
 
-class ScaleObj:
+class ScaleObj(Generic[T]):
     """Bittensor representation of Scale Object."""
 
     def __init__(self, value):
@@ -1091,6 +1126,27 @@ class SubstrateMixin(ABC):
 
             result = bytes(encode_by_type_string(type_string, runtime.registry, value))
         return result
+
+    @staticmethod
+    def _encode_scale_legacy(
+        call_definition: list[dict],
+        params: Union[list[Any], dict[str, Any]],
+        runtime: Runtime,
+    ) -> bytes:
+        """Returns a hex encoded string of the params using their types."""
+        param_data = scalecodec.ScaleBytes(b"")
+
+        for i, param in enumerate(call_definition["params"]):  # type: ignore
+            scale_obj = runtime.runtime_config.create_scale_object(param["type"])
+            if type(params) is list:
+                param_data += scale_obj.encode(params[i])
+            else:
+                if param["name"] not in params:
+                    raise ValueError(f"Missing param {param['name']} in params dict.")
+
+                param_data += scale_obj.encode(params[param["name"]])
+
+        return param_data
 
     @staticmethod
     def _encode_account_id(account) -> bytes:

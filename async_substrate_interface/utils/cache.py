@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import time
 import weakref
 from collections import OrderedDict
 import functools
@@ -14,6 +15,7 @@ import aiosqlite
 
 
 USE_CACHE = True if os.getenv("NO_CACHE") != "1" else False
+CACHE_LOCAL = os.getenv("CACHE_LOCAL") == "1"
 CACHE_LOCATION = (
     os.path.expanduser(
         os.getenv("CACHE_LOCATION", "~/.cache/async-substrate-interface")
@@ -30,6 +32,7 @@ class AsyncSqliteDB:
     _instances: dict[str, "AsyncSqliteDB"] = {}
     _db: Optional[aiosqlite.Connection] = None
     _lock: Optional[asyncio.Lock] = None
+    _created_tables: set
 
     def __new__(cls, chain_endpoint: str):
         try:
@@ -37,6 +40,7 @@ class AsyncSqliteDB:
         except KeyError:
             instance = super().__new__(cls)
             instance._lock = asyncio.Lock()
+            instance._created_tables = set()
             cls._instances[chain_endpoint] = instance
             return instance
 
@@ -45,8 +49,11 @@ class AsyncSqliteDB:
             if self._db:
                 await self._db.close()
                 self._db = None
+                self._created_tables.clear()
 
     async def _create_if_not_exists(self, chain: str, table_name: str):
+        if table_name in self._created_tables:
+            return _check_if_local(chain)
         if not (local_chain := _check_if_local(chain)) or not USE_CACHE:
             await self._db.execute(
                 f"""
@@ -76,6 +83,7 @@ class AsyncSqliteDB:
                 """
             )
             await self._db.commit()
+            self._created_tables.add(table_name)
         return local_chain
 
     async def __call__(self, chain, other_self, func, args, kwargs) -> Optional[Any]:
@@ -86,18 +94,18 @@ class AsyncSqliteDB:
             table_name = _get_table_name(func)
             local_chain = await self._create_if_not_exists(chain, table_name)
         key = pickle.dumps((args, kwargs or None))
-        try:
-            cursor: aiosqlite.Cursor = await self._db.execute(
-                f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
-                (key, chain),
-            )
-            result = await cursor.fetchone()
-            await cursor.close()
-            if result is not None:
-                return pickle.loads(result[0])
-        except (pickle.PickleError, sqlite3.Error) as e:
-            logger.exception("Cache error", exc_info=e)
-            pass
+        if not local_chain or not USE_CACHE:
+            try:
+                cursor: aiosqlite.Cursor = await self._db.execute(
+                    f"SELECT value FROM {table_name} WHERE key=? AND chain=?",
+                    (key, chain),
+                )
+                result = await cursor.fetchone()
+                await cursor.close()
+                if result is not None:
+                    return pickle.loads(result[0])
+            except (pickle.PickleError, sqlite3.Error) as e:
+                logger.exception("Cache error", exc_info=e)
         result = await func(other_self, *args, **kwargs)
         if not local_chain or not USE_CACHE:
             # TODO use a task here
@@ -107,6 +115,61 @@ class AsyncSqliteDB:
             )
             await self._db.commit()
         return result
+
+    async def _ensure_dns_table(self):
+        await self._db.execute(
+            """CREATE TABLE IF NOT EXISTS dns_cache (
+                url TEXT PRIMARY KEY,
+                addrinfos BLOB,
+                saved_at REAL
+            )"""
+        )
+        await self._db.commit()
+
+    async def load_dns_cache(self, url: str) -> Optional[tuple[list, float]]:
+        """
+        Load a previously saved DNS result for ``url``.
+
+        Returns ``(addrinfos, saved_at_unix)`` where ``saved_at_unix`` is the Unix
+        timestamp at which the result was saved, or ``None`` if nothing is cached.
+        Skips localhost URLs.
+        """
+        if _check_if_local(url):
+            return None
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
+            await self._ensure_dns_table()
+        try:
+            cursor = await self._db.execute(
+                "SELECT addrinfos, saved_at FROM dns_cache WHERE url=?", (url,)
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+            if row is not None:
+                return pickle.loads(row[0]), row[1]
+        except (pickle.PickleError, sqlite3.Error) as e:
+            logger.debug(f"DNS cache load error: {e}")
+        return None
+
+    async def save_dns_cache(self, url: str, addrinfos: list) -> None:
+        """Persist DNS results for ``url`` to disk. Skips localhost URLs."""
+        if _check_if_local(url):
+            return
+        async with self._lock:
+            if not self._db:
+                _ensure_dir()
+                self._db = await aiosqlite.connect(CACHE_LOCATION)
+            await self._ensure_dns_table()
+            try:
+                await self._db.execute(
+                    "INSERT OR REPLACE INTO dns_cache (url, addrinfos, saved_at) VALUES (?,?,?)",
+                    (url, pickle.dumps(addrinfos), time.time()),
+                )
+                await self._db.commit()
+            except (pickle.PickleError, sqlite3.Error) as e:
+                logger.debug(f"DNS cache save error: {e}")
 
     async def load_runtime_cache(
         self, chain: str
@@ -202,6 +265,8 @@ def _get_table_name(func):
 
 
 def _check_if_local(chain: str) -> bool:
+    if CACHE_LOCAL:
+        return False
     return any([x in chain for x in ["127.0.0.1", "localhost", "0.0.0.0"]])
 
 
