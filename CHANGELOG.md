@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.4 /2025-03-25
+
+## What's Changed
+* Better typing for ScaleObj by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/278
+* Faster startup by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/277
+* DNS/SSL Caching by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/279
+* Added info about signed commits by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/280
+* [fix] change legacy (old) runtimeApi params encoding by @camfairchild in https://github.com/opentensor/async-substrate-interface/pull/194
+* Prefer v15 metadata when available by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/282
+
+**Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.6.3...v1.6.4
+
 ## 1.6.3 /2025-02-24
 
 ## What's Changed
