@@ -168,7 +168,9 @@ def test_get_payment_info():
 def test_old_runtime_calls():
     from bittensor import SubtensorApi
 
-    sub = SubtensorApi(network="archive", legacy_methods=True, async_subtensor=False)
+    sub = SubtensorApi(
+        network=ARCHIVE_ENTRYPOINT, legacy_methods=True, async_subtensor=False
+    )
     # will pass
     assert sub.get_stake_info_for_coldkey(
         "5CQ6dMW8JZhKCZX9kWsZRqa3kZRKmNHxbPPVFEt6FgyvGv2G", 4943592
