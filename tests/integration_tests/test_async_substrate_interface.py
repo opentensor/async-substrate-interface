@@ -351,7 +351,9 @@ async def test_wait_for_block():
 async def test_old_runtime_calls():
     from bittensor import SubtensorApi
 
-    sub = SubtensorApi(network="archive", legacy_methods=True, async_subtensor=True)
+    sub = SubtensorApi(
+        network=ARCHIVE_ENTRYPOINT, legacy_methods=True, async_subtensor=True
+    )
     await sub.initialize()
     # will pass
     assert sub.get_stake_info_for_coldkey(
