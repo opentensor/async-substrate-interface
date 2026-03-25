@@ -8,6 +8,7 @@
 * DNS/SSL Caching by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/279
 * Added info about signed commits by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/280
 * [fix] change legacy (old) runtimeApi params encoding by @camfairchild in https://github.com/opentensor/async-substrate-interface/pull/194
+* Prefer v15 metadata when available by @thewhaleking in https://github.com/opentensor/async-substrate-interface/pull/282
 
 **Full Changelog**: https://github.com/opentensor/async-substrate-interface/compare/v1.6.3...v1.6.4
 
