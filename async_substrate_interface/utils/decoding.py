@@ -1,8 +1,8 @@
 import asyncio
-from typing import Union, TYPE_CHECKING, Any
+from typing import Union, TYPE_CHECKING
 
-from bt_decode import AxonInfo, PrometheusInfo, decode_list
-from scalecodec import ScaleBytes, ss58_encode
+from bt_decode import AxonInfo, PrometheusInfo
+from scalecodec import ScaleBytes
 
 from async_substrate_interface.utils import hex_to_bytes
 from async_substrate_interface.types import ScaleObj
@@ -61,7 +61,7 @@ def _decode_scale_list_with_runtime(
     return_scale_obj: bool = False,
 ):
     if runtime.metadata_v15 is not None:
-        obj = decode_list(type_strings, runtime.registry, scale_bytes_list)
+        obj = runtime.runtime_config.batch_decode(type_strings, scale_bytes_list)
     else:
         obj = [
             legacy_scale_decode(x, y, runtime)
@@ -81,7 +81,7 @@ async def _async_decode_scale_list_with_runtime(
 ):
     if runtime.metadata_v15 is not None:
         obj = await asyncio.to_thread(
-            decode_list, type_strings, runtime.registry, scale_bytes_list
+            runtime.runtime_config.batch_decode, type_strings, scale_bytes_list
         )
     else:
         obj = [
@@ -118,11 +118,19 @@ def _decode_query_map_pre(
     hex_to_bytes_ = hex_to_bytes
 
     # Determine type string
-    key_type_string_ = []
-    for n in range(len(params), len(param_types)):
-        key_type_string_.append(f"[u8; {concat_hash_len(key_hashers[n])}]")
-        key_type_string_.append(param_types[n])
-    key_type_string = f"({', '.join(key_type_string_)})"
+    n_free_keys = len(param_types) - len(params)
+    if n_free_keys == 1:
+        # Single-key map: skip the hash prefix bytes entirely — no need to decode them
+        n = len(params)
+        hash_len = concat_hash_len(key_hashers[n])
+        key_type_string = param_types[n]
+    else:
+        key_type_string_ = []
+        for n in range(len(params), len(param_types)):
+            key_type_string_.append(f"[u8; {concat_hash_len(key_hashers[n])}]")
+            key_type_string_.append(param_types[n])
+        key_type_string = f"({', '.join(key_type_string_)})"
+        hash_len = None
 
     pre_decoded_keys = []
     pre_decoded_key_types = [key_type_string] * len(result_group_changes)
@@ -130,7 +138,8 @@ def _decode_query_map_pre(
     pre_decoded_value_types = [value_type] * len(result_group_changes)
 
     for item in result_group_changes:
-        pre_decoded_keys.append(bytes.fromhex(item[0][len(prefix) :]))
+        raw_key = bytes.fromhex(item[0][len(prefix) :])
+        pre_decoded_keys.append(raw_key[hash_len:] if hash_len else raw_key)
         pre_decoded_values.append(
             hex_to_bytes_(item[1]) if item[1] is not None else b""
         )
@@ -150,7 +159,6 @@ def _decode_query_map_post(
     param_types,
     params,
     ignore_decoding_errors,
-    decode_ss58: bool = False,
 ):
     result = []
     middl_index = len(all_decoded) // 2
@@ -165,37 +173,19 @@ def _decode_query_map_post(
         try:
             # strip key_hashers to use as item key
             if len(param_types) - len(params) == 1:
-                item_key = dk[1]
-                if decode_ss58:
-                    if (
-                        isinstance(item_key[0], (tuple, list))
-                        and kts[kts.index(", ") + 2 : kts.index(")")] == "scale_info::0"
-                    ):
-                        item_key = ss58_encode(bytes(item_key[0]), runtime.ss58_format)
+                item_key = dk
             else:
                 try:
                     item_key = tuple(
-                        dk[key + 1]
-                        for key in range(len(params), len(param_types) + 1, 2)
+                        dk[i * 2 + 1] for i in range(len(param_types) - len(params))
                     )
                 except IndexError:
                     item_key = dk
-
         except Exception as _:
             if not ignore_decoding_errors:
                 raise
             item_key = None
-        item_value = dv
-        if decode_ss58:
-            try:
-                value_type_str_int = int(vts.split("::")[1])
-                decoded_type_str = runtime.type_id_to_name[value_type_str_int]
-                item_value = convert_account_ids(
-                    dv, decoded_type_str, runtime.ss58_format
-                )
-            except (ValueError, KeyError):
-                pass
-        result.append([item_key, ScaleObj(item_value)])
+        result.append([item_key, ScaleObj(dv)])
     return result
 
 
@@ -208,7 +198,6 @@ async def decode_query_map_async(
     value_type,
     key_hashers,
     ignore_decoding_errors,
-    decode_ss58: bool = False,
 ):
     (
         pre_decoded_key_types,
@@ -236,7 +225,6 @@ async def decode_query_map_async(
         param_types,
         params,
         ignore_decoding_errors,
-        decode_ss58=decode_ss58,
     )
 
 
@@ -249,7 +237,6 @@ def decode_query_map(
     value_type,
     key_hashers,
     ignore_decoding_errors,
-    decode_ss58: bool = False,
 ):
     (
         pre_decoded_key_types,
@@ -277,7 +264,6 @@ def decode_query_map(
         param_types,
         params,
         ignore_decoding_errors,
-        decode_ss58=decode_ss58,
     )
 
 
@@ -294,68 +280,3 @@ def legacy_scale_decode(
     obj.decode(check_remaining=runtime.config.get("strict_scale_decode"))
 
     return obj.value
-
-
-def is_accountid32(value: Any) -> bool:
-    return (
-        isinstance(value, tuple)
-        and len(value) == 32
-        and all(isinstance(b, int) and 0 <= b <= 255 for b in value)
-    )
-
-
-def convert_account_ids(value: Any, type_str: str, ss58_format=42) -> Any:
-    if "AccountId32" not in type_str:
-        return value
-
-    # Option<T>
-    if type_str.startswith("Option<") and value is not None:
-        inner_type = type_str[7:-1]
-        return convert_account_ids(value, inner_type)
-    # Vec<T>
-    if type_str.startswith("Vec<") and isinstance(value, (list, tuple)):
-        inner_type = type_str[4:-1]
-        return tuple(convert_account_ids(v, inner_type) for v in value)
-
-    # Vec<Vec<T>>
-    if type_str.startswith("Vec<Vec<") and isinstance(value, (list, tuple)):
-        inner_type = type_str[8:-2]
-        return tuple(
-            tuple(convert_account_ids(v2, inner_type) for v2 in v1) for v1 in value
-        )
-
-    # Tuple
-    if type_str.startswith("(") and isinstance(value, (list, tuple)):
-        inner_parts = split_tuple_type(type_str)
-        return tuple(convert_account_ids(v, t) for v, t in zip(value, inner_parts))
-
-    # AccountId32
-    if type_str == "AccountId32" and is_accountid32(value[0]):
-        return ss58_encode(bytes(value[0]), ss58_format=ss58_format)
-
-    # Fallback
-    return value
-
-
-def split_tuple_type(type_str: str) -> list[str]:
-    """
-    Splits a type string like '(AccountId32, Vec<StakeInfo>)' into ['AccountId32', 'Vec<StakeInfo>']
-    Handles nested generics.
-    """
-    s = type_str[1:-1]
-    parts = []
-    depth = 0
-    current = ""
-    for char in s:
-        if char == "," and depth == 0:
-            parts.append(current.strip())
-            current = ""
-        else:
-            if char == "<":
-                depth += 1
-            elif char == ">":
-                depth -= 1
-            current += char
-    if current:
-        parts.append(current.strip())
-    return parts
