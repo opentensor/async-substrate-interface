@@ -299,11 +299,9 @@ class AsyncExtrinsicReceipt:
 
                     module_error = normalize_module_error(dispatch_error)
                     if module_error is not None:
-                        self.__error_message = (
-                            await self._resolve_module_error_message(
-                                module_index=module_error["module_index"],
-                                error_index=module_error["error_index"],
-                            )
+                        self.__error_message = await self._resolve_module_error_message(
+                            module_index=module_error["module_index"],
+                            error_index=module_error["error_index"],
                         )
                     else:
                         self.__error_message = build_system_error_message(
@@ -1488,8 +1486,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             if runtime.implements_scaleinfo and force_legacy is False:
                 try:
                     obj_ = runtime.runtime_config.batch_decode(
-                        [type_string],
-                        [scale_bytes])
+                        [type_string], [scale_bytes]
+                    )
                     obj = obj_[0]
                 except NotImplementedError:
                     obj = legacy_scale_decode(type_string, scale_bytes, runtime)
@@ -2345,7 +2343,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         if block:
             return block["extrinsics"]
 
-    async def get_events(self, block_hash: Optional[str] = None) -> list:
+    async def get_events(self, block_hash: Optional[str] = None) -> list[dict]:
         """
         Convenience method to get events for a certain block (storage call for module 'System' and function 'Events')
 
@@ -2356,68 +2354,15 @@ class AsyncSubstrateInterface(SubstrateMixin):
             list of events
         """
 
-        def convert_event_data(data):
-            # Extract phase information
-            phase_key, phase_value = next(iter(data["phase"].items()))
-            try:
-                extrinsic_idx = phase_value[0]
-            except IndexError:
-                extrinsic_idx = None
-
-            # Extract event details
-            module_id, event_data = next(iter(data["event"].items()))
-            event_id, attributes_data = next(iter(event_data[0].items()))
-
-            # Convert class and pays_fee dictionaries to their string equivalents if they exist
-            attributes = attributes_data
-            if isinstance(attributes, dict):
-                for key, value in attributes.items():
-                    if key == "who":
-                        who = ss58_encode(bytes(value[0]), self.ss58_format)
-                        attributes["who"] = who
-                    elif key == "from":
-                        who_from = ss58_encode(bytes(value[0]), self.ss58_format)
-                        attributes["from"] = who_from
-                    elif key == "to":
-                        who_to = ss58_encode(bytes(value[0]), self.ss58_format)
-                        attributes["to"] = who_to
-                    elif isinstance(value, dict):
-                        # Convert nested single-key dictionaries to their keys as strings
-                        for sub_key, sub_value in value.items():
-                            if isinstance(sub_value, dict):
-                                for sub_sub_key, sub_sub_value in sub_value.items():
-                                    if sub_sub_value == ():
-                                        attributes[key][sub_key] = sub_sub_key
-
-            # Create the converted dictionary
-            converted = {
-                "phase": phase_key,
-                "extrinsic_idx": extrinsic_idx,
-                "event": {
-                    "module_id": module_id,
-                    "event_id": event_id,
-                    "attributes": attributes,
-                },
-                "topics": list(data["topics"]),  # Convert topics tuple to a list
-            }
-
-            return converted
-
-        events = []
-
         if not block_hash:
             block_hash = await self.get_chain_head()
 
-        storage_obj = await self.query(
+        events = await self.query(
             module="System",
             storage_function="Events",
             block_hash=block_hash,
-            force_legacy_decode=True,
+            force_legacy_decode=False,
         )
-        # Force legacy decoding for events
-        if storage_obj:
-            for item in list(storage_obj):
-                events.append(item)
         return events
 
     async def get_metadata(self, block_hash=None):
