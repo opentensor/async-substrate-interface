@@ -33,7 +33,6 @@ from scalecodec.types import (
     GenericExtrinsic,
     MultiAccountId,
 )
-from scalecodec.utils.ss58 import ss58_encode
 from websockets import CloseCode
 from websockets.asyncio.client import connect, ClientConnection
 import websockets.exceptions
@@ -51,7 +50,6 @@ from async_substrate_interface.errors import (
 )
 from async_substrate_interface.protocols import Keypair
 from async_substrate_interface.types import (
-    ScaleObj,
     RequestManager,
     Runtime,
     RuntimeCache,
@@ -72,8 +70,9 @@ from async_substrate_interface.utils.cache import (
 )
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
-    legacy_scale_decode,
-    decode_query_map_async,
+    scale_decode,
+    decode_query_map,
+    try_batch_decode,
 )
 from async_substrate_interface.utils.receipt import (
     build_system_error_message,
@@ -237,7 +236,7 @@ class AsyncExtrinsicReceipt:
                 if event["extrinsic_idx"] == await self.extrinsic_idx:
                     self.__triggered_events.append(event)
 
-        return cast(list, self.__triggered_events)
+        return self.__triggered_events
 
     @classmethod
     async def create_from_extrinsic_identifier(
@@ -1006,7 +1005,7 @@ class Websocket:
         else:
             raise KeyError(response)
 
-    async def _start_receiving(self, ws: ClientConnection) -> Exception:
+    async def _start_receiving(self, ws: ClientConnection) -> Optional[Exception]:
         logger.debug("Starting receiving task")
         try:
             while True:
@@ -1450,13 +1449,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
         self,
         type_string: str,
         scale_bytes: bytes,
-        _attempt=1,
-        _retries=3,
-        return_scale_obj: bool = False,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-        force_legacy: bool = False,
-    ) -> Union[ScaleObj, Any]:
+    ) -> Optional[ScaleType[Any] | Any]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
         (e.g. BlockNumber). The relevant versioning information of the type (if defined) will be applied if block_hash
@@ -1465,39 +1460,19 @@ class AsyncSubstrateInterface(SubstrateMixin):
         Args:
             type_string: the type string of the SCALE object for decoding
             scale_bytes: the bytes representation of the SCALE object to decode
-            _attempt: the number of attempts to pull the registry before timing out
-            _retries: the number of retries to pull the registry before timing out
-            return_scale_obj: Whether to return the decoded value wrapped in a SCALE-object-like wrapper, or raw.
             block_hash: Hash of the block where the desired runtime is located. Ignored if supplying `runtime`
             runtime: Optional Runtime object whose registry to use for decoding. If not specified, runtime will be
                 loaded based on the block hash specified (or latest block if no block_hash is specified)
-            force_legacy: Whether to explicitly use legacy Python-only decoding (non bt-decode).
 
         Returns:
-            Decoded object
+            ScaleType object
         """
         if scale_bytes == b"":
             return None
-        # TODO can probably remove this
-        if type_string == "scale_info::0":  # Is an AccountId
-            # Decode AccountId bytes to SS58 address
-            return ss58_encode(scale_bytes, self.ss58_format)
         else:
             if runtime is None:
                 runtime = await self.init_runtime(block_hash=block_hash)
-            if runtime.implements_scaleinfo and force_legacy is False:
-                try:
-                    obj_ = runtime.runtime_config.batch_decode(
-                        [type_string], [scale_bytes]
-                    )
-                    obj = obj_[0]
-                except NotImplementedError:
-                    obj = legacy_scale_decode(type_string, scale_bytes, runtime)
-            else:
-                obj = legacy_scale_decode(type_string, scale_bytes, runtime)
-        if return_scale_obj:
-            return ScaleObj(obj)
-        else:
+            obj = scale_decode(type_string, scale_bytes, runtime=runtime)
             return obj
 
     async def init_runtime(
@@ -2363,7 +2338,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
             module="System",
             storage_function="Events",
             block_hash=block_hash,
-            force_legacy_decode=False,
         )
         return events.value
 
@@ -2605,9 +2579,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 q = bytes(query_value)
             else:
                 q = query_value
-            result = await self.decode_scale(
-                value_scale_type, q, runtime=runtime, force_legacy=force_legacy_decode
-            )
+            result = await self.decode_scale(value_scale_type, q, runtime=runtime)
         if asyncio.iscoroutinefunction(result_handler):
             # For multipart responses as a result of subscriptions.
             message, bool_result = await result_handler(result, subscription_id)
@@ -2867,7 +2839,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         runtime = await self.init_runtime(block_hash=block_hash)
 
-        call = runtime.runtime_config.create_scale_object(
+        call: GenericCall = runtime.runtime_config.create_scale_object(
             type_string="Call", metadata=runtime.metadata
         )
 
@@ -2929,7 +2901,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         storage_keys: list[StorageKey],
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ) -> list:
+    ) -> list[tuple[StorageKey, Any]]:
         """
         Query multiple storage keys in one request.
 
@@ -2967,24 +2939,21 @@ class AsyncSubstrateInterface(SubstrateMixin):
             runtime=runtime,
         )
 
-        result = []
-
         storage_key_map = {s.to_hex(): s for s in storage_keys}
 
+        pairs = []
         for result_group in response["result"]:
             for change_storage_key, change_data in result_group["changes"]:
-                # Decode result for specified storage_key
                 storage_key = storage_key_map[change_storage_key]
-                if change_data is not None:
-                    change_data = ScaleBytes(change_data)
-                result.append(
+                pairs.append(
                     (
                         storage_key,
-                        storage_key.decode_scale_value(change_data).value,
-                    ),
+                        ScaleBytes(change_data) if change_data is not None else None,
+                    )
                 )
 
-        return result
+        decoded = try_batch_decode(pairs, runtime)
+        return list(zip([sk for sk, _ in pairs], decoded))
 
     async def create_scale_object(
         self,
@@ -3327,7 +3296,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
         runtime: Optional[Runtime] = None,
-    ) -> ScaleObj:
+    ) -> Any:
         logger.debug(
             f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
         )
@@ -3376,11 +3345,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
             raw_bytes = hex_to_bytes(result_bytes)
         else:
             raw_bytes = bytes(result_bytes)
-        result_decoded = runtime_call_def["decoder"](raw_bytes, runtime)
-        logger.debug("Decoded old runtime call result: ", result_decoded)
-        result_obj = ScaleObj(result_decoded)
-
-        return result_obj
+        result = runtime_call_def["decoder"](raw_bytes, runtime)
+        return result
 
     async def runtime_call(
         self,
@@ -3388,7 +3354,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         method: str,
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
-    ) -> ScaleObj:
+    ) -> Any:
         """
         Calls a runtime API method
 
@@ -3399,7 +3365,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
             block_hash: Hash of the block at which to make the runtime API call
 
         Returns:
-             ScaleType from the runtime call
+             Decoded runtime call
         """
         runtime = await self.init_runtime(block_hash=block_hash)
 
@@ -3420,15 +3386,8 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 )
 
             else:
-                metadata_v15_value = (
-                    runtime.metadata_v15.get_metadata().value_object[1].value
-                )
-
-                apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
-                api_entry = apis[api]
-                methods = {entry["name"]: entry for entry in api_entry["methods"]}
-                runtime_call_def = methods[method]
-                if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
+                runtime_call_def = runtime.runtime_api_map[api][method]
+                if _determine_if_old_runtime_call(runtime_call_def, runtime):
                     return await self._do_runtime_call_old(
                         api, method, params, block_hash, runtime=runtime
                     )
@@ -3469,11 +3428,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
 
         # Decode result
         result_bytes = hex_to_bytes(result_data["result"])
-        result_obj = ScaleObj(
-            await self.decode_scale(output_type_string, result_bytes, runtime=runtime)
+        return await self.decode_scale(
+            output_type_string, result_bytes, runtime=runtime
         )
-
-        return result_obj
 
     async def get_account_nonce(self, account_address: str) -> int:
         """
@@ -3579,7 +3536,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         block_hash: Optional[str] = None,
         reuse_block_hash: bool = False,
         runtime: Optional[Runtime] = None,
-    ) -> Optional[ScaleObj]:
+    ) -> Optional[ScaleType[Any]]:
         """
         Returns the decoded `ScaleType` object of the constant for given module name, call function name and block_hash
         (or chaintip if block_hash is omitted)
@@ -3603,7 +3560,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
             return await self.decode_scale(
                 constant.type,
                 bytes(constant.constant_value),
-                return_scale_obj=True,
                 runtime=runtime,
             )
         else:
@@ -3758,8 +3714,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         subscription_handler=None,
         reuse_block_hash: bool = False,
         runtime: Optional[Runtime] = None,
-        force_legacy_decode: bool = False,
-    ) -> Optional[ScaleObj[Any]]:
+    ) -> Optional[ScaleType[Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
         you should use `self.query_multiple`
@@ -3791,13 +3746,9 @@ class AsyncSubstrateInterface(SubstrateMixin):
             storage_item,
             result_handler=subscription_handler,
             runtime=runtime,
-            force_legacy_decode=force_legacy_decode,
         )
         result = responses[preprocessed.queryable][0]
-        if result is not None:
-            return ScaleObj(result)
-        else:
-            return result
+        return result
 
     async def query_map(
         self,
@@ -3922,7 +3873,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                 changes = []
                 for result_group in response["result"]:
                     changes.extend(result_group["changes"])
-                result = await decode_query_map_async(
+                result = decode_query_map(
                     changes,
                     prefix,
                     runtime,
@@ -3968,7 +3919,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
                     else:
                         for result_group in res["result"]:
                             changes.extend(result_group["changes"])
-                result = await decode_query_map_async(
+                result = decode_query_map(
                     changes,
                     prefix,
                     runtime,

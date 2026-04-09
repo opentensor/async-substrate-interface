@@ -251,6 +251,7 @@ class Runtime:
     type_registry_preset = None
     registry_type_map: dict[str, int]
     type_id_to_name: dict[int, str]
+    runtime_api_map: dict[str, dict[str, Any]]
 
     def __init__(
         self,
@@ -560,6 +561,13 @@ class Runtime:
         self.registry_type_map = registry_type_map
         self.type_id_to_name = type_id_to_name
 
+        if self.metadata_v15 is not None:
+            v15 = self.metadata_v15.get_metadata().value_object[1].value
+            self.runtime_api_map = {
+                api_entry["name"]: {m["name"]: m for m in api_entry["methods"]}
+                for api_entry in v15["apis"]
+            }
+
 
 RequestResults = dict[Union[str, int], list[Union[ScaleType, dict]]]
 
@@ -630,123 +638,6 @@ class Preprocessed:
     params: list
     value_scale_type: str
     storage_item: ScaleType
-
-
-class ScaleObj(Generic[T]):
-    """Bittensor representation of Scale Object."""
-
-    def __init__(self, value):
-        self.value = list(value) if isinstance(value, tuple) else value
-
-    def __new__(cls, value):
-        return super().__new__(cls)
-
-    def __str__(self):
-        return f"BittensorScaleType(value={self.value})>"
-
-    def __bool__(self):
-        if self.value:
-            return True
-        else:
-            return False
-
-    def __repr__(self):
-        return repr(f"BittensorScaleType(value={self.value})>")
-
-    def __eq__(self, other):
-        return self.value == (other.value if isinstance(other, ScaleObj) else other)
-
-    def __lt__(self, other):
-        return self.value < (other.value if isinstance(other, ScaleObj) else other)
-
-    def __gt__(self, other):
-        return self.value > (other.value if isinstance(other, ScaleObj) else other)
-
-    def __le__(self, other):
-        return self.value <= (other.value if isinstance(other, ScaleObj) else other)
-
-    def __ge__(self, other):
-        return self.value >= (other.value if isinstance(other, ScaleObj) else other)
-
-    def __add__(self, other):
-        if isinstance(other, ScaleObj):
-            return ScaleObj(self.value + other.value)
-        return ScaleObj(self.value + other)
-
-    def __radd__(self, other):
-        return ScaleObj(other + self.value)
-
-    def __sub__(self, other):
-        if isinstance(other, ScaleObj):
-            return ScaleObj(self.value - other.value)
-        return ScaleObj(self.value - other)
-
-    def __rsub__(self, other):
-        return ScaleObj(other - self.value)
-
-    def __mul__(self, other):
-        if isinstance(other, ScaleObj):
-            return ScaleObj(self.value * other.value)
-        return ScaleObj(self.value * other)
-
-    def __rmul__(self, other):
-        return ScaleObj(other * self.value)
-
-    def __truediv__(self, other):
-        if isinstance(other, ScaleObj):
-            return ScaleObj(self.value / other.value)
-        return ScaleObj(self.value / other)
-
-    def __rtruediv__(self, other):
-        return ScaleObj(other / self.value)
-
-    def __floordiv__(self, other):
-        if isinstance(other, ScaleObj):
-            return ScaleObj(self.value // other.value)
-        return ScaleObj(self.value // other)
-
-    def __rfloordiv__(self, other):
-        return ScaleObj(other // self.value)
-
-    def __mod__(self, other):
-        if isinstance(other, ScaleObj):
-            return ScaleObj(self.value % other.value)
-        return ScaleObj(self.value % other)
-
-    def __rmod__(self, other):
-        return ScaleObj(other % self.value)
-
-    def __pow__(self, other):
-        if isinstance(other, ScaleObj):
-            return ScaleObj(self.value**other.value)
-        return ScaleObj(self.value**other)
-
-    def __rpow__(self, other):
-        return ScaleObj(other**self.value)
-
-    def __getitem__(self, key):
-        if isinstance(self.value, (list, tuple, dict, str)):
-            return self.value[key]
-        raise TypeError(
-            f"Object of type '{type(self.value).__name__}' does not support indexing"
-        )
-
-    def __iter__(self):
-        if isinstance(self.value, Iterable):
-            return iter(self.value)
-        raise TypeError(f"Object of type '{type(self.value).__name__}' is not iterable")
-
-    def __len__(self):
-        return len(self.value)
-
-    def process(self):
-        pass
-
-    def serialize(self):
-        return self.value
-
-    def decode(self):
-        return self.value
 
 
 class SubstrateMixin(ABC):

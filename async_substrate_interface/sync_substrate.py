@@ -14,7 +14,6 @@ from scalecodec.types import (
     GenericExtrinsic,
     MultiAccountId,
 )
-from scalecodec.utils.ss58 import ss58_encode
 from websockets.sync.client import connect, ClientConnection
 from websockets.exceptions import ConnectionClosed
 
@@ -37,7 +36,6 @@ from async_substrate_interface.types import (
     Runtime,
     RequestManager,
     Preprocessed,
-    ScaleObj,
     RequestResults,
 )
 from async_substrate_interface.utils import (
@@ -49,7 +47,8 @@ from async_substrate_interface.utils import (
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
     decode_query_map,
-    legacy_scale_decode,
+    scale_decode,
+    try_batch_decode,
 )
 from async_substrate_interface.utils.receipt import (
     build_system_error_message,
@@ -676,9 +675,7 @@ class SubstrateInterface(SubstrateMixin):
         self,
         type_string: str,
         scale_bytes: bytes,
-        return_scale_obj=False,
-        force_legacy: bool = False,
-    ) -> Union[ScaleObj, Any]:
+    ) -> Optional[ScaleType]:
         """
         Helper function to decode arbitrary SCALE-bytes (e.g. 0x02000000) according to given RUST type_string
         (e.g. BlockNumber). The relevant versioning information of the type (if defined) will be applied if block_hash
@@ -687,28 +684,14 @@ class SubstrateInterface(SubstrateMixin):
         Args:
             type_string: the type string of the SCALE object for decoding
             scale_bytes: the bytes representation of the SCALE object to decode
-            return_scale_obj: Whether to return the decoded value wrapped in a SCALE-object-like wrapper, or raw.
-            force_legacy: Whether to force the use of the legacy Metadata V14 decoder
 
         Returns:
-            Decoded object
+            ScaleType object
         """
-        if type_string == "scale_info::0":  # Is an AccountId
-            # Decode AccountId bytes to SS58 address
-            return ss58_encode(scale_bytes, self.ss58_format)
+        if scale_bytes == b"":
+            return None
         else:
-            if self.runtime.implements_scaleinfo and force_legacy is False:
-                try:
-                    obj = self.runtime.runtime_config.batch_decode(
-                        [type_string], [scale_bytes]
-                    )[0]
-                except NotImplementedError:
-                    obj = legacy_scale_decode(type_string, scale_bytes, self.runtime)
-            else:
-                obj = legacy_scale_decode(type_string, scale_bytes, self.runtime)
-        if return_scale_obj:
-            return ScaleObj(obj)
-        else:
+            obj = scale_decode(type_string, scale_bytes, runtime=self.runtime)
             return obj
 
     def load_runtime(self, runtime):
@@ -1328,7 +1311,7 @@ class SubstrateInterface(SubstrateMixin):
             block_hash = self.get_block_hash(block_number)
 
             if block_hash is None:
-                return
+                return None
 
         if block_hash and finalized_only:
             raise ValueError(
@@ -1383,7 +1366,7 @@ class SubstrateInterface(SubstrateMixin):
             block_hash = self.get_block_hash(block_number)
 
             if block_hash is None:
-                return
+                return None
 
         if block_hash and finalized_only:
             raise ValueError(
@@ -1528,7 +1511,6 @@ class SubstrateInterface(SubstrateMixin):
             module="System",
             storage_function="Events",
             block_hash=block_hash,
-            force_legacy_decode=False,
         )
         return events.value
 
@@ -1744,9 +1726,7 @@ class SubstrateInterface(SubstrateMixin):
                 q = bytes(query_value)
             else:
                 q = query_value
-            result = self.decode_scale(
-                value_scale_type, q, force_legacy=force_legacy_decode
-            )
+            result = self.decode_scale(value_scale_type, q)
         if isinstance(result_handler, Callable):
             # For multipart responses as a result of subscriptions.
             message, bool_result = result_handler(result, subscription_id)
@@ -2030,7 +2010,7 @@ class SubstrateInterface(SubstrateMixin):
             self.last_block_hash = block_hash
         self.init_runtime(block_hash=block_hash)
 
-        preprocessed: tuple[Preprocessed] = [
+        preprocessed: list[Preprocessed] = [
             self._preprocess([x], block_hash, storage_function, module) for x in params
         ]
         all_info = [
@@ -2048,7 +2028,7 @@ class SubstrateInterface(SubstrateMixin):
 
     def query_multi(
         self, storage_keys: list[StorageKey], block_hash: Optional[str] = None
-    ) -> list:
+    ) -> list[tuple[StorageKey, Any]]:
         """
         Query multiple storage keys in one request.
 
@@ -2074,31 +2054,28 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             list of `(storage_key, scale_obj)` tuples
         """
-        self.init_runtime(block_hash=block_hash)
+        runtime = self.init_runtime(block_hash=block_hash)
 
         # Retrieve corresponding value
         response = self.rpc_request(
             "state_queryStorageAt", [[s.to_hex() for s in storage_keys], block_hash]
         )
 
-        result = []
-
         storage_key_map = {s.to_hex(): s for s in storage_keys}
 
+        pairs = []
         for result_group in response["result"]:
             for change_storage_key, change_data in result_group["changes"]:
-                # Decode result for specified storage_key
                 storage_key = storage_key_map[change_storage_key]
-                if change_data is not None:
-                    change_data = ScaleBytes(change_data)
-                result.append(
+                pairs.append(
                     (
                         storage_key,
-                        storage_key.decode_scale_value(change_data).value,
-                    ),
+                        ScaleBytes(change_data) if change_data is not None else None,
+                    )
                 )
 
-        return result
+        decoded = try_batch_decode(pairs, runtime)
+        return list(zip([sk for sk, _ in pairs], decoded))
 
     def create_scale_object(
         self,
@@ -2423,7 +2400,7 @@ class SubstrateInterface(SubstrateMixin):
         method: str,
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
-    ) -> ScaleObj:
+    ) -> ScaleType[Any]:
         logger.debug(
             f"Decoding old runtime call: {api}.{method} with params: {params} at block hash: {block_hash}"
         )
@@ -2455,10 +2432,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             raw_bytes = bytes(result_bytes)
         result_decoded = runtime_call_def["decoder"](raw_bytes, runtime)
-        logger.debug("Decoded old runtime call result: ", result_decoded)
-        result_obj = ScaleObj(result_decoded)
-
-        return result_obj
+        return result_decoded
 
     def runtime_call(
         self,
@@ -2466,7 +2440,7 @@ class SubstrateInterface(SubstrateMixin):
         method: str,
         params: Optional[Union[list, dict]] = None,
         block_hash: Optional[str] = None,
-    ) -> ScaleObj:
+    ) -> ScaleType[Any]:
         """
         Calls a runtime API method
 
@@ -2495,15 +2469,8 @@ class SubstrateInterface(SubstrateMixin):
                 runtime.runtime_config.update_type_registry_types(runtime_api_types)
                 return self._do_runtime_call_old(api, method, params, block_hash)
             else:
-                metadata_v15_value = (
-                    runtime.metadata_v15.get_metadata().value_object[1].value
-                )
-
-                apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
-                api_entry = apis[api]
-                methods = {entry["name"]: entry for entry in api_entry["methods"]}
-                runtime_call_def = methods[method]
-                if _determine_if_old_runtime_call(runtime_call_def, metadata_v15_value):
+                runtime_call_def = runtime.runtime_api_map[api][method]
+                if _determine_if_old_runtime_call(runtime_call_def, runtime):
                     return self._do_runtime_call_old(api, method, params, block_hash)
 
         except KeyError:
@@ -2539,9 +2506,7 @@ class SubstrateInterface(SubstrateMixin):
 
         # Decode result
         result_bytes = hex_to_bytes(result_data["result"])
-        result_obj = ScaleObj(self.decode_scale(output_type_string, result_bytes))
-
-        return result_obj
+        return self.decode_scale(output_type_string, result_bytes)
 
     def get_account_nonce(self, account_address: str) -> int:
         """
@@ -2620,7 +2585,7 @@ class SubstrateInterface(SubstrateMixin):
         constant_name: str,
         block_hash: Optional[str] = None,
         reuse_block_hash: bool = False,
-    ) -> Optional[ScaleObj]:
+    ) -> Optional[ScaleType]:
         """
         Returns the decoded `ScaleType` object of the constant for given module name, call function name and block_hash
         (or chaintip if block_hash is omitted)
@@ -2640,9 +2605,7 @@ class SubstrateInterface(SubstrateMixin):
         )
         if constant:
             # Decode to ScaleType
-            return self.decode_scale(
-                constant.type, bytes(constant.constant_value), return_scale_obj=True
-            )
+            return self.decode_scale(constant.type, bytes(constant.constant_value))
         else:
             return None
 
@@ -2794,8 +2757,7 @@ class SubstrateInterface(SubstrateMixin):
         raw_storage_key: Optional[bytes] = None,
         subscription_handler=None,
         reuse_block_hash: bool = False,
-        force_legacy_decode: bool = False,
-    ) -> Optional[ScaleObj[Any]]:
+    ) -> Optional[ScaleType[Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
         you should use ``self.query_multiple``
@@ -2820,13 +2782,9 @@ class SubstrateInterface(SubstrateMixin):
             value_scale_type,
             storage_item,
             result_handler=subscription_handler,
-            force_legacy_decode=force_legacy_decode,
         )
         result = responses[preprocessed.queryable][0]
-        if result is not None:
-            return ScaleObj(result)
-        else:
-            return result
+        return result
 
     def query_map(
         self,

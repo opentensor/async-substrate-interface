@@ -12,7 +12,6 @@ import pytest_asyncio
 from scalecodec import ss58_encode
 
 from async_substrate_interface.async_substrate import AsyncSubstrateInterface, logger
-from async_substrate_interface.types import ScaleObj
 from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 from tests.helpers.proxy_server import ProxyServer
 
@@ -59,7 +58,7 @@ async def test_legacy_decoding(substrate):
     )
     async for key, value in query_map_result:
         assert isinstance(key, int)
-        assert isinstance(value, ScaleObj)
+        assert isinstance(value, bool)
 
     timestamp = await substrate.query(
         "Timestamp",
@@ -82,10 +81,9 @@ async def test_ss58_conversion(substrate):
     )
     for key, value in qm.records:
         assert isinstance(key, str)
-        assert isinstance(value, ScaleObj)
-        assert isinstance(value.value, list)
-        if len(value.value) > 0:
-            for decoded_key in value.value:
+        assert isinstance(value, list)
+        if len(value) > 0:
+            for decoded_key in value:
                 assert isinstance(decoded_key, str)
     print("test_ss58_conversion succeeded")
 
@@ -389,7 +387,7 @@ async def test_old_runtime_calls_natively(substrate):
         params=[coldkey_ss58],
         block_hash=old_block_hash,
     )
-    assert result.value == [
+    assert result == [
         {
             "netuid": 0,
             "hotkey": "5HKrFigd2VndU3Kcj6ZvoxZ8MtdX7d9vd6YzHLysPpsib9pQ",
