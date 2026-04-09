@@ -7,18 +7,21 @@ from typing import Optional, Union, Callable, Any
 from unittest.mock import MagicMock
 
 import scalecodec
-from bt_decode import MetadataV15, PortableRegistry, decode as decode_by_type_string
-from scalecodec import (
+from scalecodec import ScaleBytes
+from scalecodec.base import ScaleType
+from scalecodec.types import (
     GenericCall,
     GenericExtrinsic,
-    GenericRuntimeCallDefinition,
-    ss58_encode,
     MultiAccountId,
-    GenericVariant,
 )
-from scalecodec.base import ScaleBytes, ScaleType
+from scalecodec.utils.ss58 import ss58_encode
 from websockets.sync.client import connect, ClientConnection
 from websockets.exceptions import ConnectionClosed
+
+from async_substrate_interface.types import (
+    _decode_option_opaque_metadata,
+    _decode_v15_metadata,
+)
 
 from async_substrate_interface.errors import (
     ExtrinsicNotFound,
@@ -45,10 +48,8 @@ from async_substrate_interface.utils import (
 )
 from async_substrate_interface.utils.decoding import (
     _determine_if_old_runtime_call,
-    _bt_decode_to_dict_or_list,
     decode_query_map,
     legacy_scale_decode,
-    convert_account_ids,
 )
 from async_substrate_interface.utils.receipt import (
     build_system_error_message,
@@ -276,7 +277,9 @@ class ExtrinsicReceipt:
                 # events and have ensured nothing has set an error message
                 self.__is_success = True
 
-    def _resolve_module_error_message(self, module_index: int, error_index: int) -> dict:
+    def _resolve_module_error_message(
+        self, module_index: int, error_index: int
+    ) -> dict:
         module_error = self.substrate.metadata.get_module_error(
             module_index=module_index, error_index=error_index
         )
@@ -481,7 +484,6 @@ class SubstrateInterface(SubstrateMixin):
         retry_timeout: float = 60.0,
         _mock: bool = False,
         _log_raw_websockets: bool = False,
-        decode_ss58: bool = False,
     ):
         """
         The sync compatible version of the subtensor interface commands we use in bittensor. Use this instance only
@@ -499,7 +501,6 @@ class SubstrateInterface(SubstrateMixin):
             retry_timeout: how to long wait since the last ping to retry the RPC request
             _mock: whether to use mock version of the subtensor interface
             _log_raw_websockets: whether to log raw websocket requests during RPC requests
-            decode_ss58: Whether to decode AccountIds to SS58 or leave them in raw bytes tuples.
 
         """
         super().__init__(
@@ -507,7 +508,6 @@ class SubstrateInterface(SubstrateMixin):
             type_registry_preset,
             use_remote_preset,
             ss58_format,
-            decode_ss58,
         )
         self.max_retries = max_retries
         self.retry_timeout = retry_timeout
@@ -648,9 +648,7 @@ class SubstrateInterface(SubstrateMixin):
                 return self.last_block_hash
         return block_hash
 
-    def _load_registry_at_block(
-        self, block_hash: Optional[str]
-    ) -> tuple[Optional[MetadataV15], Optional[PortableRegistry]]:
+    def _load_registry_at_block(self, block_hash: Optional[str], runtime_config=None):
         # Should be called for any block that fails decoding.
         # Possibly the metadata was different.
         try:
@@ -664,14 +662,15 @@ class SubstrateInterface(SubstrateMixin):
                 "Client error: Execution failed: Other: Exported method Metadata_metadata_at_version is not found"
                 in e.args
             ):
-                return None, None
+                return None
             else:
                 raise e
         metadata_option_hex_str = metadata_rpc_result["result"]
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
-        metadata = MetadataV15.decode_from_metadata_option(metadata_option_bytes)
-        registry = PortableRegistry.from_metadata_v15(metadata)
-        return metadata, registry
+        inner_bytes = _decode_option_opaque_metadata(metadata_option_bytes)
+        if inner_bytes is None:
+            return None
+        return _decode_v15_metadata(inner_bytes, runtime_config=runtime_config)
 
     def decode_scale(
         self,
@@ -698,22 +697,13 @@ class SubstrateInterface(SubstrateMixin):
             # Decode AccountId bytes to SS58 address
             return ss58_encode(scale_bytes, self.ss58_format)
         else:
-            if self.runtime.metadata_v15 is not None and force_legacy is False:
+            if self.runtime.implements_scaleinfo and force_legacy is False:
                 try:
-                    obj = decode_by_type_string(
-                        type_string, self.runtime.registry, scale_bytes
-                    )
-                except ValueError:
+                    obj = self.runtime.runtime_config.batch_decode(
+                        [type_string], [scale_bytes]
+                    )[0]
+                except NotImplementedError:
                     obj = legacy_scale_decode(type_string, scale_bytes, self.runtime)
-                if self.decode_ss58:
-                    try:
-                        type_str_int = int(type_string.split("::")[1])
-                        decoded_type_str = self.runtime.type_id_to_name[type_str_int]
-                        obj = convert_account_ids(
-                            obj, decoded_type_str, self.ss58_format
-                        )
-                    except (ValueError, KeyError):
-                        pass
             else:
                 obj = legacy_scale_decode(type_string, scale_bytes, self.runtime)
         if return_scale_obj:
@@ -767,7 +757,7 @@ class SubstrateInterface(SubstrateMixin):
         if block_id is not None:
             if runtime := self.runtime_cache.retrieve(block=block_id):
                 runtime.load_runtime()
-                if runtime.registry:
+                if runtime.implements_scaleinfo:
                     runtime.load_registry_type_map()
                 self.runtime = runtime
                 return self.runtime
@@ -779,7 +769,7 @@ class SubstrateInterface(SubstrateMixin):
             self.last_block_hash = block_hash
             if runtime := self.runtime_cache.retrieve(block_hash=block_hash):
                 runtime.load_runtime()
-                if runtime.registry:
+                if runtime.implements_scaleinfo:
                     runtime.load_registry_type_map()
                 self.runtime = runtime
                 return self.runtime
@@ -800,7 +790,7 @@ class SubstrateInterface(SubstrateMixin):
         else:
             runtime = self.get_runtime_for_version(runtime_version, block_hash)
         runtime.load_runtime()
-        if runtime.registry:
+        if runtime.implements_scaleinfo:
             runtime.load_registry_type_map()
         self.runtime = runtime
         return self.runtime
@@ -824,27 +814,26 @@ class SubstrateInterface(SubstrateMixin):
         block_number = self.get_block_number(block_hash)
         runtime_info = self.get_block_runtime_info(runtime_block_hash)
 
-        metadata = self.get_block_metadata(block_hash=runtime_block_hash, decode=True)
-        if metadata is None:
-            # does this ever happen?
-            raise SubstrateRequestException(
-                f"No metadata for block '{runtime_block_hash}'"
-            )
-        logger.debug(
-            "Retrieved metadata for {} from Substrate node".format(runtime_version)
-        )
-
-        metadata_v15, registry = self._load_registry_at_block(
-            block_hash=runtime_block_hash
+        metadata_v15 = self._load_registry_at_block(
+            block_hash=runtime_block_hash, runtime_config=self.runtime_config
         )
         if metadata_v15 is not None:
+            # V15 is a superset of V14; use it directly, skipping the V14 fetch
+            metadata = metadata_v15
             logger.debug(
-                f"Retrieved metadata and metadata v15 for {runtime_version} from Substrate node"
+                f"Retrieved metadata v15 for {runtime_version} from Substrate node"
             )
         else:
+            metadata = self.get_block_metadata(
+                block_hash=runtime_block_hash, decode=True
+            )
             logger.debug(
-                f"Exported method Metadata_metadata_at_version is not found for {runtime_version}. This indicates the "
-                f"block is quite old, decoding for this block will use legacy Python decoding."
+                f"Exported method Metadata_metadata_at_version is not found for {runtime_version}. "
+                f"This indicates the block is quite old, decoding for this block will use legacy Python decoding."
+            )
+        if metadata is None:
+            raise SubstrateRequestException(
+                f"No metadata for block '{runtime_block_hash}'"
             )
 
         runtime = Runtime(
@@ -854,7 +843,6 @@ class SubstrateInterface(SubstrateMixin):
             type_registry=self.type_registry,
             metadata_v15=metadata_v15,
             runtime_info=runtime_info,
-            registry=registry,
             ss58_format=self.ss58_format,
         )
         self.runtime_cache.add_item(
@@ -1523,7 +1511,7 @@ class SubstrateInterface(SubstrateMixin):
         if block:
             return block["extrinsics"]
 
-    def get_events(self, block_hash: Optional[str] = None) -> list:
+    def get_events(self, block_hash: Optional[str] = None) -> list[dict]:
         """
         Convenience method to get events for a certain block (storage call for module 'System' and function 'Events')
 
@@ -1533,66 +1521,18 @@ class SubstrateInterface(SubstrateMixin):
         Returns:
             list of events
         """
-
-        def convert_event_data(data):
-            # Extract phase information
-            phase_key, phase_value = next(iter(data["phase"].items()))
-            try:
-                extrinsic_idx = phase_value[0]
-            except IndexError:
-                extrinsic_idx = None
-
-            # Extract event details
-            module_id, event_data = next(iter(data["event"].items()))
-            event_id, attributes_data = next(iter(event_data[0].items()))
-
-            # Convert class and pays_fee dictionaries to their string equivalents if they exist
-            attributes = attributes_data
-            if isinstance(attributes, dict):
-                for key, value in attributes.items():
-                    if key == "who":
-                        who = ss58_encode(bytes(value[0]), self.ss58_format)
-                        attributes["who"] = who
-                    if isinstance(value, dict):
-                        # Convert nested single-key dictionaries to their keys as strings
-                        for sub_key, sub_value in value.items():
-                            if isinstance(sub_value, dict):
-                                for sub_sub_key, sub_sub_value in sub_value.items():
-                                    if sub_sub_value == ():
-                                        attributes[key][sub_key] = sub_sub_key
-
-            # Create the converted dictionary
-            converted = {
-                "phase": phase_key,
-                "extrinsic_idx": extrinsic_idx,
-                "event": {
-                    "module_id": module_id,
-                    "event_id": event_id,
-                    "attributes": attributes,
-                },
-                "topics": list(data["topics"]),  # Convert topics tuple to a list
-            }
-
-            return converted
-
-        events = []
-
         if not block_hash:
             block_hash = self.get_chain_head()
 
-        storage_obj = self.query(
+        events = self.query(
             module="System",
             storage_function="Events",
             block_hash=block_hash,
-            force_legacy_decode=True,
+            force_legacy_decode=False,
         )
-        # bt-decode Metadata V15 is not ideal for events. Force legacy decoding for this
-        if storage_obj:
-            for item in list(storage_obj):
-                events.append(item)
-        return events
+        return events.value
 
-    def get_metadata(self, block_hash=None) -> MetadataV15:
+    def get_metadata(self, block_hash=None):
         """
         Returns `MetadataVersioned` object for given block_hash or chaintip if block_hash is omitted
 
@@ -1728,13 +1668,6 @@ class SubstrateInterface(SubstrateMixin):
         # SCALE type string of value
         param_types = storage_item.get_params_type_string()
         value_scale_type = storage_item.get_value_type_string()
-        # V14 and V15 metadata may have different portable type registry numbering.
-        # Use V15 type ID when available to ensure correct decoding with the V15 registry.
-        if v15_type_id := self.runtime.get_v15_storage_type_id(
-            module, storage_function
-        ):
-            value_scale_type = f"scale_info::{v15_type_id}"
-
         if len(params) != len(param_types):
             raise ValueError(
                 f"Storage function requires {len(param_types)} parameters, {len(params)} given"
@@ -2416,7 +2349,7 @@ class SubstrateInterface(SubstrateMixin):
             signature_version = keypair.crypto_type
 
             # Sign payload
-            signature = keypair.sign(signature_payload)
+            signature = keypair.sign(signature_payload.data)
 
         # Create extrinsic
         extrinsic = self.runtime_config.create_scale_object(
@@ -2501,9 +2434,8 @@ class SubstrateInterface(SubstrateMixin):
 
         runtime = self.init_runtime(block_hash=block_hash)
 
-        if "encoder" in runtime_call_def and runtime.registry is not None:
-            # only works if we have metadata v15
-            param_data = runtime_call_def["encoder"](params, runtime.registry)
+        if "encoder" in runtime_call_def:
+            param_data = runtime_call_def["encoder"](params, runtime)
             param_hex = param_data.hex()
         else:
             param_data = self._encode_scale_legacy(runtime_call_def, params, runtime)
@@ -2518,10 +2450,13 @@ class SubstrateInterface(SubstrateMixin):
 
         # Decode result
         # Get correct type
-        result_decoded = runtime_call_def["decoder"](bytes(result_bytes))
-        as_dict = _bt_decode_to_dict_or_list(result_decoded)
-        logger.debug("Decoded old runtime call result: ", as_dict)
-        result_obj = ScaleObj(as_dict)
+        if isinstance(result_bytes, str):
+            raw_bytes = hex_to_bytes(result_bytes)
+        else:
+            raw_bytes = bytes(result_bytes)
+        result_decoded = runtime_call_def["decoder"](raw_bytes, runtime)
+        logger.debug("Decoded old runtime call result: ", result_decoded)
+        result_obj = ScaleObj(result_decoded)
 
         return result_obj
 
@@ -2560,7 +2495,9 @@ class SubstrateInterface(SubstrateMixin):
                 runtime.runtime_config.update_type_registry_types(runtime_api_types)
                 return self._do_runtime_call_old(api, method, params, block_hash)
             else:
-                metadata_v15_value = runtime.metadata_v15.value()
+                metadata_v15_value = (
+                    runtime.metadata_v15.get_metadata().value_object[1].value
+                )
 
                 apis = {entry["name"]: entry for entry in metadata_v15_value["apis"]}
                 api_entry = apis[api]
@@ -2858,7 +2795,7 @@ class SubstrateInterface(SubstrateMixin):
         subscription_handler=None,
         reuse_block_hash: bool = False,
         force_legacy_decode: bool = False,
-    ) -> Optional[Union["ScaleObj", Any]]:
+    ) -> Optional[ScaleObj[Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
         you should use ``self.query_multiple``
@@ -2886,9 +2823,10 @@ class SubstrateInterface(SubstrateMixin):
             force_legacy_decode=force_legacy_decode,
         )
         result = responses[preprocessed.queryable][0]
-        if isinstance(result, (list, tuple, int, float)):
+        if result is not None:
             return ScaleObj(result)
-        return result
+        else:
+            return result
 
     def query_map(
         self,
@@ -3010,7 +2948,6 @@ class SubstrateInterface(SubstrateMixin):
                     value_type,
                     key_hashers,
                     ignore_decoding_errors,
-                    self.decode_ss58,
                 )
         return QueryMapResult(
             records=result,
@@ -3297,7 +3234,7 @@ class SubstrateInterface(SubstrateMixin):
         module_name: str,
         call_function_name: str,
         block_hash: Optional[str] = None,
-    ) -> Optional[GenericVariant]:
+    ) -> Optional[scalecodec.GenericVariant]:
         """
         Retrieves specified call from the metadata at the block specified, or the chain tip if omitted.
 

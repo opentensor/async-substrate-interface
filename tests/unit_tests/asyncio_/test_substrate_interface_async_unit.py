@@ -38,7 +38,7 @@ async def test_runtime_call(monkeypatch):
 
     fake_runtime = MagicMock()
     fake_metadata_v15 = MagicMock()
-    fake_metadata_v15.value.return_value = {
+    fake_metadata_v15.get_metadata.return_value.value_object[1].value = {
         "apis": [
             {
                 "name": "SubstrateApi",
@@ -111,7 +111,7 @@ async def test_runtime_call(monkeypatch):
 async def test_websocket_shutdown_timer():
     print("Testing test_websocket_shutdown_timer")
     # using default ws shutdown timer of 5.0 seconds
-    async with AsyncSubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
+    async with AsyncSubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
         await substrate.get_chain_head()
         await asyncio.sleep(6)
     assert (
@@ -120,7 +120,7 @@ async def test_websocket_shutdown_timer():
 
     # using custom ws shutdown timer of 10.0 seconds
     async with AsyncSubstrateInterface(
-        "wss://lite.sub.latent.to:443", ws_shutdown_timer=10.0
+        LATENT_LITE_ENTRYPOINT, ws_shutdown_timer=10.0
     ) as substrate:
         await substrate.get_chain_head()
         await asyncio.sleep(6)  # same sleep time as before
