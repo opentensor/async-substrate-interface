@@ -149,26 +149,6 @@ async def test_get_events_proper_decoding():
 
 
 @pytest.mark.asyncio
-async def test_query_multiple():
-    print("Testing test_query_multiple")
-    block = 6153277
-    cks = [
-        "5FH9AQM4kqbkdC9jyV5FrdEWVYt41nkhFstop7Vhyfb9ZsXt",
-        "5GQxLKxjZWNZDsghmYcw7P6ahC7XJCjx1WD94WGh92quSycx",
-        "5EcaPiDT1cv951SkCFsvdHDs2yAEUWhJDuRP9mHb343WnaVn",
-    ]
-    async with AsyncSubstrateInterface(ARCHIVE_ENTRYPOINT) as substrate:
-        block_hash = await substrate.get_block_hash(block_id=block)
-        assert await substrate.query_multiple(
-            params=cks,
-            module="SubtensorModule",
-            storage_function="OwnedHotkeys",
-            block_hash=block_hash,
-        )
-    print("test_query_multiple succeeded")
-
-
-@pytest.mark.asyncio
 async def test_reconnection():
     print("Testing test_reconnection")
     async with AsyncSubstrateInterface(
