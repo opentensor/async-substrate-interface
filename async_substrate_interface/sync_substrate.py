@@ -2437,7 +2437,7 @@ class SubstrateInterface(SubstrateMixin):
         method: str,
         params: Optional[list | dict] = None,
         block_hash: Optional[str] = None,
-    ) -> ScaleType[Any]:
+    ) -> Any:
         """
         Calls a runtime API method
 
@@ -2448,7 +2448,7 @@ class SubstrateInterface(SubstrateMixin):
             block_hash: Hash of the block at which to make the runtime API call
 
         Returns:
-             ScaleType from the runtime call
+             Decoded runtime call
         """
         runtime = self.init_runtime(block_hash=block_hash)
 
@@ -2503,7 +2503,9 @@ class SubstrateInterface(SubstrateMixin):
 
         # Decode result
         result_bytes = hex_to_bytes(result_data["result"])
-        return self.decode_scale(output_type_string, result_bytes)
+        obj = self.decode_scale(output_type_string, result_bytes)
+        obj.decode()
+        return obj
 
     def get_account_nonce(self, account_address: str) -> int:
         """
