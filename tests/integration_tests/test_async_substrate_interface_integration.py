@@ -11,7 +11,11 @@ import pytest
 import pytest_asyncio
 from scalecodec import ss58_encode
 
-from async_substrate_interface.async_substrate import AsyncSubstrateInterface, logger
+from async_substrate_interface.async_substrate import (
+    AsyncSubstrateInterface,
+    AsyncExtrinsicReceipt,
+    logger,
+)
 from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 from tests.helpers.proxy_server import ProxyServer
 
@@ -182,7 +186,7 @@ async def test_query_map_with_odd_number_of_params(substrate):
 async def test_improved_reconnection():
     def get_free_port():
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("", 0))  # Bind to port 0 = OS picks free port
+            s.bind(("127.0.0.1", 0))  # Bind loopback only; port 0 = OS picks free port
             s.listen(1)
             port_ = s.getsockname()[1]
         return port_
@@ -899,3 +903,16 @@ async def test_bits(substrate):
         params=[71],
     )
     assert isinstance(current_sqrt_price.value, dict)
+
+
+async def test_same_events(substrate: AsyncSubstrateInterface):
+    block_hash = await substrate.get_chain_finalised_head()
+    block = await substrate.get_block_number(block_hash)
+    ext_idx = 1
+    events = await substrate.get_events(block_hash=block_hash)
+    ext_receipt = await AsyncExtrinsicReceipt.create_from_extrinsic_identifier(
+        substrate, f"{block}-{ext_idx}"
+    )
+    ext_events = await ext_receipt.triggered_events
+    events_for_ext = [e for e in events if e["extrinsic_idx"] == ext_idx]
+    assert ext_events == events_for_ext

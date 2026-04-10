@@ -94,9 +94,11 @@ class ExtrinsicReceipt:
         when retrieving triggered events or determine if extrinsic was successful
 
         Args:
-            substrate: the AsyncSubstrateInterface instance
+            substrate: the SubstrateInterface instance
             extrinsic_hash: the hash of the extrinsic
             block_hash: the hash of the block on which this extrinsic exists
+            block_number: the block number on which this extrinsic exists
+            extrinsic_idx: the index of the extrinsic in the block
             finalized: whether the extrinsic is finalized
         """
         self.substrate = substrate
@@ -117,9 +119,9 @@ class ExtrinsicReceipt:
     def get_extrinsic_identifier(self) -> str:
         """
         Returns the on-chain identifier for this extrinsic in format "[block_number]-[extrinsic_idx]" e.g. 134324-2
-        Returns
-        -------
-        str
+
+        Returns:
+            Identifier for this extrinsic in format "[block_number]-[extrinsic_idx]" e.g. 134324-2
         """
         if self.block_number is None:
             if self.block_hash is None:
@@ -164,9 +166,8 @@ class ExtrinsicReceipt:
         """
         Retrieves the index of this extrinsic in containing block
 
-        Returns
-        -------
-        int
+        Returns:
+            Index of this extrinsic in containing block
         """
         if self.__extrinsic_idx is None:
             self.retrieve_extrinsic()
@@ -178,9 +179,8 @@ class ExtrinsicReceipt:
         Gets triggered events for submitted extrinsic. block_hash where extrinsic is included is required, manually
         set block_hash or use `wait_for_inclusion` when submitting extrinsic
 
-        Returns
-        -------
-        list
+        Returns:
+            list of events
         """
         if self.__triggered_events is None:
             if not self.block_hash:
@@ -294,10 +294,8 @@ class ExtrinsicReceipt:
         Returns `True` if `ExtrinsicSuccess` event is triggered, `False` in case of `ExtrinsicFailed`
         In case of False `error_message` will contain more details about the error
 
-
-        Returns
-        -------
-        bool
+        Returns:
+            `True` if `ExtrinsicSuccess` event is triggered, `False` in case of `ExtrinsicFailed`
         """
         if self.__is_success is None:
             self.process_events()
@@ -311,9 +309,8 @@ class ExtrinsicReceipt:
 
         `{'type': 'System', 'name': 'BadOrigin', 'docs': 'Bad origin'}`
 
-        Returns
-        -------
-        dict
+        Returns:
+            error message if the extrinsic failed
         """
         if self.__error_message is None:
             if self.is_success:
@@ -326,9 +323,8 @@ class ExtrinsicReceipt:
         """
         Contains the actual weight when executing this extrinsic
 
-        Returns
-        -------
-        int (WeightV1) or dict (WeightV2)
+        Returns:
+            int (WeightV1) or dict (WeightV2)
         """
         if self.__weight is None:
             self.process_events()
@@ -340,9 +336,8 @@ class ExtrinsicReceipt:
         Contains the total fee costs deducted when executing this extrinsic. This includes fee for the validator
             (`Balances.Deposit` event) and the fee deposited for the treasury (`Treasury.Deposit` event)
 
-        Returns
-        -------
-        int
+        Returns:
+            total fee costs deducted when executing this extrinsic
         """
         if self.__total_fee_amount is None:
             self.process_events()
@@ -635,17 +630,6 @@ class SubstrateInterface(SubstrateMixin):
         metadata_pallet = self.runtime.metadata.get_metadata_pallet(module)
         storage_item = metadata_pallet.get_storage_function(storage_function)
         return storage_item
-
-    def _get_current_block_hash(
-        self, block_hash: Optional[str], reuse: bool
-    ) -> Optional[str]:
-        if block_hash:
-            self.last_block_hash = block_hash
-            return block_hash
-        elif reuse:
-            if self.last_block_hash:
-                return self.last_block_hash
-        return block_hash
 
     def _load_registry_at_block(self, block_hash: Optional[str], runtime_config=None):
         # Should be called for any block that fails decoding.
@@ -1002,9 +986,9 @@ class SubstrateInterface(SubstrateMixin):
         Retrieves the details of a storage function for given module name, call function name and block_hash
 
         Args:
-            module_name
-            storage_name
-            block_hash
+            module_name: name of the module
+            storage_name: name of the storage function
+            block_hash: hash of the blockchain block whose runtime to use
 
         Returns:
             Metadata storage function
@@ -1037,13 +1021,12 @@ class SubstrateInterface(SubstrateMixin):
         Retrieves the details of an error for given module name, call function name and block_hash
 
         Args:
-        module_name: module name for the error lookup
-        error_name: error name for the error lookup
-        block_hash: hash of the blockchain block whose metadata to use
+            module_name: module name for the error lookup
+            error_name: error name for the error lookup
+            block_hash: hash of the blockchain block whose metadata to use
 
         Returns:
             error
-
         """
         runtime = self.init_runtime(block_hash=block_hash)
         return self._get_metadata_error(
@@ -1594,11 +1577,9 @@ class SubstrateInterface(SubstrateMixin):
 
         Args:
             block_hash: the hash of the block to be queried against
-            decode: Whether to decode the metadata or present it raw
 
         Returns:
-            metadata, either as a dict (not decoded) or ScaleType (decoded); None if there was no response
-            from the server
+            decoded metadata as ScaleType; None if there was no response from the server
         """
         params = None
         if not self.runtime_config:
@@ -1846,13 +1827,12 @@ class SubstrateInterface(SubstrateMixin):
     def supports_rpc_method(self, name: str) -> bool:
         """
         Check if substrate RPC supports given method
-        Parameters
-        ----------
-        name: name of method to check
 
-        Returns
-        -------
-        bool
+        Args:
+            name: name of method to check
+
+        Returns:
+            bool
         """
         result = self.rpc_request("rpc_methods", []).get("result")
         if result:
@@ -1866,7 +1846,6 @@ class SubstrateInterface(SubstrateMixin):
         params: Optional[list],
         result_handler: Optional[Callable] = None,
         block_hash: Optional[str] = None,
-        reuse_block_hash: bool = False,
     ) -> Any:
         """
         Makes an RPC request to the subtensor. Use this only if `self.query` and `self.query_multi` and
@@ -1878,13 +1857,10 @@ class SubstrateInterface(SubstrateMixin):
             result_handler: Callback function that processes the result received from the node
             block_hash: the hash of the block — only supply this if not supplying the block
                 hash in the params, and not reusing the block hash
-            reuse_block_hash: whether to reuse the block hash in the params — only mark as True
-                if not supplying the block hash in the params, or via the `block_hash` parameter
 
         Returns:
             the response from the RPC request
         """
-        block_hash = self._get_current_block_hash(block_hash, reuse_block_hash)
         params = params or []
         payload_id = f"{method}{random.randint(0, 7000)}"
         payloads = [
@@ -1903,9 +1879,7 @@ class SubstrateInterface(SubstrateMixin):
                     "Failed to get runtime. Re-fetching from chain, and retrying."
                 )
                 self.init_runtime(block_hash=block_hash)
-                return self.rpc_request(
-                    method, params, result_handler, block_hash, reuse_block_hash
-                )
+                return self.rpc_request(method, params, result_handler, block_hash)
             elif (
                 "Client error: Api called for an unknown Block: State already discarded"
                 in err_msg
@@ -2348,13 +2322,12 @@ class SubstrateInterface(SubstrateMixin):
 
         return extrinsic
 
-    def get_chain_finalised_head(self):
+    def get_chain_finalised_head(self) -> str:
         """
         A pass-though to existing JSONRPC method `chain_getFinalizedHead`
 
-        Returns
-        -------
-
+        Returns:
+            Hash of the most-recently finalized block
         """
         response = self.rpc_request("chain_getFinalizedHead", [])
         return response["result"]
@@ -2549,7 +2522,6 @@ class SubstrateInterface(SubstrateMixin):
         module_name: str,
         constant_name: str,
         block_hash: Optional[str] = None,
-        reuse_block_hash: bool = False,
     ) -> Optional[ScaleType]:
         """
         Returns the decoded `ScaleType` object of the constant for given module name, call function name and block_hash
@@ -2559,12 +2531,10 @@ class SubstrateInterface(SubstrateMixin):
             module_name: Name of the module to query
             constant_name: Name of the constant to query
             block_hash: Hash of the block at which to make the runtime API call
-            reuse_block_hash: Reuse last-used block hash if set to true
 
         Returns:
              ScaleType from the runtime call
         """
-        block_hash = self._get_current_block_hash(block_hash, reuse_block_hash)
         constant = self.get_metadata_constant(
             module_name, constant_name, block_hash=block_hash
         )
@@ -2721,13 +2691,11 @@ class SubstrateInterface(SubstrateMixin):
         block_hash: Optional[str] = None,
         raw_storage_key: Optional[bytes] = None,
         subscription_handler=None,
-        reuse_block_hash: bool = False,
     ) -> Optional[ScaleType[Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
         you should use `self.query_multi`
         """
-        block_hash = self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
         self.init_runtime(block_hash=block_hash)
@@ -2761,7 +2729,6 @@ class SubstrateInterface(SubstrateMixin):
         start_key: Optional[str] = None,
         page_size: int = 100,
         ignore_decoding_errors: bool = False,
-        reuse_block_hash: bool = False,
     ) -> QueryMapResult:
         """
         Iterates over all key-pairs located at the given module and storage_function. The storage
@@ -2773,7 +2740,7 @@ class SubstrateInterface(SubstrateMixin):
         result = substrate.query_map('System', 'Account', max_results=100)
 
         for account, account_info in result:
-            print(f"Free balance of account '{account.value}': {account_info.value['data']['free']}")
+            print(f"Free balance of account '{account}': {account_info['data']['free']}")
         ```
 
         Note: it is important that you do not use `for x in result.records`, as this will sidestep possible
@@ -2790,14 +2757,11 @@ class SubstrateInterface(SubstrateMixin):
             page_size: The results are fetched from the node RPC in chunks of this size
             ignore_decoding_errors: When set this will catch all decoding errors, set the item to None and continue
                 decoding
-            reuse_block_hash: use True if you wish to make the query using the last-used block hash. Do not mark True
-                              if supplying a block_hash
 
         Returns:
              QueryMapResult object
         """
         params = params or []
-        block_hash = self._get_current_block_hash(block_hash, reuse_block_hash)
         if block_hash:
             self.last_block_hash = block_hash
         runtime = self.init_runtime(block_hash=block_hash)
@@ -3180,12 +3144,11 @@ class SubstrateInterface(SubstrateMixin):
         Retrieves a list of all events in metadata active for given block_hash (or chaintip if block_hash is omitted)
 
         Args:
-            block_hash
+            block_hash:
 
         Returns:
             list of module events
         """
-
         runtime = self.init_runtime(block_hash=block_hash)
         return self._get_metadata_events(runtime)
 
