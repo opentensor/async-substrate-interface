@@ -1638,7 +1638,7 @@ class SubstrateInterface(SubstrateMixin):
                 pallet=module,
                 storage_function=storage_function,
                 value_scale_type=value_scale_type,
-                metadata=self.metadata,
+                metadata=self.runtime.metadata,
                 runtime_config=self.runtime_config,
             )
         else:
@@ -1848,7 +1848,7 @@ class SubstrateInterface(SubstrateMixin):
         block_hash: Optional[str] = None,
     ) -> Any:
         """
-        Makes an RPC request to the subtensor. Use this only if `self.query` and `self.query_multiple` and
+        Makes an RPC request to the subtensor. Use this only if `self.query` and `self.query_multi` and
         `self.query_map` do not meet your needs.
 
         Args:
@@ -1964,36 +1964,6 @@ class SubstrateInterface(SubstrateMixin):
         )
 
         return call
-
-    def query_multiple(
-        self,
-        params: list,
-        storage_function: str,
-        module: str,
-        block_hash: Optional[str] = None,
-    ) -> dict[str, ScaleType]:
-        """
-        Queries the subtensor. Only use this when making multiple queries, else use ``self.query``
-        """
-        if block_hash:
-            self.last_block_hash = block_hash
-        self.init_runtime(block_hash=block_hash)
-
-        preprocessed: list[Preprocessed] = [
-            self._preprocess([x], block_hash, storage_function, module) for x in params
-        ]
-        all_info = [
-            self.make_payload(item.queryable, item.method, item.params)
-            for item in preprocessed
-        ]
-        # These will always be the same throughout the preprocessed list, so we just grab the first one
-        value_scale_type = preprocessed[0].value_scale_type
-        storage_item = preprocessed[0].storage_item
-
-        responses = self._make_rpc_request(all_info, value_scale_type, storage_item)
-        return {
-            param: responses[p.queryable][0] for (param, p) in zip(params, preprocessed)
-        }
 
     def query_multi(
         self, storage_keys: list[StorageKey], block_hash: Optional[str] = None
@@ -2724,7 +2694,7 @@ class SubstrateInterface(SubstrateMixin):
     ) -> Optional[ScaleType[Any]]:
         """
         Queries substrate. This should only be used when making a single request. For multiple requests,
-        you should use ``self.query_multiple``
+        you should use `self.query_multi`
         """
         if block_hash:
             self.last_block_hash = block_hash
