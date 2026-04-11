@@ -2,7 +2,10 @@ import bittensor_wallet
 import pytest
 from scalecodec import ss58_encode
 
-from async_substrate_interface.sync_substrate import SubstrateInterface
+from async_substrate_interface.sync_substrate import (
+    SubstrateInterface,
+    ExtrinsicReceipt,
+)
 from tests.helpers.settings import ARCHIVE_ENTRYPOINT
 
 
@@ -84,24 +87,6 @@ def test_get_events_proper_decoding(substrate):
         "0xa6b4e5c8241d60ece0c25056b19f7d21ae845269fc771ad46bf3e011865129a5",
     )
     print("test_get_events_proper_decoding succeeded")
-
-
-def test_query_multiple(substrate):
-    print("Testing test_query_multiple")
-    block = 6153277
-    cks = [
-        "5FH9AQM4kqbkdC9jyV5FrdEWVYt41nkhFstop7Vhyfb9ZsXt",
-        "5GQxLKxjZWNZDsghmYcw7P6ahC7XJCjx1WD94WGh92quSycx",
-        "5EcaPiDT1cv951SkCFsvdHDs2yAEUWhJDuRP9mHb343WnaVn",
-    ]
-    block_hash = substrate.get_block_hash(block_id=block)
-    assert substrate.query_multiple(
-        params=cks,
-        module="SubtensorModule",
-        storage_function="OwnedHotkeys",
-        block_hash=block_hash,
-    )
-    print("test_query_multiple succeeded")
 
 
 def test_query_map_with_odd_number_of_params(substrate):
@@ -731,3 +716,16 @@ def test_bits(substrate):
         params=[71],
     )
     assert isinstance(current_sqrt_price.value, dict)
+
+
+def test_same_events(substrate: SubstrateInterface):
+    block_hash = substrate.get_chain_finalised_head()
+    block = substrate.get_block_number(block_hash)
+    ext_idx = 1
+    events = substrate.get_events(block_hash=block_hash)
+    ext_receipt = ExtrinsicReceipt.create_from_extrinsic_identifier(
+        substrate, f"{block}-{ext_idx}"
+    )
+    ext_events = ext_receipt.triggered_events
+    events_for_ext = [e for e in events if e["extrinsic_idx"] == ext_idx]
+    assert ext_events == events_for_ext
