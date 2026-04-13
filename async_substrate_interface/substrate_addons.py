@@ -63,7 +63,6 @@ RETRY_METHODS = [
     "query",
     "query_map",
     "query_multi",
-    "query_multiple",
     "retrieve_extrinsic_by_identifier",
     "rpc_request",
     "runtime_call",
@@ -348,8 +347,9 @@ class RetryAsyncSubstrate(AsyncSubstrateInterface):
         except (
             MaxRetriesExceeded,
             ConnectionError,
-            ConnectionClosed,
             EOFError,
+            ConnectionClosed,
+            TimeoutError,
             socket.gaierror,
             StateDiscardedError,
         ) as e:
