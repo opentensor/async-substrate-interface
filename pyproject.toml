@@ -55,6 +55,9 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "module"
 
 
+[tool.mypy]
+ignore_missing_imports = true
+
 [build-system]
 requires = ["setuptools>=70.0", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -68,5 +71,6 @@ dev = [
     "pytest-xdist==3.6.1",
     "pytest-rerunfailures==10.2",
     "bittensor-wallet>=4.0.0",
-    "pytest-forked"
+    "pytest-forked",
+    "mypy>=1.10.0",
 ]
