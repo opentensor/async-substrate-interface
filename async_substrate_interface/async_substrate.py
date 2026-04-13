@@ -1195,6 +1195,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         _ssl_context: Optional[_SessionResumingSSLContext] = None,
         dns_ttl: int = 300,
     ):
+        # TODO fix order of these params, and use * for kwarg-only
         """
         The asyncio-compatible version of the subtensor interface commands we use in bittensor. It is important to
         initialise this class asynchronously in an async context manager using `async with AsyncSubstrateInterface()`.
@@ -1400,8 +1401,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         metadata_option_hex_str = metadata_rpc_result["result"]
         metadata_option_bytes = bytes.fromhex(metadata_option_hex_str[2:])
         inner_bytes = _decode_option_opaque_metadata(metadata_option_bytes)
-        with open(f"/tmp/{block_hash}.bin", "wb+") as f:
-            f.write(inner_bytes)
         if inner_bytes is None:
             return None
         return _decode_v15_metadata(inner_bytes, runtime_config=runtime_config)
