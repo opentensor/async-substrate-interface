@@ -472,6 +472,7 @@ class SubstrateInterface(SubstrateMixin):
     def __init__(
         self,
         url: str,
+        *,
         use_remote_preset: bool = False,
         auto_discover: bool = True,
         ss58_format: Optional[int] = None,
@@ -660,6 +661,30 @@ class SubstrateInterface(SubstrateMixin):
             return None
         return _decode_v15_metadata(inner_bytes, runtime_config=runtime_config)
 
+    def encode_scale(
+        self,
+        type_string,
+        value: Any,
+        block_hash: Optional[str] = None,
+        runtime: Optional[Runtime] = None,
+    ) -> bytes:
+        """
+        Helper function to encode arbitrary data into SCALE-bytes for given type_string. If neither `block_hash`
+        nor `runtime` are supplied, the runtime of the current block will be used.
+
+        Args:
+            type_string: the type string of the SCALE object for decoding
+            value: value to encode
+            block_hash: hash of the block where the desired runtime is located. Ignored if supplying `runtime`
+            runtime: the runtime to use for the scale encoding. If supplied, `block_hash` is ignored
+
+        Returns:
+            encoded bytes
+        """
+        if runtime is None:
+            runtime = self.init_runtime(block_hash=block_hash)
+        return self._encode_scale(type_string, value, runtime=runtime)
+
     def decode_scale(
         self,
         type_string: str,
@@ -798,10 +823,6 @@ class SubstrateInterface(SubstrateMixin):
             )
         else:
             metadata = self.get_block_metadata(block_hash=runtime_block_hash)
-            logger.debug(
-                f"Exported method Metadata_metadata_at_version is not found for {runtime_version}. "
-                f"This indicates the block is quite old, decoding for this block will use legacy Python decoding."
-            )
         if metadata is None:
             raise SubstrateRequestException(
                 f"No metadata for block '{runtime_block_hash}'"
@@ -2371,7 +2392,7 @@ class SubstrateInterface(SubstrateMixin):
             param_data = runtime_call_def["encoder"](params, runtime)
             param_hex = param_data.hex()
         else:
-            param_data = self._encode_scale_legacy(
+            param_data = self._encode_scale_without_encoder(
                 runtime_call_def, params or [], runtime
             )
             param_hex = param_data.to_hex()
@@ -3239,5 +3260,3 @@ class SubstrateInterface(SubstrateMixin):
         self.supports_rpc_method.cache_clear()
         self._get_block_hash.cache_clear()
         self._cached_get_block_number.cache_clear()
-
-    encode_scale = SubstrateMixin._encode_scale

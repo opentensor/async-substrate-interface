@@ -1186,6 +1186,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
     def __init__(
         self,
         url: str,
+        *,
         use_remote_preset: bool = False,
         auto_discover: bool = True,
         ss58_format: Optional[int] = None,
@@ -1418,7 +1419,7 @@ class AsyncSubstrateInterface(SubstrateMixin):
         runtime: Optional[Runtime] = None,
     ) -> bytes:
         """
-        Helper function to encode arbitrary data into SCALE-bytes for given RUST type_string. If neither `block_hash`
+        Helper function to encode arbitrary data into SCALE-bytes for given type_string. If neither `block_hash`
         nor `runtime` are supplied, the runtime of the current block will be used.
 
         Args:
@@ -1571,10 +1572,6 @@ class AsyncSubstrateInterface(SubstrateMixin):
         else:
             metadata = await self.get_block_metadata(
                 block_hash=runtime_block_hash, runtime_config=runtime_config
-            )
-            logger.debug(
-                f"Exported method Metadata_metadata_at_version is not found for {runtime_version}. "
-                f"This indicates the block is quite old, decoding for this block will use legacy Python decoding."
             )
         if metadata is None:
             raise SubstrateRequestException(
