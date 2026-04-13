@@ -79,7 +79,7 @@ jobs:
     steps:
       - name: Research preparation
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/btcli.git
+        run: git clone https://github.com/latent-to/btcli.git
 
       - name: Checkout
         working-directory: ${{ github.workspace }}/btcli
@@ -162,7 +162,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Clone Bittensor CLI repo
-        run: git clone https://github.com/opentensor/btcli.git
+        run: git clone https://github.com/latent-to/btcli.git
 
       - name: Checkout btcli staging branch
         working-directory: ${{ github.workspace }}/btcli
@@ -175,14 +175,14 @@ jobs:
         run: uv pip install --system '.[dev]'
 
       - name: Clone async-substrate-interface repo
-        run: git clone https://github.com/opentensor/async-substrate-interface.git
+        run: git clone https://github.com/latent-to/async-substrate-interface.git
 
       - name: Checkout PR branch in async-substrate-interface
         working-directory: ${{ github.workspace }}/async-substrate-interface
         run: |
-          git fetch origin ${{ github.event.pull_request.head.ref }}
-          git checkout ${{ github.event.pull_request.head.ref }}
-          echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
+          git fetch ${{ github.event.pull_request.head.repo.clone_url }} ${{ github.event.pull_request.head.ref }}
+          git checkout FETCH_HEAD
+          echo "Current SHA: $(git rev-parse HEAD)"
 
       - name: Install async-substrate-interface with dev dependencies
         working-directory: ${{ github.workspace }}/async-substrate-interface
@@ -224,8 +224,22 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
+      - name: Clone async-substrate-interface repo
+        run: git clone https://github.com/latent-to/async-substrate-interface.git
+
+      - name: Checkout PR branch in async-substrate-interface
+        working-directory: ${{ github.workspace }}/async-substrate-interface
+        run: |
+          git fetch ${{ github.event.pull_request.head.repo.clone_url }} ${{ github.event.pull_request.head.ref }}
+          git checkout FETCH_HEAD
+          echo "Current SHA: $(git rev-parse HEAD)"
+
+      - name: Install async-substrate-interface with dev dependencies
+        working-directory: ${{ github.workspace }}/async-substrate-interface
+        run: uv pip install --system '.[dev]'
+
       - name: Clone Bittensor CLI repo
-        run: git clone https://github.com/opentensor/btcli.git
+        run: git clone https://github.com/latent-to/btcli.git
 
       - name: Checkout btcli staging branch
         working-directory: ${{ github.workspace }}/btcli
@@ -237,21 +251,6 @@ jobs:
         working-directory: ${{ github.workspace }}/btcli
         run: uv pip install --system '.[dev]'
 
-      - name: Clone async-substrate-interface repo
-        run: git clone https://github.com/opentensor/async-substrate-interface.git
-
-      - name: Checkout PR branch in async-substrate-interface
-        working-directory: ${{ github.workspace }}/async-substrate-interface
-        run: |
-          git fetch origin ${{ github.event.pull_request.head.ref }}
-          git checkout ${{ github.event.pull_request.head.ref }}
-          echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
-
-      - name: Install async-substrate-interface with dev dependencies
-        working-directory: ${{ github.workspace }}/async-substrate-interface
-        run: |
-          uv pip uninstall --system async-substrate-interface || true
-          uv pip install --system '.[dev]'
-
       - name: Run BTCLI unit tests
-        run: pytest ${{ github.workspace }}/btcli/tests/unit_tests
+        working-directory: ${{ github.workspace }}/btcli
+        run: python -m pytest tests/unit_tests
