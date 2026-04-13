@@ -1013,12 +1013,14 @@ class Websocket:
                 except TimeoutError:
                     if (
                         self._waiting_for_response <= 0
-                        or self._sending.qsize() == 0
-                        or len(self._inflight) == 0
-                        or len(self._received_subscriptions) == 0
+                        and self._sending.qsize() == 0
+                        and len(self._inflight) == 0
+                        and len(self._received_subscriptions) == 0
                     ):
                         # if there's nothing in a queue, we really have no reason to have this, so we continue to wait
                         continue
+                    else:
+                        raise
         except websockets.exceptions.ConnectionClosedOK as e:
             logger.debug("ConnectionClosedOK")
             return e
