@@ -7,12 +7,12 @@ from websockets.exceptions import InvalidURI
 from websockets.protocol import State
 
 from async_substrate_interface.async_substrate import (
+    AsyncExtrinsicReceipt,
     AsyncQueryMapResult,
     AsyncSubstrateInterface,
     get_async_substrate_interface,
 )
 from async_substrate_interface.errors import SubstrateRequestException
-from async_substrate_interface.types import ScaleObj
 from tests.helpers.settings import ARCHIVE_ENTRYPOINT, LATENT_LITE_ENTRYPOINT
 
 
@@ -36,40 +36,22 @@ async def test_runtime_call(monkeypatch):
     substrate = AsyncSubstrateInterface("ws://localhost", _mock=True)
 
     fake_runtime = MagicMock()
-    fake_metadata_v15 = MagicMock()
-    fake_metadata_v15.value.return_value = {
-        "apis": [
-            {
-                "name": "SubstrateApi",
-                "methods": [
-                    {
-                        "name": "SubstrateMethod",
-                        "inputs": [],
-                        "output": "1",
-                    },
-                ],
-            },
-        ],
-        "types": {
-            "types": [
-                {
-                    "id": "1",
-                    "type": {
-                        "path": ["Vec"],
-                        "def": {"sequence": {"type": "4"}},
-                    },
-                },
-            ]
-        },
+    fake_runtime.metadata_v15 = MagicMock()  # non-None so the V15 path is taken
+    fake_runtime.runtime_api_map = {
+        "SubstrateApi": {
+            "SubstrateMethod": {"inputs": [], "output": "1"},
+        }
     }
-    fake_runtime.metadata_v15 = fake_metadata_v15
+    fake_runtime.type_id_to_name = {}  # "1" not in map → not Vec<u8> → new path
     substrate.init_runtime = AsyncMock(return_value=fake_runtime)
 
     # Patch encode_scale (should not be called in this test since no inputs)
     substrate.encode_scale = AsyncMock()
 
     # Patch decode_scale to produce a dummy value
-    substrate.decode_scale = AsyncMock(return_value="decoded_result")
+    mock_scale_obj = MagicMock()
+    mock_scale_obj.value = "decoded_result"
+    substrate.decode_scale = AsyncMock(return_value=mock_scale_obj)
 
     # Patch RPC request with correct behavior
     substrate.rpc_request = AsyncMock(
@@ -87,9 +69,7 @@ async def test_runtime_call(monkeypatch):
         "SubstrateMethod",
     )
 
-    # Validate the result is wrapped in ScaleObj
-    assert isinstance(result, ScaleObj)
-    assert result.value == "decoded_result"
+    assert result == "decoded_result"
 
     # Check decode_scale called correctly
     substrate.decode_scale.assert_called_once_with(
@@ -110,7 +90,7 @@ async def test_runtime_call(monkeypatch):
 async def test_websocket_shutdown_timer():
     print("Testing test_websocket_shutdown_timer")
     # using default ws shutdown timer of 5.0 seconds
-    async with AsyncSubstrateInterface("wss://lite.sub.latent.to:443") as substrate:
+    async with AsyncSubstrateInterface(LATENT_LITE_ENTRYPOINT) as substrate:
         await substrate.get_chain_head()
         await asyncio.sleep(6)
     assert (
@@ -119,7 +99,7 @@ async def test_websocket_shutdown_timer():
 
     # using custom ws shutdown timer of 10.0 seconds
     async with AsyncSubstrateInterface(
-        "wss://lite.sub.latent.to:443", ws_shutdown_timer=10.0
+        LATENT_LITE_ENTRYPOINT, ws_shutdown_timer=10.0
     ) as substrate:
         await substrate.get_chain_head()
         await asyncio.sleep(6)  # same sleep time as before
@@ -342,3 +322,307 @@ async def test_get_account_next_index_bypass_mode_raises_on_rpc_error():
             "5F3sa2TJAWMqDhXG6jhV4N8ko9NoFz5Y2s8vS8uM9f7v7mA",
             use_cache=False,
         )
+
+
+class TestAsyncExtrinsicReceiptProcessEvents:
+    def _make_event(self, module_id, event_id, attributes, extrinsic_idx=0):
+        return {
+            "extrinsic_idx": extrinsic_idx,
+            "event": {
+                "module_id": module_id,
+                "event_id": event_id,
+                "attributes": attributes,
+            },
+        }
+
+    def _make_module_error(self, name="ModuleError", docs=None):
+        module_error = MagicMock()
+        module_error.name = name
+        module_error.docs = docs if docs is not None else ["module error docs"]
+        return module_error
+
+    def _make_receipt(self, events):
+        substrate = MagicMock()
+        runtime = MagicMock()
+        runtime.metadata = MagicMock()
+        substrate.get_events = AsyncMock(return_value=events)
+        substrate.init_runtime = AsyncMock(return_value=runtime)
+        receipt = AsyncExtrinsicReceipt(
+            substrate=substrate,
+            extrinsic_hash="0xdeadbeef",
+            block_hash="0xabc",
+            extrinsic_idx=0,
+        )
+        return receipt, substrate, runtime
+
+    @pytest.mark.asyncio
+    async def test_extracts_dispatch_info_weight(self):
+        events = [
+            self._make_event(
+                "System",
+                "ExtrinsicSuccess",
+                {"dispatch_info": {"weight": {"ref_time": 1, "proof_size": 2}}},
+            )
+        ]
+        receipt, _, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is True
+        assert await receipt.error_message is None
+        assert await receipt.weight == {"ref_time": 1, "proof_size": 2}
+
+    @pytest.mark.asyncio
+    async def test_extracts_legacy_weight(self):
+        events = [self._make_event("System", "ExtrinsicSuccess", {"weight": 7})]
+        receipt, _, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is True
+        assert await receipt.error_message is None
+        assert await receipt.weight == 7
+
+    @pytest.mark.asyncio
+    async def test_prefers_transaction_fee_paid_over_deposit_fallback(self):
+        events = [
+            self._make_event(
+                "TransactionPayment",
+                "TransactionFeePaid",
+                {"actual_fee": 10},
+            ),
+            self._make_event("Treasury", "Deposit", {"value": 99}),
+            self._make_event("Balances", "Deposit", {"amount": 88}),
+        ]
+        receipt, _, _ = self._make_receipt(events)
+
+        assert await receipt.total_fee_amount == 10
+
+    @pytest.mark.asyncio
+    async def test_accumulates_fallback_fee_from_deposits(self):
+        events = [
+            self._make_event("Treasury", "Deposit", {"value": 3}),
+            self._make_event("Balances", "Deposit", {"amount": 2}),
+        ]
+        receipt, _, _ = self._make_receipt(events)
+
+        assert await receipt.total_fee_amount == 5
+
+    @pytest.mark.asyncio
+    async def test_decodes_legacy_module_error_tuple(self):
+        events = [
+            self._make_event(
+                "System",
+                "ExtrinsicFailed",
+                {
+                    "dispatch_info": {"weight": 9},
+                    "dispatch_error": {"Module": (3, 4)},
+                },
+            )
+        ]
+        receipt, substrate, runtime = self._make_receipt(events)
+        runtime.metadata.get_module_error.return_value = self._make_module_error(
+            name="InsufficientBalance",
+            docs=["balance too low"],
+        )
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message == {
+            "type": "Module",
+            "name": "InsufficientBalance",
+            "docs": ["balance too low"],
+        }
+        assert await receipt.weight == 9
+        substrate.init_runtime.assert_awaited_once_with(block_hash="0xabc")
+        runtime.metadata.get_module_error.assert_called_once_with(
+            module_index=3, error_index=4
+        )
+
+    @pytest.mark.asyncio
+    async def test_decodes_module_error_from_hex_error_bytes(self):
+        events = [
+            self._make_event(
+                "System",
+                "ExtrinsicFailed",
+                {
+                    "dispatch_info": {"weight": 9},
+                    "dispatch_error": {"Module": {"index": 5, "error": "0x0a000000"}},
+                },
+            )
+        ]
+        receipt, substrate, runtime = self._make_receipt(events)
+        runtime.metadata.get_module_error.return_value = self._make_module_error(
+            name="DecodedHexError",
+            docs=["decoded from first byte"],
+        )
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message == {
+            "type": "Module",
+            "name": "DecodedHexError",
+            "docs": ["decoded from first byte"],
+        }
+        assert await receipt.weight == 9
+        substrate.init_runtime.assert_awaited_once_with(block_hash="0xabc")
+        runtime.metadata.get_module_error.assert_called_once_with(
+            module_index=5, error_index=10
+        )
+
+    @pytest.mark.asyncio
+    async def test_maps_bad_origin_error(self):
+        events = [
+            self._make_event(
+                "System",
+                "ExtrinsicFailed",
+                {
+                    "dispatch_info": {"weight": 9},
+                    "dispatch_error": {"BadOrigin": None},
+                },
+            )
+        ]
+        receipt, substrate, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message == {
+            "type": "System",
+            "name": "BadOrigin",
+            "docs": "Bad origin",
+        }
+        assert await receipt.weight == 9
+        substrate.init_runtime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_maps_cannot_lookup_error(self):
+        events = [
+            self._make_event(
+                "System",
+                "ExtrinsicFailed",
+                {
+                    "dispatch_info": {"weight": 9},
+                    "dispatch_error": {"CannotLookup": None},
+                },
+            )
+        ]
+        receipt, substrate, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message == {
+            "type": "System",
+            "name": "CannotLookup",
+            "docs": "Cannot lookup",
+        }
+        assert await receipt.weight == 9
+        substrate.init_runtime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_maps_token_error(self):
+        events = [
+            self._make_event(
+                "System",
+                "ExtrinsicFailed",
+                {
+                    "dispatch_info": {"weight": 9},
+                    "dispatch_error": {"Token": "FundsUnavailable"},
+                },
+            )
+        ]
+        receipt, substrate, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message == {
+            "type": "System",
+            "name": "Token",
+            "docs": "FundsUnavailable",
+        }
+        assert await receipt.weight == 9
+        substrate.init_runtime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_preserves_unknown_dispatch_error_as_none(self):
+        events = [
+            self._make_event(
+                "System",
+                "ExtrinsicFailed",
+                {
+                    "dispatch_info": {"weight": 9},
+                    "dispatch_error": {"Arithmetic": "Overflow"},
+                },
+            )
+        ]
+        receipt, substrate, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message is None
+        assert await receipt.weight == 9
+        substrate.init_runtime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_failure_takes_precedence_over_success(self):
+        events = [
+            self._make_event(
+                "System",
+                "ExtrinsicSuccess",
+                {"dispatch_info": {"weight": 1}},
+            ),
+            self._make_event(
+                "System",
+                "ExtrinsicFailed",
+                {
+                    "dispatch_info": {"weight": 9},
+                    "dispatch_error": {"Other": None},
+                },
+            ),
+        ]
+        receipt, substrate, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message == {
+            "type": "System",
+            "name": "Other",
+            "docs": "Unspecified error occurred",
+        }
+        assert await receipt.weight == 9
+        substrate.init_runtime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_maps_mevshield_decrypted_rejected_error(self):
+        events = [
+            self._make_event(
+                "MevShield",
+                "DecryptedRejected",
+                {
+                    "reason": {
+                        "post_info": {"actual_weight": 123},
+                        "error": {"Other": None},
+                    }
+                },
+            )
+        ]
+        receipt, substrate, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message == {
+            "type": "System",
+            "name": "Other",
+            "docs": "Unspecified error occurred",
+        }
+        assert await receipt.weight == 123
+        assert await receipt.total_fee_amount == 0
+        substrate.init_runtime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_maps_mevshield_decryption_failed_error(self):
+        events = [
+            self._make_event(
+                "MevShield",
+                "DecryptionFailed",
+                {"reason": "ciphertext could not be decrypted"},
+            )
+        ]
+        receipt, substrate, _ = self._make_receipt(events)
+
+        assert await receipt.is_success is False
+        assert await receipt.error_message == {
+            "type": "MevShield",
+            "name": "DecryptionFailed",
+            "docs": "ciphertext could not be decrypted",
+        }
+        assert await receipt.total_fee_amount == 0
+        assert await receipt.weight is None
+        substrate.init_runtime.assert_not_awaited()
