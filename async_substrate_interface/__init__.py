@@ -1,10 +1,6 @@
+# ruff: noqa: E402
+
 import importlib.metadata
-from .async_substrate import (
-    AsyncQueryMapResult,
-    AsyncSubstrateInterface,
-    AsyncExtrinsicReceipt,
-)
-from .sync_substrate import QueryMapResult, SubstrateInterface, ExtrinsicReceipt
 
 
 def _check_conflicts():
@@ -27,6 +23,15 @@ def _check_conflicts():
 
 
 _check_conflicts()
+
+
+from .async_substrate import (
+    AsyncQueryMapResult,
+    AsyncSubstrateInterface,
+    AsyncExtrinsicReceipt,
+)
+from .sync_substrate import QueryMapResult, SubstrateInterface, ExtrinsicReceipt
+
 
 __all__ = [
     "AsyncQueryMapResult",
